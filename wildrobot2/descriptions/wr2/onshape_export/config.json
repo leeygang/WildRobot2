@@ -1,0 +1,10 @@
+{
+    "url": "https://cad.onshape.com/documents/0aff2ee80b9805c46c366c15/w/0fb8e32485c40ba634810d72/e/263658fa84c427192f3852bb",
+    "output_format": "mujoco",
+    "output_filename": "wr2",
+    "robot_name": "WildRobot2",
+    "assets_directory": "assets",
+    "simplify_stls": "collision",
+    "max_stl_size": 0.03,
+    "convex_decomposition": false
+}

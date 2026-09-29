@@ -35,6 +35,7 @@ dev = [
 
 [tool.setuptools.package-data]
 wildrobot2 = [
+    "descriptions/**/*.json",
     "descriptions/**/*.yml",
     "descriptions/**/*.xml",
     "descriptions/**/*.stl",
