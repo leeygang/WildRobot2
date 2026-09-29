@@ -23,7 +23,7 @@
       <joint damping="0.01" frictionloss="0" armature="0.01" limited="true" range="-0.008726646259971648 0.008726646259971648" />
     </default>
   </default>
-  <option timestep="0.002">
+  <option timestep="0.002" iterations="1" ls_iterations="4">
     <flag eulerdamp="disable" />
   </option>
   <worldbody>
@@ -351,14 +351,6 @@
   <equality>
     <joint joint1="waist_yaw_driven" joint2="waist_yaw_drive" polycoef="0 1.0 0 0 0" />
   </equality>
-  <sensor>
-    <!-- Torso IMU (BNO085) - 9-DOF sensor with realistic noise -->
-    <!-- Datasheet specs: Gyro ~0.014°/s/√Hz, Accel ~150μg/√Hz, Mag ~0.3μT -->
-    <gyro site="torso_imu" name="torso_imu_gyro" noise="0.0002" cutoff="100" />
-    <accelerometer site="torso_imu" name="torso_imu_accel" noise="0.0015" cutoff="100" />
-    <magnetometer site="torso_imu" name="torso_imu_mag" noise="0.3" />
-    <framequat objtype="site" objname="torso_imu" name="torso_imu_quat" />
-  </sensor>
   <keyframe>
     <key name="home" qpos="0 0 0.305 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" ctrl="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" />
     <key name="walk_home" qpos="0 0 0.304 1 0 0 0 0 0.12 0 0.24 0.12 0 -0.12 0 -0.24 -0.12 0 0 0 0 0 0 0 0" ctrl="0 0 0 0 -0.12 0 -0.24 -0.12 0 0 0 0 0.12 0 0.24 0.12 0" />

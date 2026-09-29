@@ -48,7 +48,9 @@ class RobotObservation:
         if self.foot_contact is not None:
             contact = np.asarray(self.foot_contact)
             if contact.shape != (2,):
-                raise ValueError(f"foot_contact must have shape (2,), got {contact.shape}")
+                raise ValueError(
+                    f"foot_contact must have shape (2,), got {contact.shape}"
+                )
 
     @property
     def projected_gravity_torso(self) -> FloatArray:
@@ -80,7 +82,9 @@ class PositionActionContract:
         action = _vector(normalized_action, size, "normalized_action")
         lower = _vector(lower_limit_rad, size, "lower_limit_rad")
         upper = _vector(upper_limit_rad, size, "upper_limit_rad")
-        if np.any(lower + self.joint_limit_margin_rad >= upper - self.joint_limit_margin_rad):
+        if np.any(
+            lower + self.joint_limit_margin_rad >= upper - self.joint_limit_margin_rad
+        ):
             raise ValueError("Joint-limit margin leaves an empty command range")
 
         action = np.clip(action, -self.normalized_limit, self.normalized_limit)
@@ -127,11 +131,8 @@ class RobotBackend(Protocol):
     actuator_names: tuple[str, ...]
     control_period_s: float
 
-    def read(self) -> RobotObservation:
-        ...
+    def read(self) -> RobotObservation: ...
 
-    def write_joint_targets(self, target_position_rad: npt.ArrayLike) -> None:
-        ...
+    def write_joint_targets(self, target_position_rad: npt.ArrayLike) -> None: ...
 
-    def close(self) -> None:
-        ...
+    def close(self) -> None: ...

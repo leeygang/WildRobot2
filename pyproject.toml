@@ -18,20 +18,28 @@ sim = [
     "mujoco>=3.3,<4",
 ]
 training = [
-    "brax",
+    # Brax 0.14 still calls jax.device_put_replicated, removed by newer JAX.
+    "brax>=0.14,<0.15",
     "gin-config",
-    "jax",
-    "mujoco-mjx",
+    "jax>=0.6,<0.7",
+    "mujoco>=3.3,<4",
+    "mujoco-mjx>=3.3,<4",
     "wandb",
 ]
 hardware = [
     "adafruit-circuitpython-bno08x",
     "pyserial",
 ]
+sysid = [
+    "mujoco>=3.3,<4",
+    "pyserial>=3.5",
+    "scipy>=1.11",
+]
 dev = [
     "mypy",
     "pytest",
-    "ruff",
+    # 0.16.9 is killed while traversing this asset-heavy tree on macOS.
+    "ruff==0.12.12",
 ]
 
 [tool.setuptools.package-data]
@@ -40,4 +48,9 @@ wr2 = [
     "descriptions/**/*.yml",
     "descriptions/**/*.xml",
     "descriptions/**/*.stl",
+    "tools/servo_sysid/fixtures/*.xml",
+    "tools/servo_sysid/*.json",
 ]
+
+[tool.setuptools.packages.find]
+include = ["wr2*"]

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  HTD-45H deployment fixture with a 2.650 kg replacement weight at the
+  original WildRobot BAM weight COM. The complete moving subtree is
+  2.722761421 kg. Replace these inertial values if the physical weight shape,
+  mounting point, or COM differs.
+-->
+<mujoco model="wr2_htd45h_2650g_fixture">
+  <compiler angle="radian" autolimits="true"/>
+  <option gravity="0 0 -9.81"/>
+  <worldbody>
+    <body name="fixed_top" pos="0 0 0" quat="1 0 0 0">
+      <inertial pos="-0.00495945 0.0201257 0.0246646" mass="0.065"
+        fullinertia="1.66445e-05 1.09474e-05 1.00843e-05 8.317e-09 2.1e-09 -5.8687e-07"/>
+      <body name="loaded_arm" pos="-0.00488909 -0.00293508 0.0154971"
+        quat="0.70422 -0.709981 -0.000290991 0.000293371">
+        <joint name="pitch" type="hinge" axis="0 0 1" range="-2.094395102 2.094395102"/>
+        <inertial pos="0.000642852 0.119575208 0.026344759"
+          mass="2.722761421"
+          fullinertia="0.00221966658 0.00202680192 0.00408669145 -1.46196568e-06 -2.56890971e-07 -5.27157269e-06"/>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="pitch" joint="pitch" kp="31.902" kv="0"
+      forcerange="-4 4"/>
+  </actuator>
+</mujoco>

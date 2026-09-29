@@ -63,6 +63,7 @@ class RobotDescription:
     simulation_timestep_s: float
     control_period_s: float
     imu_sensor_to_torso_quat_wxyz: tuple[float, float, float, float]
+    action_home_position_rad_values: tuple[float, ...]
     action: PositionActionContract
     config: dict[str, Any]
 
@@ -76,6 +77,12 @@ class RobotDescription:
 
     @property
     def home_position_rad(self) -> npt.NDArray[np.float32]:
+        """Policy action origin from the configured reference keyframe."""
+        return np.asarray(self.action_home_position_rad_values, dtype=np.float32)
+
+    @property
+    def neutral_position_rad(self) -> npt.NDArray[np.float32]:
+        """Mechanical zero/home values declared for each motor."""
         return np.asarray(
             [motor.home_position_rad for motor in self.motors], dtype=np.float32
         )
@@ -119,6 +126,37 @@ class RobotDescription:
         robot_config = config.get("robot", {})
         model_path = robot_dir / str(robot_config.get("mjcf", "wr2.xml"))
         root = ET.parse(model_path).getroot()
+        servo_config = config["actuators"]["htd45hServo"]
+        servo_default = root.find(".//default[@class='htd45hServo']")
+        if servo_default is None:
+            raise ValueError("Canonical MJCF is missing the htd45hServo default")
+        servo_joint = servo_default.find("joint")
+        servo_position = servo_default.find("position")
+        if servo_joint is None or servo_position is None:
+            raise ValueError("htd45hServo must define joint and position defaults")
+        model_values = {
+            "kp_sim": float(servo_position.get("kp", "nan")),
+            "kv_sim": float(servo_position.get("kv", "nan")),
+            "damping": float(servo_joint.get("damping", "nan")),
+            "frictionloss": float(servo_joint.get("frictionloss", "nan")),
+            "armature": float(servo_joint.get("armature", "nan")),
+        }
+        for parameter, model_value in model_values.items():
+            if not np.isclose(model_value, float(servo_config[parameter])):
+                raise ValueError(
+                    f"Configured {parameter} does not match htd45hServo MJCF"
+                )
+        force_range = [
+            float(value) for value in servo_position.get("forcerange", "").split()
+        ]
+        torque_limit = float(servo_config["torque_limit_nm"])
+        if len(force_range) != 2 or not np.allclose(
+            force_range, [-torque_limit, torque_limit]
+        ):
+            raise ValueError(
+                "Configured torque_limit_nm does not match htd45hServo MJCF"
+            )
+
         actuator_elements = list(root.findall("actuator/*"))
         model_order = tuple(element.get("name", "") for element in actuator_elements)
         if model_order != order:
@@ -142,7 +180,9 @@ class RobotDescription:
             lower, upper = (float(value) for value in joint.get("range", "").split())
             home = float(values["home_pos_rad"])
             if not lower <= home <= upper:
-                raise ValueError(f"Home position for {joint_name} is outside its limits")
+                raise ValueError(
+                    f"Home position for {joint_name} is outside its limits"
+                )
             motors.append(
                 MotorSpec(
                     name=actuator_name,
@@ -165,6 +205,18 @@ class RobotDescription:
         normalized_range = action_config["normalized_range"]
         if normalized_range != [-1.0, 1.0]:
             raise ValueError("WR2 v1 requires a normalized action range of [-1, 1]")
+        reference_keyframe = str(action_config["reference_keyframe"])
+        key = root.find(f"keyframe/key[@name='{reference_keyframe}']")
+        if key is None or not key.get("ctrl"):
+            raise ValueError(
+                f"MJCF is missing action reference keyframe {reference_keyframe!r}"
+            )
+        action_home = tuple(float(value) for value in key.get("ctrl", "").split())
+        if len(action_home) != len(order):
+            raise ValueError(
+                f"Keyframe {reference_keyframe!r} has {len(action_home)} controls; "
+                f"expected {len(order)}"
+            )
 
         imu_config = config["imu"]
         imu_quat = tuple(
@@ -180,7 +232,9 @@ class RobotDescription:
         )
         config_quat = normalize_quaternion_wxyz(imu_quat)
         if not np.allclose(site_quat, config_quat, atol=1e-7):
-            raise ValueError("robot.yml IMU mounting rotation does not match the MJCF site")
+            raise ValueError(
+                "robot.yml IMU mounting rotation does not match the MJCF site"
+            )
 
         return cls(
             name=name,
@@ -190,12 +244,11 @@ class RobotDescription:
             simulation_timestep_s=sim_dt,
             control_period_s=control_dt,
             imu_sensor_to_torso_quat_wxyz=imu_quat,
+            action_home_position_rad_values=action_home,
             action=PositionActionContract(
                 scale_rad=float(action_config["scale_rad"]),
                 normalized_limit=1.0,
-                joint_limit_margin_rad=float(
-                    action_config["joint_limit_margin_rad"]
-                ),
+                joint_limit_margin_rad=float(action_config["joint_limit_margin_rad"]),
             ),
             config=config,
         )

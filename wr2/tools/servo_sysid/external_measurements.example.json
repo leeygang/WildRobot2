@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "clock_aligned": true,
+  "logger": "replace-with-instrument-and-model",
+  "log_path": "replace-with-relative-or-archived-log-path",
+  "minimum_voltage_v": 10.2,
+  "peak_current_a": 8.0,
+  "rms_current_a": 3.0,
+  "load_cell_peak_torque_nm": null,
+  "load_cell_hold_torque_nm": null,
+  "notes": "Replace every example value with measured data."
+}

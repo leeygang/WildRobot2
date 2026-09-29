@@ -23,15 +23,11 @@ class ModelContractTest(unittest.TestCase):
         cls.root = ET.parse(ROBOT_DIR / "wr2.xml").getroot()
 
     def test_actuator_order(self):
-        actual = [
-            element.get("name") for element in self.root.findall("actuator/*")
-        ]
+        actual = [element.get("name") for element in self.root.findall("actuator/*")]
         self.assertEqual(actual, actuator_order())
 
     def test_servo_defaults_and_imu_sensors_are_present(self):
-        self.assertIsNotNone(
-            self.root.find(".//default[@class='htd45hServo']")
-        )
+        self.assertIsNotNone(self.root.find(".//default[@class='htd45hServo']"))
         actual_sensors = {
             element.get("name") for element in self.root.findall("sensor/*")
         }
@@ -58,9 +54,7 @@ class ModelContractTest(unittest.TestCase):
             geom = self.root.find(f".//geom[@name='{side}_foot_collision']")
             self.assertIsNotNone(geom)
             self.assertEqual(geom.get("type"), "box")
-            self.assertIsNotNone(
-                self.root.find(f".//site[@name='{side}_foot_center']")
-            )
+            self.assertIsNotNone(self.root.find(f".//site[@name='{side}_foot_center']"))
 
     def test_zero_angle_home_pose(self):
         torso = self.root.find("worldbody/body[@name='torso']")
@@ -76,6 +70,24 @@ class ModelContractTest(unittest.TestCase):
         self.assertEqual(qpos[:7], [0.0, 0.0, 0.305, 1.0, 0.0, 0.0, 0.0])
         self.assertTrue(all(value == 0.0 for value in qpos[7:]))
         self.assertTrue(all(value == 0.0 for value in ctrl))
+
+    def test_walk_home_pose(self):
+        key = self.root.find("keyframe/key[@name='walk_home']")
+        self.assertIsNotNone(key)
+        qpos = [float(value) for value in key.get("qpos", "").split()]
+        ctrl = [float(value) for value in key.get("ctrl", "").split()]
+        self.assertEqual(qpos[2], 0.304)
+        self.assertEqual(len(qpos), 25)
+        self.assertEqual(len(ctrl), 17)
+        self.assertEqual(ctrl[actuator_order().index("left_knee_pitch")], -0.24)
+        self.assertEqual(ctrl[actuator_order().index("right_knee_pitch")], 0.24)
+
+    def test_mjx_variant_is_sensor_free_and_keeps_the_contract(self):
+        root = ET.parse(ROBOT_DIR / "wr2_mjx.xml").getroot()
+        self.assertIsNone(root.find("sensor"))
+        actual = [element.get("name") for element in root.findall("actuator/*")]
+        self.assertEqual(actual, actuator_order())
+        self.assertIsNotNone(root.find("keyframe/key[@name='walk_home']"))
 
 
 if __name__ == "__main__":

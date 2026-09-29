@@ -32,17 +32,40 @@ The command copies the raw STL assets into this directory, builds the
 compile-ready `wr2.xml` and `scene.xml`, and runs a two-second standing/contact
 validation. Add `--mass-report` to print every MuJoCo body mass.
 
-The current home pose uses zero radians for all articulated joints and places
-the torso at Z=0.305 m. Each foot uses one box-shaped collision geometry and a
-named foot-center site, following ToddlerBot's foot-contact convention.
+The `home` pose uses zero radians for all articulated joints and places the
+torso at Z=0.305 m. The `walk_home` training pose bends each hip/ankle by 0.12
+rad and each knee by 0.24 rad while keeping the feet flat. Each foot uses one
+box-shaped collision geometry and a named foot-center site, following
+ToddlerBot's foot-contact convention.
 
 Current generated artifacts:
 
 - `wr2.xml`: canonical free-base, position-servo MuJoCo model.
 - `scene.xml`: floor and visualization wrapper for `wr2.xml`.
+- `wr2_mjx.xml`: sensor-free MJX training model.
+- `scene_mjx.xml`: floor wrapper for `wr2_mjx.xml`.
 
-The later training-integration phase will derive torque-actuated, fixed-base,
-and MJX-specific variants from this canonical model.
+The later actuator-modeling phase may derive a torque-actuated variant after
+loaded HTD-45H system identification is complete.
+
+## Training smoke test
+
+Install the training extra and JIT-compile reset plus 20 policy steps:
+
+```bash
+uv run --extra training python -m wr2.locomotion.train --smoke
+```
+
+The initial environment uses `scene_mjx.xml`, the `walk_home` keyframe, the
+17-channel WR1-compatible policy order, and leg-only actuation. See
+`docs/design/training_interface.md` for the observation contract and training
+gates.
+
+The nominal HTD-45H dynamics are transferred from WR1's low-load system
+identification. Only `kp`, joint damping, and friction loss were fitted.
+Armature, `kv`, and the 4 N m force cap were held fixed, and the highest
+held-out load was about 0.56 N m. They are adequate for software bring-up but
+are not a validated WR2 walking-load or continuous-torque model.
 
 Generated XML files must be produced from the raw export plus the post-process
 script and must not be edited independently.

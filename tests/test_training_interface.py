@@ -2,6 +2,7 @@ import unittest
 
 import numpy as np
 
+from wr2.locomotion.config import DynamicsRandomization
 from wr2.sensing.imu import canonicalize_sensor_sample
 from wr2.sim import RobotDescription, RobotObservation, build_wr2_proprio_v1
 
@@ -17,7 +18,31 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(self.robot.observation_size, 60)
         self.assertEqual(self.robot.control_period_s, 0.02)
         self.assertEqual(self.robot.simulation_timestep_s, 0.002)
-        np.testing.assert_array_equal(self.robot.home_position_rad, np.zeros(17))
+        np.testing.assert_array_equal(self.robot.neutral_position_rad, np.zeros(17))
+        expected_walk_home = np.zeros(17)
+        for name, value in {
+            "left_hip_pitch": -0.12,
+            "left_knee_pitch": -0.24,
+            "left_ankle_pitch": -0.12,
+            "right_hip_pitch": 0.12,
+            "right_knee_pitch": 0.24,
+            "right_ankle_pitch": 0.12,
+        }.items():
+            expected_walk_home[self.robot.actuator_names.index(name)] = value
+        np.testing.assert_allclose(
+            self.robot.home_position_rad, expected_walk_home, atol=1e-7
+        )
+        servo = self.robot.config["actuators"]["htd45hServo"]
+        self.assertEqual(servo["model_status"], "provisional_wr1_low_load_transfer")
+        self.assertEqual(
+            set(servo["fitted_parameters"]),
+            {"kp_sim", "damping", "frictionloss"},
+        )
+        self.assertEqual(servo["maximum_validated_load_nm"], 0.56)
+        randomization = DynamicsRandomization()
+        configured_ranges = servo["initial_training_randomization"]
+        for name, configured_range in configured_ranges.items():
+            self.assertEqual(tuple(configured_range), getattr(randomization, name))
 
     def test_zero_action_maps_to_home(self):
         targets = self.robot.action.targets(

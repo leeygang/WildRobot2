@@ -7,10 +7,11 @@ control:
 
 action:
     representation: joint_position_residual
+    reference_keyframe: walk_home
     normalized_range: [-1.0, 1.0]
     scale_rad: 0.25
-    # Zero for the initial straight-leg home because both knee joints sit on a
-    # CAD range endpoint. Revisit after defining a bent-knee locomotion home.
+    # Keep zero until per-joint margins are supported: the upper-body neutral
+    # pose still places shoulder-roll joints on CAD range endpoints.
     joint_limit_margin_rad: 0.0
 
 # Actor-visible, hardware-reproducible proprioception. Contact and base linear
@@ -36,7 +37,7 @@ observation:
 
 imu_randomization:
     # Values must be fitted from stationary and motion logs from the actual
-    # BNO085 installation before policy training starts.
+    # BNO085 installation before sim-to-real hardening and deployment.
     parameters_source: hardware_characterization_required
     mounting_error_std_deg: null
     gyro_white_noise_std_rad_s: null
@@ -47,12 +48,28 @@ imu_randomization:
 
 actuators:
     htd45hServo:
+        model_status: provisional_wr1_low_load_transfer
+        source: WR1_2026-09-12_A1_B1_B2_sysid
         kp_sim: 31.902
         kv_sim: 0.5
         torque_limit_nm: 4.0
         damping: 1.10618
         frictionloss: 0.324094
         armature: 0.024992
+        fitted_parameters: [kp_sim, damping, frictionloss]
+        held_fixed_parameters: [kv_sim, armature, torque_limit_nm]
+        mean_capture_replay_rmse_deg: 0.4386
+        held_out_replay_rmse_deg: 0.480
+        maximum_validated_load_nm: 0.56
+        torque_limit_status: conservative_vendor_stall_based_cap
+        fitted_extra_command_delay_steps: 0
+        initial_training_randomization:
+            kp_scale: [0.8, 1.2]
+            kv_scale: [0.8, 1.2]
+            damping_scale: [0.8, 1.2]
+            armature_scale: [0.8, 1.2]
+            frictionloss_scale: [0.7, 1.3]
+            torque_limit_scale: [0.6, 1.0]
 
 contact:
     foot_collision_geoms: [left_foot_collision, right_foot_collision]

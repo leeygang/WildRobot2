@@ -72,9 +72,7 @@ class CanonicalImuSample:
 
     @property
     def projected_gravity_torso(self) -> FloatArray:
-        world_to_torso = quaternion_conjugate_wxyz(
-            self.torso_to_world_quat_wxyz
-        )
+        world_to_torso = quaternion_conjugate_wxyz(self.torso_to_world_quat_wxyz)
         return rotate_vector_wxyz(world_to_torso, [0.0, 0.0, -1.0])
 
 

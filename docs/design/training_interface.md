@@ -8,14 +8,15 @@ preprocessing.
 
 The action vector has 17 values in `actuator_order.txt` order. Each value is
 clipped to `[-1, 1]`, scaled by 0.25 rad, added to the configured home position,
-and clipped to the MJCF joint limits. The initial limit margin is zero because
-the straight-leg home places both knees on a CAD range endpoint; this should be
-revisited with the future bent-knee locomotion home.
+and clipped to the MJCF joint limits. Training initially controls the ten leg
+joints; waist and arm action channels are retained for WR1-compatible ordering
+but masked to zero. A single global joint-limit margin remains zero because
+some upper-body neutral positions are CAD range endpoints.
 
 This is a position-residual interface:
 
 ```text
-joint_target = clip(home_position + 0.25 * policy_action, joint_limits)
+joint_target = clip(walk_home_position + 0.25 * policy_action, joint_limits)
 ```
 
 ## Actor observation v1
@@ -63,10 +64,37 @@ Noise ranges must be fitted from WR2 logs rather than copied blindly from TB.
 Collect at least stationary logs in several orientations and slow/fast manual
 motion logs, then compare the BNO085 stream with MuJoCo-replayed kinematics.
 
-## Next implementation steps
+## Initial walking environment
 
-1. Implement a MuJoCo backend that emits `RobotObservation`.
-2. Implement a BNO085 adapter that emits the same torso-frame fields.
-3. Record synchronized servo and IMU logs and fit randomization parameters.
-4. Generate the torque-actuated MJX model.
-5. Build a standing environment using the v1 action and observation contract.
+`wr2.locomotion.walking_env.WR2WalkingEnv` now provides the first flat-ground
+MJX environment. It starts from `walk_home`, runs at 50 Hz over a 500 Hz
+physics model, applies one control-step action delay, exposes only the 60-value
+deployable observation, and uses simulator-only state for rewards and
+termination. Its first curriculum is forward standing/walking with leg-only
+control; lateral/yaw fields remain in the interface but their initial command
+ranges are zero. The environment currently adds provisional joint, gyro, and
+projected-gravity white noise. Episode bias, mounting-error, and IMU-delay
+models remain gated on WR2 sensor measurements.
+
+Run the JIT environment gate with:
+
+```bash
+uv run --extra training python -m wr2.locomotion.train --smoke
+```
+
+Start PPO with:
+
+```bash
+uv run --extra training python -m wr2.locomotion.train
+```
+
+Before hardware deployment, complete the remaining gates:
+
+1. characterize WR2 servos under representative leg loads and fit the
+   randomization distributions;
+2. characterize the installed BNO085 noise, mounting error, and latency;
+3. add policy export plus a runtime adapter that reproduces the v1 action and
+   observation contract;
+4. train standing and forward walking, then evaluate multiple seeds with
+   perturbations and held-out dynamics; and
+5. run restrained hardware standing before any untethered walking test.

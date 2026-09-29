@@ -1,0 +1,146 @@
+# HTD-45H deployment qualification
+
+This workflow ports the WildRobot 2.650 kg BAM fixture campaign into WR2 and
+adds dynamic-torque preflight, staged execution, multi-servo qualification,
+and generation of a machine-readable deployment specification.
+
+The replacement weight is 2.650 kg. With the arm and mounting hardware, the
+modeled moving mass is 2.722761 kg and the load inertia is approximately
+0.0430185 kg m^2. The physical weight's center of mass must remain at the
+modeled 120.4 mm location. Update the fixture MJCF if its shape, mounting, or
+center of mass differs.
+
+## Safety requirements
+
+Use a rigid fixture with a counter-bearing for the output shaft, verified
+clearance through +/-72 degrees, a catcher capable of receiving the complete
+moving mass after automatic unload, and a reachable independent power cutoff.
+Only the fixture servo may be connected to the selected bus.
+
+Use a current-logging supply and preferably a load cell. The HTD protocol
+reports position, voltage, temperature, and torque-enable state, but does not
+report current or output torque. Known-load torque is otherwise inferred from
+the fixture model.
+
+The software limits are safety aborts, not servo ratings. The dynamic preflight
+estimates gravity plus commanded-trajectory inertial torque. Step transients,
+fixture compliance, impacts, and controller overshoot remain unmodeled. The
+5-degree tracking limit must persist for 0.15 seconds before aborting, so an
+intentional step edge is not mistaken for a stalled servo.
+
+## Preflight
+
+Install the required packages:
+
+```bash
+uv sync --extra sysid --extra dev
+```
+
+Run the complete no-I/O preflight:
+
+```bash
+uv run python -m wr2.tools.servo_sysid.campaign \
+  --servo-id 100 \
+  --board-port /dev/serial/by-id/YOUR_ADAPTER
+```
+
+The preflight checks all seven conditions without opening the serial port.
+Immediately before torque is enabled, hardware mode also reads the servo's
+EEPROM angle, voltage, temperature, and motor-mode settings. It refuses motion
+when the requested travel exceeds the configured angle limits, the software
+temperature ceiling exceeds the EEPROM ceiling, position mode is disabled, or
+the live supply is outside the EEPROM voltage range.
+
+## Staged hardware execution
+
+Run and inspect one condition at a time. Hardware motion requires both safety
+flags and an explicit stopping condition:
+
+```bash
+uv run python -m wr2.tools.servo_sysid.campaign \
+  --servo-id 100 \
+  --servo-label htd45h-unit-a \
+  --board-port /dev/serial/by-id/YOUR_ADAPTER \
+  --campaign-dir results/servo_sysid/htd45h-unit-a \
+  --measured-weight-kg 2.650 \
+  --measured-com-radius-m 0.1204 \
+  --start-at E1_static_plus72 \
+  --stop-after E1_static_plus72 \
+  --external-log-label supply-unit-a-run-1 \
+  --execute --confirm-fixture-safe
+```
+
+Inspect the JSON/NPZ pair before continuing with E2, then E3, and so forth.
+Reuse the same `--campaign-dir` for every condition belonging to that servo.
+The runner rejects changes to fixture geometry, measured mass/COM, direction,
+or safety limits within a partially completed campaign.
+The conditions are:
+
+1. `E1_static_plus72`: +3.03 N m slow static ramp.
+2. `E2_static_minus72`: -3.04 N m slow static ramp.
+3. `E3_inertial_bandwidth`: gravity-neutral 0.1-4 Hz motion.
+4. `E4_loaded_plus60`: +2.76 N m loaded response.
+5. `E5_loaded_minus60`: -2.77 N m loaded response.
+6. `E6_deployment_deadband_plus60`: loaded response with runtime deadband.
+7. `E7_thermal_hold_plus60`: ten-minute 2.76 N m hold.
+
+The loaded dynamic profiles use 2- and 5-degree amplitudes. The original WR1
+8-degree profile reached approximately 3.18 N m after including fixture
+inertia, leaving almost no uncertainty margin below the 3.2 N m safety
+ceiling. The reduced profile still reaches approximately 3.00 N m in the
+positive direction and 3.03 N m in the negative direction.
+
+Repeat the complete campaign for at least three independently labeled servos,
+at the actual deployment supply and wiring configuration. Additional campaigns
+at the minimum battery voltage and after warm-up are strongly recommended.
+
+After each campaign, copy
+`wr2/tools/servo_sysid/external_measurements.example.json` into the campaign
+directory as `external_measurements.json` and replace every example value with
+clock-aligned supply/logger measurements. The analyzer requires this evidence
+by default. Use `--allow-missing-external-measurements` only for a fixture-only
+engineering report that must not be treated as deployment-qualified.
+
+## Generate the deployment specification
+
+Pass all completed campaign directories to the analyzer:
+
+```bash
+uv run python -m wr2.tools.servo_sysid.analyze \
+  results/servo_sysid/htd45h-unit-a \
+  results/servo_sysid/htd45h-unit-b \
+  results/servo_sysid/htd45h-unit-c \
+  --output results/servo_sysid/htd45h_deployment_spec.json
+```
+
+The default qualification requires three distinct servo labels, complete
+signed static and loaded-dynamic coverage, voltage >=9.6 V, temperature <=55 C,
+tracking p95 <=5 degrees, and a final thermal slope <=0.5 C/min. The report
+applies a 1.2 safety factor before recommending peak and continuous torque
+limits. Thresholds are explicit command-line parameters and should ultimately
+be tied to the WR2 policy's measured error tolerance and required operating
+duration.
+
+A ten-minute hold is not a continuous-duty result when temperature is still
+rising. Extend the hold or derate the continuous limit until the final
+temperature slope demonstrates equilibrium.
+
+Fit the identifiable position-loop dynamics from zero, positive-load, and
+negative-load captures. Keep separate repeated captures for validation:
+
+```bash
+uv run python -m wr2.tools.servo_sysid.fit \
+  CAMPAIGN_A/03_E3_inertial_bandwidth.npz \
+  CAMPAIGN_A/04_E4_loaded_plus60.npz \
+  CAMPAIGN_A/05_E5_loaded_minus60.npz \
+  --validation-capture CAMPAIGN_B/04_E4_loaded_plus60.npz \
+  --validation-capture CAMPAIGN_B/05_E5_loaded_minus60.npz \
+  --output results/servo_sysid/htd45h_dynamics_fit.json
+```
+
+The included fitter identifies position gain, effective total velocity
+damping, friction, armature, and whole-response delay. It deliberately does
+not auto-edit the robot model; review its held-out error and uncertainty first.
+A voltage/temperature-dependent torque-speed model still requires the external
+current/load-cell data and multiple load, speed, voltage, and temperature
+conditions.
