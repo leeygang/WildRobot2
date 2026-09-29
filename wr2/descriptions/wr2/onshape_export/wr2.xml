@@ -19,7 +19,7 @@
     <!-- Link torso -->
     <body name="torso" pos="0 0 0" quat="1 0 0 0" childclass="WildRobot2">
       <freejoint name="torso_freejoint"/>
-      <inertial pos="-0.00450649 -3.25097e-06 0.0661093" mass="0.309858" fullinertia="0.00109995 0.000344079 0.000897668 -6.75614e-07 1.83232e-05 -1.42174e-07"/>
+      <inertial pos="-0.00941587 0.000673793 0.063342" mass="0.39229" fullinertia="0.00118748 0.000467076 0.000989227 5.84548e-06 3.90572e-06 -1.96694e-06"/>
       <!-- Part top -->
       <geom type="mesh" class="visual" pos="-0.0348 0 0.04238" quat="0.707107 -0 -0.707107 0" mesh="top" material="top_material"/>
       <!-- Part buslinkerv3_0 -->
@@ -44,6 +44,8 @@
       <geom type="mesh" class="visual" pos="-0.0063513 -0.0314312 0.0223007" quat="0.499918 0.500082 -0.499918 0.500082" mesh="htd_45h_1circle" material="htd_45h_1circle_material"/>
       <!-- Part waist_yaw_driven -->
       <geom type="mesh" class="visual" pos="0 0 -0.0145" quat="1 -0 -0 0" mesh="waist_yaw_driven" material="waist_yaw_driven_material"/>
+      <!-- Part rp_assemble -->
+      <geom type="mesh" class="visual" pos="-0.03479 0 0.04238" quat="0.5 0.5 -0.5 0.5" mesh="rp_assemble" material="rp_assemble_material"/>
       <!-- Part servo_case -->
       <geom type="mesh" class="visual" pos="-0.00515 0 0.07328" quat="0 0 -0 1" mesh="servo_case" material="servo_case_material"/>
       <!-- Frame torso_imu -->
@@ -111,7 +113,7 @@
                 <body name="foot" pos="0.01974 0.0202141 -0.0263476" quat="0.707691 -0 0.706522 0.000824559">
                   <!-- Joint from right_servo_group_2 to foot -->
                   <joint axis="0 0 1" name="right_ankle_roll" type="hinge" range="-0.6981317007977318 0.6981317007977318" class="htd45hServo"/>
-                  <inertial pos="3.86215e-07 0.0371704 -0.0304481" mass="0.0732798" fullinertia="6.43617e-05 6.72803e-05 1.69047e-05 -2.66e-10 9.72e-10 2.29499e-06"/>
+                  <inertial pos="1.65824e-06 0.0374778 -0.0318903" mass="0.0827495" fullinertia="7.4608e-05 8.25794e-05 2.23417e-05 -8.96e-10 1.61e-09 2.69467e-06"/>
                   <!-- Part foot -->
                   <geom type="mesh" class="visual" pos="0.04112 -0.20824 -0.01906" quat="0.5 0.5 0.5 -0.5" mesh="foot" material="foot_material"/>
                   <geom type="mesh" class="collision" pos="0.04112 -0.20824 -0.01906" quat="0.5 0.5 0.5 -0.5" mesh="foot" material="foot_material"/>
@@ -172,7 +174,7 @@
                 <body name="foot_2" pos="-0.01978 0.020214 -0.0262853" quat="0.706522 -0 -0.70769 -0.000824559">
                   <!-- Joint from left_servo_group_2 to foot_2 -->
                   <joint axis="0 0 1" name="left_ankle_roll" type="hinge" range="-0.6981317007977318 0.6981317007977318" class="htd45hServo"/>
-                  <inertial pos="3.86215e-07 0.0371704 -0.0304481" mass="0.0732798" fullinertia="6.43617e-05 6.72803e-05 1.69047e-05 -2.66e-10 9.72e-10 2.29499e-06"/>
+                  <inertial pos="1.65824e-06 0.0374778 -0.0318903" mass="0.0827495" fullinertia="7.4608e-05 8.25794e-05 2.23417e-05 -8.96e-10 1.61e-09 2.69467e-06"/>
                   <!-- Part foot_2 -->
                   <geom type="mesh" class="visual" pos="0.04112 -0.20824 -0.01906" quat="0.5 0.5 0.5 -0.5" mesh="foot" material="foot_material"/>
                   <geom type="mesh" class="collision" pos="0.04112 -0.20824 -0.01906" quat="0.5 0.5 0.5 -0.5" mesh="foot" material="foot_material"/>
@@ -255,34 +257,35 @@
     </body>
   </worldbody>
   <asset>
-    <mesh file="servo_case.stl"/>
-    <mesh file="hip_roll_left.stl"/>
+    <mesh file="rp_assemble.stl"/>
+    <mesh file="part_9.stl"/>
+    <mesh file="part_4.stl"/>
+    <mesh file="upper_leg_link.stl"/>
+    <mesh file="shoulder_pitch_left_link.stl"/>
+    <mesh file="spline.stl"/>
+    <mesh file="foot.stl"/>
+    <mesh file="waist_yaw_drive.stl"/>
+    <mesh file="knee_link_left.stl"/>
+    <mesh file="part_5.stl"/>
+    <mesh file="bno085.stl"/>
+    <mesh file="htd_45h_1circle.stl"/>
+    <mesh file="hip_pitch_right.stl"/>
+    <mesh file="part_10.stl"/>
     <mesh file="bearing_axk0414.stl"/>
+    <mesh file="shoulder_pitch_right_link.stl"/>
+    <mesh file="hip_pitch_left.stl"/>
+    <mesh file="bottom.stl"/>
+    <mesh file="knee_link_right.stl"/>
+    <mesh file="buslinkerv3_0.stl"/>
     <mesh file="waist_yaw_driven.stl"/>
     <mesh file="hip_pitch_link.stl"/>
-    <mesh file="top.stl"/>
-    <mesh file="part_5.stl"/>
-    <mesh file="htd_45h_1circle.stl"/>
-    <mesh file="hip_roll_right.stl"/>
-    <mesh file="knee_link_right.stl"/>
-    <mesh file="hip_pitch_right.stl"/>
-    <mesh file="knee_link_left.stl"/>
-    <mesh file="hip_pitch_left.stl"/>
-    <mesh file="part_9.stl"/>
-    <mesh file="part_10.stl"/>
-    <mesh file="part_4.stl"/>
     <mesh file="lower_leg_link_right.stl"/>
-    <mesh file="waist.stl"/>
-    <mesh file="buslinkerv3_0.stl"/>
-    <mesh file="shoulder_pitch_right_link.stl"/>
     <mesh file="lower_leg_link_left.stl"/>
-    <mesh file="shoulder_pitch_left_link.stl"/>
-    <mesh file="foot.stl"/>
-    <mesh file="spline.stl"/>
-    <mesh file="bottom.stl"/>
-    <mesh file="waist_yaw_drive.stl"/>
-    <mesh file="upper_leg_link.stl"/>
-    <mesh file="bno085.stl"/>
+    <mesh file="servo_case.stl"/>
+    <mesh file="hip_roll_right.stl"/>
+    <mesh file="hip_roll_left.stl"/>
+    <mesh file="top.stl"/>
+    <mesh file="waist.stl"/>
     <material name="top_material" rgba="0.972549 0.529412 0.00392157 1"/>
     <material name="buslinkerv3_0_material" rgba="0.301961 0.301961 0.301961 1"/>
     <material name="spline_material" rgba="0.917647 0.917647 0.917647 1"/>
@@ -292,6 +295,7 @@
     <material name="bno085_material" rgba="0.513725 0.415686 0.733333 1"/>
     <material name="part_5_material" rgba="0.972549 0.529412 0.00392157 1"/>
     <material name="waist_yaw_driven_material" rgba="0.615686 0.811765 0.929412 1"/>
+    <material name="rp_assemble_material" rgba="0.513725 0.737255 0.407843 1"/>
     <material name="servo_case_material" rgba="0 0 1 1"/>
     <material name="bearing_axk0414_material" rgba="0.917647 0.917647 0.917647 1"/>
     <material name="waist_material" rgba="0.768627 0.886275 0.952941 1"/>
