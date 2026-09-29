@@ -1,0 +1,8 @@
+  <sensor>
+    <!-- Torso IMU (BNO085) - 9-DOF sensor with realistic noise -->
+    <!-- Datasheet specs: Gyro ~0.014°/s/√Hz, Accel ~150μg/√Hz, Mag ~0.3μT -->
+    <gyro site="torso_imu" name="torso_imu_gyro" noise="0.0002" cutoff="100" />
+    <accelerometer site="torso_imu" name="torso_imu_accel" noise="0.0015" cutoff="100" />
+    <magnetometer site="torso_imu" name="torso_imu_mag" noise="0.3" />
+    <framequat objtype="site" objname="torso_imu" name="torso_imu_quat" />
+  </sensor>

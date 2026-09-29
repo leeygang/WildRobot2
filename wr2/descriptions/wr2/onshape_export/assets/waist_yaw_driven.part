@@ -1,0 +1,13 @@
+{
+    "configuration": "default",
+    "documentId": "0aff2ee80b9805c46c366c15",
+    "documentMicroversion": "5617a478f35be773e4a759f2",
+    "elementId": "c410988ba394e6bc0f5d65c9",
+    "fullConfiguration": "default",
+    "id": "MjGyixHQJdWlFW88O",
+    "isStandardContent": false,
+    "name": "waist_yaw_driven <1>",
+    "partId": "JHD",
+    "suppressed": false,
+    "type": "Part"
+}

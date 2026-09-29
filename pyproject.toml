@@ -34,7 +34,7 @@ dev = [
 ]
 
 [tool.setuptools.package-data]
-wildrobot2 = [
+wr2 = [
     "descriptions/**/*.json",
     "descriptions/**/*.yml",
     "descriptions/**/*.xml",

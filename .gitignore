@@ -6,6 +6,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+.env
+.env.*
+!.env.example
 build/
 dist/
 *.egg-info/
@@ -15,7 +18,10 @@ results/
 wandb/
 
 # Per-robot calibration is local to each physical build.
-wildrobot2/descriptions/*/motors.yml
+wr2/descriptions/*/motors.yml
+
+# Temporary raw Onshape API dumps used for model diagnostics.
+wr2/descriptions/*/onshape_export/onshape_raw/
 
 # Platform files.
 .DS_Store
