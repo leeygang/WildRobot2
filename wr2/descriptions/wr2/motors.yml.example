@@ -1,3 +1,20 @@
 # Copy this file to motors.yml for calibration specific to one physical robot.
-# motors.yml is intentionally ignored by Git.
-motors: {}
+# motors.yml is intentionally ignored by Git. Add one entry per actuator from
+# actuator_order.txt; never put build-specific calibration in robot.yml.
+motors:
+    waist_yaw_drive:
+        servo_id: null
+        direction: 1
+        zero_offset_rad: 0.0
+    left_hip_pitch:
+        servo_id: null
+        direction: 1
+        zero_offset_rad: 0.0
+    right_hip_pitch:
+        servo_id: null
+        direction: 1
+        zero_offset_rad: 0.0
+
+# Continue with the remaining motors after discovering their physical bus IDs,
+# directions, and measured zero offsets. The loader permits partial overrides,
+# but hardware startup must require a complete calibration file.

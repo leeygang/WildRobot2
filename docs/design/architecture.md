@@ -27,6 +27,9 @@ simulation/hardware backends, policies, motion references, and training.
 Task-specific manipulation, depth, and skill-classification packages remain out
 of scope until the core robot loop is verified.
 
+The versioned action, observation, and IMU-frame contract is documented in
+[`training_interface.md`](training_interface.md).
+
 ## ToddlerBot comparison baseline
 
 The local `toddlerbot_2xm` model used during initial planning has a summed MJCF

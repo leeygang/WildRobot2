@@ -8,13 +8,14 @@ version = "0.1.0"
 description = "ToddlerBot-aligned software stack for WildRobot2."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "numpy>=1.26",
+    "PyYAML>=6",
+]
 
 [project.optional-dependencies]
 sim = [
     "mujoco>=3.3,<4",
-    "numpy>=1.26",
-    "PyYAML>=6",
 ]
 training = [
     "brax",

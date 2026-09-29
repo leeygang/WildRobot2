@@ -3,5 +3,36 @@ robot:
     angle_unit: radian
     length_unit: meter
     mass_unit: kilogram
+    mjcf: wr2.xml
+    scene: scene.xml
+    root_body: torso
+    root_joint: torso_freejoint
+    foot_bodies: [left_foot, right_foot]
 
-motors: {}
+# q_TS: rotation from the physical sensor frame S into the torso frame T.
+# The value comes from the torso_imu site orientation in the canonical MJCF.
+imu:
+    site: torso_imu
+    sensor_model: BNO085
+    sensor_to_torso_quat_wxyz: [0.5, -0.5, 0.5, -0.5]
+    actor_orientation_feature: projected_gravity
+    use_magnetometer_heading: false
+
+motors:
+    waist_yaw_drive: {joint: waist_yaw_drive, model: htd45hServo, group: waist, home_pos_rad: 0.0}
+    left_shoulder_pitch: {joint: left_shoulder_pitch, model: htd45hServo, group: arm, home_pos_rad: 0.0}
+    left_shoulder_roll: {joint: left_shoulder_roll, model: htd45hServo, group: arm, home_pos_rad: 0.0}
+    left_elbow_pitch: {joint: left_elbow_pitch, model: htd45hServo, group: arm, home_pos_rad: 0.0}
+    left_hip_pitch: {joint: left_hip_pitch, model: htd45hServo, group: leg, home_pos_rad: 0.0}
+    left_hip_roll: {joint: left_hip_roll, model: htd45hServo, group: leg, home_pos_rad: 0.0}
+    left_knee_pitch: {joint: left_knee_pitch, model: htd45hServo, group: leg, home_pos_rad: 0.0}
+    left_ankle_pitch: {joint: left_ankle_pitch, model: htd45hServo, group: leg, home_pos_rad: 0.0}
+    left_ankle_roll: {joint: left_ankle_roll, model: htd45hServo, group: leg, home_pos_rad: 0.0}
+    right_shoulder_pitch: {joint: right_shoulder_pitch, model: htd45hServo, group: arm, home_pos_rad: 0.0}
+    right_shoulder_roll: {joint: right_shoulder_roll, model: htd45hServo, group: arm, home_pos_rad: 0.0}
+    right_elbow_pitch: {joint: right_elbow_pitch, model: htd45hServo, group: arm, home_pos_rad: 0.0}
+    right_hip_pitch: {joint: right_hip_pitch, model: htd45hServo, group: leg, home_pos_rad: 0.0}
+    right_hip_roll: {joint: right_hip_roll, model: htd45hServo, group: leg, home_pos_rad: 0.0}
+    right_knee_pitch: {joint: right_knee_pitch, model: htd45hServo, group: leg, home_pos_rad: 0.0}
+    right_ankle_pitch: {joint: right_ankle_pitch, model: htd45hServo, group: leg, home_pos_rad: 0.0}
+    right_ankle_roll: {joint: right_ankle_roll, model: htd45hServo, group: leg, home_pos_rad: 0.0}
