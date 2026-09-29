@@ -1,0 +1,7 @@
+robot:
+    name: wr2
+    angle_unit: radian
+    length_unit: meter
+    mass_unit: kilogram
+
+motors: {}

@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+*.so
+.coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Generated experiment artifacts.
+results/
+wandb/
+
+# Per-robot calibration is local to each physical build.
+wildrobot2/descriptions/*/motors.yml
+
+# Platform files.
+.DS_Store

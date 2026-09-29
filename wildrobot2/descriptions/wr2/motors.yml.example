@@ -1,0 +1,3 @@
+# Copy this file to motors.yml for calibration specific to one physical robot.
+# motors.yml is intentionally ignored by Git.
+motors: {}
