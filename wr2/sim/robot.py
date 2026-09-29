@@ -156,6 +156,32 @@ class RobotDescription:
             raise ValueError(
                 "Configured torque_limit_nm does not match htd45hServo MJCF"
             )
+        vendor_stall_torque = float(servo_config["vendor_stall_torque_nm"])
+        if torque_limit > vendor_stall_torque:
+            raise ValueError("Training torque cap exceeds vendor stall torque")
+        minimum_voltage, maximum_voltage = (
+            float(value) for value in servo_config["operating_voltage_range_v"]
+        )
+        rated_voltage = float(servo_config["rated_voltage_v"])
+        if not minimum_voltage <= rated_voltage <= maximum_voltage:
+            raise ValueError("Rated voltage is outside the operating range")
+        unit_minimum, unit_maximum = (
+            int(value) for value in servo_config["command_range_units"]
+        )
+        angle_minimum, angle_maximum = (
+            float(value) for value in servo_config["command_range_deg"]
+        )
+        expected_resolution = np.deg2rad(
+            (angle_maximum - angle_minimum) / (unit_maximum - unit_minimum)
+        )
+        if not np.isclose(
+            expected_resolution, float(servo_config["command_resolution_rad"])
+        ):
+            raise ValueError("Servo command resolution is internally inconsistent")
+        if float(servo_config["training_target_speed_limit_rad_s"]) > float(
+            servo_config["vendor_no_load_speed_rad_s"]
+        ):
+            raise ValueError("Training target speed exceeds vendor no-load speed")
 
         actuator_elements = list(root.findall("actuator/*"))
         model_order = tuple(element.get("name", "") for element in actuator_elements)

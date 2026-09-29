@@ -11,6 +11,12 @@ WR2 currently uses the HTD-45H position-servo model transferred from WR1:
 | armature | 0.024992 kg m^2 | held fixed during fitting |
 | force cap | +/-4.0 N m | conservative, vendor-stall-based cap |
 
+The HTD-45H manual specifies 11.1 V nominal operation, a 9.6--12.6 V
+operating range, 45 kg cm (4.413 N m) stall torque, 3 A stall current,
+0.18 s/60 degrees (5.818 rad/s) no-load speed, and 0.2-degree accuracy. Stall
+torque is an instantaneous upper bound, not a continuous-duty rating, so WR2
+retains the lower 4.0 N m simulation cap.
+
 The fit replayed quantized 50 Hz commands and reduced mean capture position
 RMSE from 0.8051 degrees to 0.4386 degrees. A held-out roughly 0.56 N m capture
 had 0.480-degree replay RMSE. This supports use as a nominal software and
@@ -24,6 +30,18 @@ by a uniformly sampled factor from 0.6 to 1.0; it never raises the cap above
 the nominal 4 N m. These distributions are provisional uncertainty bounds,
 not measurements. Do not use policy success under this cap as evidence that
 the physical servo can sustain that torque.
+
+The training command path quantizes targets to the servo's 0.24-degree units
+and limits each 20 ms control update to 27 units. This corresponds to 5.655
+rad/s, slightly below the manual's rated no-load speed. Loaded speed is still
+produced by the position-loop dynamics and force saturation; a measured
+torque-speed curve is not yet available.
+
+WR2's +/-10-degree commissioning runs support low-load tracking around
+0.54--0.57 N m, but intermittent voltage readings down to 9.401 V make the
+power path unqualified. The existing 0.6--1.0 force-cap randomization remains
+intentionally broad to cover servo variation, voltage, wiring, and BusLinker
+loss until those effects are separately measured.
 
 The WR1 fit selected zero additional command-delay samples, but this does not
 prove zero end-to-end runtime latency. WR2 currently trains with one 20 ms

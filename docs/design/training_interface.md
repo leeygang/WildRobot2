@@ -76,6 +76,12 @@ ranges are zero. The environment currently adds provisional joint, gyro, and
 projected-gravity white noise. Episode bias, mounting-error, and IMU-delay
 models remain gated on WR2 sensor measurements.
 
+Actuator targets are quantized to HTD-45H command units (0.24 degrees) and
+slew-limited to 27 units per 20 ms control step, or 5.655 rad/s. This is below
+the vendor's 5.818 rad/s no-load speed at 11.1 V. The MJCF force cap remains
+4.0 N m, below the 4.413 N m vendor stall value, and is randomized downward;
+neither value is treated as a continuous-torque rating.
+
 Run the JIT environment gate with:
 
 ```bash

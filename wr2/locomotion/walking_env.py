@@ -67,6 +67,26 @@ class WR2WalkingEnv(PipelineEnv):
         self._home_ctrl = jp.asarray(mj_model.key_ctrl[key_id])
         self._ctrl_lower = jp.asarray(mj_model.actuator_ctrlrange[:, 0])
         self._ctrl_upper = jp.asarray(mj_model.actuator_ctrlrange[:, 1])
+        servo_config = self.robot.config["actuators"]["htd45hServo"]
+        self._command_resolution_rad = float(servo_config["command_resolution_rad"])
+        target_speed_limit = float(
+            servo_config["training_target_speed_limit_rad_s"]
+        )
+        # Commands are integer servo units. Using a whole-unit step keeps both
+        # the vendor no-load speed ceiling and command quantization exact.
+        self._max_command_step_units = max(
+            1,
+            int(
+                np.floor(
+                    target_speed_limit
+                    * self.robot.control_period_s
+                    / self._command_resolution_rad
+                )
+            ),
+        )
+        self._max_command_step_rad = (
+            self._max_command_step_units * self._command_resolution_rad
+        )
 
         joint_ids = [
             mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_JOINT, name)
@@ -249,6 +269,7 @@ class WR2WalkingEnv(PipelineEnv):
             "rng": rng,
             "command": command,
             "previous_action": previous_action,
+            "previous_target": self._quantize_target(self._home_ctrl),
             "step_count": jp.zeros((), dtype=jp.int32),
         }
         return State(pipeline_state, observation, zero, zero, metrics, info)
@@ -263,11 +284,19 @@ class WR2WalkingEnv(PipelineEnv):
         else:
             raise ValueError("The initial environment supports only 0 or 1 delay steps")
 
-        target = jp.clip(
+        desired_target = jp.clip(
             self._home_ctrl + self.config.action_scale_rad * applied_action,
             self._ctrl_lower,
             self._ctrl_upper,
         )
+        quantized_target = self._quantize_target(desired_target)
+        previous_target = state.info["previous_target"]
+        target = previous_target + jp.clip(
+            quantized_target - previous_target,
+            -self._max_command_step_rad,
+            self._max_command_step_rad,
+        )
+        target = jp.clip(target, self._ctrl_lower, self._ctrl_upper)
         pipeline_state = self.pipeline_step(state.pipeline_state, target)
         _, angular_velocity, linear_velocity, projected_gravity = (
             self._kinematic_observation(pipeline_state)
@@ -335,6 +364,7 @@ class WR2WalkingEnv(PipelineEnv):
             **state.info,
             "rng": rng,
             "previous_action": action,
+            "previous_target": target,
             "step_count": step_count,
         }
         metrics = {
@@ -358,4 +388,10 @@ class WR2WalkingEnv(PipelineEnv):
             done=done,
             metrics=metrics,
             info=info,
+        )
+
+    def _quantize_target(self, target: jax.Array) -> jax.Array:
+        return (
+            jp.round(target / self._command_resolution_rad)
+            * self._command_resolution_rad
         )

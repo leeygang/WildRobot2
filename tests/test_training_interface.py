@@ -39,6 +39,27 @@ class TrainingInterfaceTest(unittest.TestCase):
             {"kp_sim", "damping", "frictionloss"},
         )
         self.assertEqual(servo["maximum_validated_load_nm"], 0.56)
+        self.assertEqual(servo["rated_voltage_v"], 11.1)
+        self.assertEqual(servo["operating_voltage_range_v"], [9.6, 12.6])
+        self.assertAlmostEqual(servo["vendor_stall_torque_nm"], 4.4129925)
+        self.assertEqual(servo["vendor_stall_current_a"], 3.0)
+        self.assertAlmostEqual(servo["vendor_no_load_speed_rad_s"], 5.8177642)
+        self.assertLessEqual(
+            servo["torque_limit_nm"], servo["vendor_stall_torque_nm"]
+        )
+        resolution = servo["command_resolution_rad"]
+        maximum_step_units = int(
+            np.floor(
+                servo["training_target_speed_limit_rad_s"]
+                * self.robot.control_period_s
+                / resolution
+            )
+        )
+        self.assertEqual(maximum_step_units, 27)
+        self.assertLessEqual(
+            maximum_step_units * resolution / self.robot.control_period_s,
+            servo["vendor_no_load_speed_rad_s"],
+        )
         randomization = DynamicsRandomization()
         configured_ranges = servo["initial_training_randomization"]
         for name, configured_range in configured_ranges.items():
