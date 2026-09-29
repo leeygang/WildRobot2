@@ -51,6 +51,30 @@ when the requested travel exceeds the configured angle limits, the software
 temperature ceiling exceeds the EEPROM ceiling, position mode is disabled, or
 the live supply is outside the EEPROM voltage range.
 
+## Low-load repeatability commissioning
+
+Before the 3 N m deployment campaign, run five independent +10-degree trials.
+Each repetition performs its own cooldown and safety checks, returns to zero,
+unloads the servo, and writes a separate JSON/NPZ pair. The runner then reports
+zero-position and loaded-position repeatability across all five trials.
+
+```bash
+uv run python -m wr2.tools.servo_sysid.commission \
+  --servo-id 100 \
+  --servo-label htd45h-unit-a \
+  --board-port /dev/serial/by-id/YOUR_ADAPTER \
+  --center-deg 10 \
+  --repeats 5 \
+  --measured-weight-kg 2.650 \
+  --measured-com-radius-m 0.1204 \
+  --external-log-label supply-unit-a-commission-plus10 \
+  --execute --confirm-fixture-safe
+```
+
+The default repeatability limit is 0.5 degrees standard deviation. The entire
+timestamped result directory can be copied as one logical result with
+`./scripts/scp_from_remote.sh --wrdev --latest servo_sysid`.
+
 ## Staged hardware execution
 
 Run and inspect one condition at a time. Hardware motion requires both safety

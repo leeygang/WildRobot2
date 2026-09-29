@@ -60,6 +60,32 @@ for the evidence and limitations behind the initial HTD-45H model.
 The staged high-load qualification procedure is in
 [`docs/hardware/htd45h_deployment_test.md`](docs/hardware/htd45h_deployment_test.md).
 
+## Copy results from a remote machine
+
+The transfer script copies artifacts into the matching local `results/`
+directory. JSON/NPZ servo captures with the same stem are treated as one run.
+
+```bash
+./scripts/scp_from_remote.sh --latest servo_sysid
+./scripts/scp_from_remote.sh --latest servo_sysid 3
+./scripts/scp_from_remote.sh --latest training 2
+./scripts/scp_from_remote.sh --list servo_sysid
+
+# GPU/training host through its public address
+./scripts/scp_from_remote.sh --linux-pc --latest training
+
+# Deployment host
+./scripts/scp_from_remote.sh --wrdev --latest servo_sysid
+```
+
+It defaults to `leeygang@linux-pc.local:/home/leeygang/projects/wildrobot2`.
+`--linux-pc` selects `LINUX_PUBLIC_IP` and optional `LINUX_PUBLIC_PORT`;
+`--wrdev` selects
+`leeygang@wrdev.local:/home/leeygang/projects/WildRobot2`. Use `--host`,
+`--user`, `--port`, or `--remote-base` for other overrides. Any directory
+directly below remote `results/` can be used as a result group; run with
+`--dry-run` to inspect the selected transfers first.
+
 ## References
 
 - [ToddlerBot project](https://toddlerbot.github.io/)

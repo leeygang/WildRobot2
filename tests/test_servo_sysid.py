@@ -22,6 +22,7 @@ from wr2.tools.servo_sysid.analyze import analyze_campaigns
 from wr2.tools.servo_sysid.campaign import CONDITIONS, main as campaign_main
 from wr2.tools.servo_sysid.campaign import selected_conditions
 from wr2.tools.servo_sysid.capture import capture_profile
+from wr2.tools.servo_sysid.commission import summarize_series
 from wr2.tools.servo_sysid.core import (
     ProfileSegment,
     build_profile,
@@ -178,6 +179,59 @@ class FixtureTest(unittest.TestCase):
 
 
 class CampaignAnalysisTest(unittest.TestCase):
+    def test_commission_repeatability_summary(self):
+        with tempfile.TemporaryDirectory() as temp:
+            captures = []
+            for index, loaded_deg in enumerate((9.5, 9.7, 9.6, 9.4, 9.8), start=1):
+                path = Path(temp) / f"repeat_{index:02d}.json"
+                path.write_text(
+                    json.dumps(
+                        {
+                            "outcome": "completed",
+                            "center_deg": 10.0,
+                            "preparation": [
+                                {
+                                    "elapsed_s": 0.0,
+                                    "position_rad": 0.0,
+                                    "voltage_v": 11.8,
+                                    "temperature_c": 29.0,
+                                },
+                                {
+                                    "elapsed_s": 1.0,
+                                    "position_rad": 0.0,
+                                    "voltage_v": 11.8,
+                                    "temperature_c": 29.0,
+                                },
+                                {
+                                    "elapsed_s": 0.0,
+                                    "position_rad": math.radians(loaded_deg - 1.0),
+                                    "voltage_v": 11.6,
+                                    "temperature_c": 30.0,
+                                },
+                                {
+                                    "elapsed_s": 1.0,
+                                    "position_rad": math.radians(loaded_deg),
+                                    "voltage_v": 11.5,
+                                    "temperature_c": 31.0,
+                                },
+                            ],
+                        }
+                    )
+                )
+                captures.append(path)
+            report = summarize_series(
+                captures,
+                center_deg=10.0,
+                expected_repeats=5,
+                max_repeatability_std_deg=0.5,
+                max_position_error_deg=5.0,
+                min_voltage_v=9.6,
+                max_temperature_c=55.0,
+            )
+        self.assertEqual(report["status"], "stable")
+        self.assertEqual(report["aggregate"]["completed_repeats"], 5)
+        self.assertLess(report["aggregate"]["loaded_position_std_deg"], 0.5)
+
     def test_hardware_campaign_requires_a_bounded_stage(self):
         with self.assertRaisesRegex(SystemExit, "requires --stop-after"):
             campaign_main(
