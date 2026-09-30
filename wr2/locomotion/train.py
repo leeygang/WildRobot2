@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
+import math
+import os
+import sys
 import time
+import warnings
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -19,13 +25,60 @@ from wr2.locomotion.configs import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_KNOWN_OPTIONAL_IMPORT_MESSAGES = (
+    "Failed to import warp:",
+    "Failed to import mujoco_warp:",
+)
+
+
+def _configure_backend_logging() -> None:
+    """Hide known backend noise while preserving errors and WR2 progress."""
+    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+    os.environ.setdefault("ABSL_MIN_LOG_LEVEL", "2")
+    os.environ.setdefault("GLOG_minloglevel", "2")
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Brax System, piplines and environments are not actively being.*",
+        category=UserWarning,
+        module=r"brax\.io\.mjcf",
+    )
+
+
+@contextlib.contextmanager
+def _filter_optional_backend_import_messages():
+    """Suppress optional Warp import notices without hiding other output."""
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            yield
+    except BaseException:
+        sys.stdout.write(stdout.getvalue())
+        sys.stderr.write(stderr.getvalue())
+        raise
+    else:
+        for stream, destination in ((stdout, sys.stdout), (stderr, sys.stderr)):
+            for line in stream.getvalue().splitlines():
+                if not line.startswith(_KNOWN_OPTIONAL_IMPORT_MESSAGES):
+                    print(line, file=destination)
+
+
+def _format_duration(seconds: float | None) -> str:
+    if seconds is None or not math.isfinite(seconds):
+        return "--:--:--"
+    total_seconds = max(0, int(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
 def smoke_test(steps: int, training_config: TrainingConfig | None = None) -> None:
-    import jax
-    import jax.numpy as jp
+    _configure_backend_logging()
+    with _filter_optional_backend_import_messages():
+        import jax
+        import jax.numpy as jp
 
-    from wr2.locomotion.walking_env import WR2WalkingEnv
+        from wr2.locomotion.walking_env import WR2WalkingEnv
 
     training_config = training_config or load_training_config()
     environment = WR2WalkingEnv(
@@ -79,13 +132,23 @@ def _create_run_directory(
 
 
 def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
-    import jax
-    import numpy as np
-    from brax.io import model
-    from brax.training.agents.ppo import train as ppo
+    _configure_backend_logging()
+    with _filter_optional_backend_import_messages():
+        import jax
+        import numpy as np
+        from brax.io import model
+        from brax.training.agents.ppo import train as ppo
 
-    from wr2.locomotion.domain_randomization import make_domain_randomizer
-    from wr2.locomotion.walking_env import WR2WalkingEnv
+        from wr2.locomotion.domain_randomization import make_domain_randomizer
+        from wr2.locomotion.walking_env import WR2WalkingEnv
+
+    backend = jax.default_backend()
+    devices = jax.devices()
+    if backend != "gpu" and not args.allow_cpu:
+        raise RuntimeError(
+            f"JAX backend is {backend!r}, not 'gpu' (devices={devices}). "
+            "Fix the CUDA runtime or pass --allow-cpu for an intentional CPU run."
+        )
 
     environment = WR2WalkingEnv(
         training_config.environment,
@@ -100,8 +163,20 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         training_config.seed,
         training_config.output.run_prefix,
     )
-    print(f"Run ID: {run_id}")
-    print(f"Output: {output}")
+    print("=" * 72)
+    print("WR2 PPO training")
+    print("=" * 72)
+    print(f"  Run ID:       {run_id}")
+    print(f"  Output:       {output}")
+    print(f"  JAX backend:  {backend}")
+    print(f"  Devices:      {devices}")
+    print(f"  Observations: {environment.observation_size}")
+    print(f"  Actions:      {environment.action_size} (leg joints active)")
+    print(f"  Environments: {training_config.ppo.num_envs:,}")
+    print(f"  Target steps: {training_config.ppo.num_timesteps:,}")
+    print(f"  Episode:      {training_config.environment.episode_length} steps")
+    print(f"  Randomized:   {training_config.environment.randomization.enabled}")
+    print("=" * 72)
     effective_config = training_config_to_dict(training_config)
     (output / "training_config.yaml").write_text(
         yaml.safe_dump(effective_config, sort_keys=False), encoding="utf-8"
@@ -123,35 +198,112 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     metrics_path = output / "training_metrics.jsonl"
     metrics_path.write_text("")
 
+    training_started = time.monotonic()
+    progress_index = 0
+
     def progress(step: int, metrics) -> None:
+        nonlocal progress_index
+        elapsed_s = time.monotonic() - training_started
+        step = int(step)
+        target_steps = training_config.ppo.num_timesteps
+        progress_fraction = min(max(step / target_steps, 0.0), 1.0)
+
+        def metric(name: str) -> float | None:
+            value = metrics.get(name)
+            if value is None:
+                return None
+            array = np.asarray(value)
+            return float(array) if array.size == 1 else None
+
+        steps_per_second = metric("training/sps")
+        if steps_per_second is None and step > 0 and elapsed_s > 0.0:
+            steps_per_second = step / elapsed_s
+        eta_s = (
+            max(target_steps - step, 0) / steps_per_second
+            if steps_per_second is not None and steps_per_second > 0.0
+            else None
+        )
         serializable_metrics = {
             name: np.asarray(value).tolist() for name, value in metrics.items()
         }
         with metrics_path.open("a") as stream:
             stream.write(
-                json.dumps({"step": step, "metrics": serializable_metrics}) + "\n"
+                json.dumps(
+                    {
+                        "evaluation": progress_index,
+                        "step": step,
+                        "progress_fraction": progress_fraction,
+                        "elapsed_s": elapsed_s,
+                        "eta_s": eta_s,
+                        "metrics": serializable_metrics,
+                    }
+                )
+                + "\n"
             )
 
-        console_metrics = {
-            "eval_reward": metrics.get(
-                "eval/episode_reward", metrics.get("eval/episode_reward_mean")
-            ),
-            "torque_rms_nm": metrics.get(
-                "eval/episode_actuator_torque_rms_nm_per_step"
-            ),
-            "mean_step_peak_nm": metrics.get(
-                "eval/episode_actuator_torque_peak_nm_per_step"
-            ),
-            "torque_exposure": metrics.get(
-                "eval/episode_sustained_torque_exposure_per_step"
-            ),
-        }
-        summary = " ".join(
-            f"{name}={float(np.asarray(value)):.6g}"
-            for name, value in console_metrics.items()
-            if value is not None
+        episode_return = metric("eval/episode_reward")
+        reward_per_step = metric("eval/episode_reward_per_step")
+        episode_length = metric("eval/avg_episode_length")
+        throughput = (
+            f"{steps_per_second:,.0f}" if steps_per_second is not None else "warming-up"
         )
-        print(f"step={step} {summary}")
+        print(
+            f"#{progress_index:<2} [{_format_duration(elapsed_s)}] "
+            f"Steps: {step:>10,}/{target_steps:,} ({100.0 * progress_fraction:5.1f}%) "
+            f"ETA {_format_duration(eta_s)} | steps/s={throughput}",
+            flush=True,
+        )
+
+        def show(value: float | None, format_spec: str = ".3f") -> str:
+            return "n/a" if value is None else format(value, format_spec)
+
+        print(
+            "  └─ return: "
+            f"episode={show(episode_return, '.2f')} "
+            f"reward/step={show(reward_per_step)} "
+            f"ep_len={show(episode_length, '.0f')}",
+            flush=True,
+        )
+        print(
+            "  └─ track : "
+            f"cmd_vx={show(metric('eval/episode_command_forward_m_s_per_step'))} "
+            f"vx={show(metric('eval/episode_forward_velocity_m_s_per_step'))} "
+            f"|vx-cmd|={show(metric('eval/episode_forward_velocity_error_m_s_per_step'))} "
+            f"vy={show(metric('eval/episode_lateral_velocity_m_s_per_step'))} "
+            f"yaw_err={show(metric('eval/episode_yaw_rate_error_rad_s_per_step'))}",
+            flush=True,
+        )
+        tilt_rad = metric("eval/episode_torso_tilt_rad_per_step")
+        print(
+            "  └─ state : "
+            f"height={show(metric('eval/episode_torso_height_m_per_step'))}m "
+            f"tilt={show(None if tilt_rad is None else math.degrees(tilt_rad), '.1f')}deg "
+            f"fall={show(metric('eval/episode_fall'), '.1%')} "
+            f"feet=L{show(metric('eval/episode_left_foot_contact_per_step'), '.0%')}"
+            f"/R{show(metric('eval/episode_right_foot_contact_per_step'), '.0%')}",
+            flush=True,
+        )
+        print(
+            "  └─ servo : "
+            f"rms={show(metric('eval/episode_actuator_torque_rms_nm_per_step'))}Nm "
+            f"mean_peak={show(metric('eval/episode_actuator_torque_peak_nm_per_step'))}Nm "
+            f"exposure={show(metric('eval/episode_sustained_torque_exposure_per_step'))} "
+            f"|action|={show(metric('eval/episode_action_abs_mean_per_step'))} "
+            f"sat={show(metric('eval/episode_action_saturation_fraction_per_step'), '.1%')}",
+            flush=True,
+        )
+        total_loss = metric("training/total_loss")
+        if total_loss is not None:
+            print(
+                "  └─ ppo   : "
+                f"loss={show(total_loss, '.4f')} "
+                f"policy={show(metric('training/policy_loss'), '.4f')} "
+                f"value={show(metric('training/v_loss'), '.4f')} "
+                f"entropy={show(metric('training/entropy_loss'), '.4f')} "
+                f"kl={show(metric('training/kl_mean'), '.5f')}",
+                flush=True,
+            )
+        progress_index += 1
 
     randomization_fn = (
         None
@@ -159,6 +311,9 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         else make_domain_randomizer(environment.config.randomization)
     )
     ppo_config = training_config.ppo
+    print(
+        "Starting PPO; the first JIT compile and evaluation may take several minutes."
+    )
     make_inference_fn, params, _ = ppo.train(
         environment=environment,
         num_timesteps=ppo_config.num_timesteps,
@@ -251,6 +406,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--discounting", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--no-domain-randomization", action="store_true")
+    parser.add_argument(
+        "--allow-cpu",
+        action="store_true",
+        help="Allow full PPO training to run without a JAX GPU backend",
+    )
     parser.add_argument(
         "--output-root",
         "--output",

@@ -281,10 +281,15 @@ class WR2WalkingEnv(PipelineEnv):
         zero = jp.zeros(())
         metrics = {
             "reward": zero,
+            "reward_per_step": zero,
             "velocity_xy": zero,
+            "velocity_tracking_per_step": zero,
             "yaw_rate": zero,
+            "yaw_tracking_per_step": zero,
             "upright": zero,
+            "upright_per_step": zero,
             "torso_height": zero,
+            "height_tracking_per_step": zero,
             "pose": zero,
             "action_rate": zero,
             "joint_velocity": zero,
@@ -294,6 +299,20 @@ class WR2WalkingEnv(PipelineEnv):
             "actuator_torque_rms_nm_per_step": zero,
             "actuator_torque_peak_nm_per_step": zero,
             "sustained_torque_exposure_per_step": zero,
+            "command_forward_m_s_per_step": zero,
+            "forward_velocity_m_s_per_step": zero,
+            "forward_velocity_error_m_s_per_step": zero,
+            "lateral_velocity_m_s_per_step": zero,
+            "yaw_rate_rad_s_per_step": zero,
+            "yaw_rate_error_rad_s_per_step": zero,
+            "torso_height_m_per_step": zero,
+            "torso_tilt_rad_per_step": zero,
+            "action_abs_mean_per_step": zero,
+            "action_saturation_fraction_per_step": zero,
+            "left_foot_contact_per_step": zero,
+            "right_foot_contact_per_step": zero,
+            "fall": zero,
+            "nonfinite_state": zero,
             "left_foot_contact": zero,
             "right_foot_contact": zero,
         }
@@ -406,6 +425,13 @@ class WR2WalkingEnv(PipelineEnv):
         nonfinite = ~jp.all(jp.isfinite(pipeline_state.q))
         timeout = step_count >= self.config.episode_length
         done = (unhealthy | nonfinite | timeout).astype(jp.float32)
+        active_count = jp.maximum(jp.sum(self._active_mask), 1.0)
+        action_abs_mean = jp.sum(jp.abs(action) * self._active_mask) / active_count
+        action_saturation_fraction = (
+            jp.sum((jp.abs(action) >= 0.99).astype(action.dtype) * self._active_mask)
+            / active_count
+        )
+        torso_tilt_rad = jp.arccos(jp.clip(-projected_gravity[2], -1.0, 1.0))
 
         observation = self._observation(
             pipeline_state, action, command, observation_rng
@@ -420,10 +446,15 @@ class WR2WalkingEnv(PipelineEnv):
         }
         metrics = {
             "reward": reward,
+            "reward_per_step": reward,
             "velocity_xy": velocity_xy,
+            "velocity_tracking_per_step": velocity_xy,
             "yaw_rate": yaw_rate,
+            "yaw_tracking_per_step": yaw_rate,
             "upright": upright,
+            "upright_per_step": upright,
             "torso_height": torso_height,
+            "height_tracking_per_step": torso_height,
             "pose": -pose,
             "action_rate": -action_rate,
             "joint_velocity": -joint_velocity_cost,
@@ -433,6 +464,22 @@ class WR2WalkingEnv(PipelineEnv):
             "actuator_torque_rms_nm_per_step": actuator_torque_rms_nm,
             "actuator_torque_peak_nm_per_step": actuator_torque_peak_nm,
             "sustained_torque_exposure_per_step": sustained_torque_exposure,
+            "command_forward_m_s_per_step": command[0],
+            "forward_velocity_m_s_per_step": linear_velocity[0],
+            "forward_velocity_error_m_s_per_step": jp.abs(
+                linear_velocity[0] - command[0]
+            ),
+            "lateral_velocity_m_s_per_step": linear_velocity[1],
+            "yaw_rate_rad_s_per_step": angular_velocity[2],
+            "yaw_rate_error_rad_s_per_step": jp.abs(angular_velocity[2] - command[2]),
+            "torso_height_m_per_step": torso_z,
+            "torso_tilt_rad_per_step": torso_tilt_rad,
+            "action_abs_mean_per_step": action_abs_mean,
+            "action_saturation_fraction_per_step": action_saturation_fraction,
+            "left_foot_contact_per_step": foot_contact[0].astype(jp.float32),
+            "right_foot_contact_per_step": foot_contact[1].astype(jp.float32),
+            "fall": unhealthy.astype(jp.float32),
+            "nonfinite_state": nonfinite.astype(jp.float32),
             "left_foot_contact": foot_contact[0].astype(jp.float32),
             "right_foot_contact": foot_contact[1].astype(jp.float32),
         }

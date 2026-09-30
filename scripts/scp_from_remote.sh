@@ -24,6 +24,7 @@ SSH_CONNECT_TIMEOUT="${WR2_SSH_CONNECT_TIMEOUT:-10}"
 SSH_CONTROL_DIR="${WR2_SSH_CONTROL_DIR:-/tmp/wr2ssh-$UID}"
 DRY_RUN=false
 POSITIONAL=()
+POSITIONAL_COUNT=0
 
 usage() {
     cat <<'EOF'
@@ -158,14 +159,20 @@ while [ "$#" -gt 0 ]; do
             ;;
         *)
             POSITIONAL+=("$1")
+            POSITIONAL_COUNT=$((POSITIONAL_COUNT + 1))
             shift
             ;;
     esac
 done
+
+if [ "$POSITIONAL_COUNT" -eq 0 ]; then
+    usage
+    exit 1
+fi
 set -- "${POSITIONAL[@]}"
 
 if [ -z "$REMOTE_BASE" ]; then
-    REMOTE_BASE="/home/$REMOTE_USER/projects/wildrobot2"
+    REMOTE_BASE="/home/$REMOTE_USER/projects/WildRobot2"
 fi
 if ! [[ "$REMOTE_USER" =~ ^[A-Za-z0-9._-]+$ ]]; then
     fail "invalid remote user '$REMOTE_USER'"
@@ -391,11 +398,6 @@ copy_latest() {
         esac
     done
 }
-
-if [ "$#" -eq 0 ]; then
-    usage
-    exit 1
-fi
 
 echo "Remote: $REMOTE_TARGET:$REMOTE_BASE"
 if [ "$DRY_RUN" = true ]; then

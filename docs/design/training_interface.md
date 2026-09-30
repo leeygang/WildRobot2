@@ -120,6 +120,15 @@ The trainer generates a run ID such as
 directory or `--run-id` to supply an explicit ID. Each run also receives an
 effective `training_config.yaml` snapshot after CLI overrides.
 
+Full PPO training fails fast unless JAX reports a GPU backend; `--allow-cpu`
+is reserved for intentional development checks. Console progress follows the
+WildRobot layout and reports elapsed time, progress, ETA, throughput, return,
+episode length, commanded and achieved velocity, fall rate, torso state,
+contact duty, servo torque/exposure, action saturation, and PPO losses. The
+complete metric dictionary is retained in `training_metrics.jsonl`. Known
+optional-Warp, Brax-maintenance, and XLA autotuning notices are suppressed;
+errors remain visible.
+
 Before hardware deployment, complete the remaining gates:
 
 1. characterize WR2 servos under representative leg loads and fit the

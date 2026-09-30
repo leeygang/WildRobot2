@@ -14,6 +14,30 @@ class RemoteResultCopyTest(unittest.TestCase):
     def test_script_has_valid_bash_syntax(self):
         subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
 
+    def test_no_arguments_prints_usage_without_nounset_error(self):
+        result = subprocess.run(
+            [str(SCRIPT)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Usage:", result.stdout)
+        self.assertNotIn("unbound variable", result.stderr)
+
+    def test_connection_option_without_action_prints_usage(self):
+        result = subprocess.run(
+            [str(SCRIPT), "--wrdev"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Usage:", result.stdout)
+        self.assertNotIn("unbound variable", result.stderr)
+
     def test_latest_sysid_treats_npz_and_json_as_one_result(self):
         with tempfile.TemporaryDirectory() as temp:
             fake_bin = Path(temp)
@@ -93,6 +117,7 @@ class RemoteResultCopyTest(unittest.TestCase):
             env=environment,
         )
         self.assertIn("Remote: leeygang@203.0.113.42", result.stdout)
+        self.assertIn("/home/leeygang/projects/WildRobot2", result.stdout)
 
     def test_wrdev_profile_selects_deployment_host(self):
         result = subprocess.run(
