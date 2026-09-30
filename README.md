@@ -61,13 +61,15 @@ uv run --extra training python -c 'import jax; print(jax.devices())'
 ```
 
 See [`docs/design/training_interface.md`](docs/design/training_interface.md)
-for the 60-value actor observation, 17-value action contract, and remaining
-hardware gates. See [`docs/design/servo_model.md`](docs/design/servo_model.md)
+for the 62-value phase-aware actor observation, 17-value action contract, and
+remaining hardware gates. See [`docs/design/servo_model.md`](docs/design/servo_model.md)
 for the evidence and limitations behind the initial HTD-45H model.
 Training values are defined in
 [`wr2/locomotion/configs/ppo_walking.yaml`](wr2/locomotion/configs/ppo_walking.yaml);
 the trainer accepts explicit CLI overrides and snapshots the effective YAML in
 every run directory.
+The bounded train/evaluate/promote campaign and Mac-to-GPU command are described
+in [`docs/design/walking_training_agent.md`](docs/design/walking_training_agent.md).
 The staged high-load qualification procedure is in
 [`docs/hardware/htd45h_deployment_test.md`](docs/hardware/htd45h_deployment_test.md).
 

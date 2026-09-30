@@ -1,0 +1,82 @@
+# Bounded WR2 walking curriculum. Two 100M-step acquisition cycles plus eight
+# robust cycles cap the complete campaign at ToddlerBot's 1B-step scale.
+version: "1.0.0"
+base_training_config: wr2/locomotion/configs/ppo_walking.yaml
+agent_output_root: results/wr2_walking_agent
+
+cycle:
+  num_timesteps: 100000000
+  num_evals: 6
+  confirmation_commands_m_s: [0.10, 0.15, 0.20]
+  confirmation_seeds: [101, 202, 303]
+  confirmation_num_envs: 128
+
+# These are simulation invariants, not deployment qualifications. A candidate
+# violating one is never promoted to the next cycle.
+hard_safety:
+  max_mean_step_peak_torque_nm: 4.0
+  max_action_saturation_fraction: 0.15
+  max_nonfinite_state: 0.0
+
+stages:
+  - name: gait_acquisition
+    max_cycles: 2
+    evaluation_commands_m_s: [0.10, 0.15]
+    required_gates:
+      - episode_length
+      - fall_rate
+      - forward_velocity_ratio
+      - forward_velocity_error
+      - contact_phase
+      - action_saturation
+    overrides:
+      domain_randomization.enabled: false
+      environment.command_forward_range_m_s: [0.08, 0.18]
+      environment.zero_command_probability: 0.10
+    goal:
+      min_walking_score: 0.20
+      min_episode_length: 900
+      max_fall_rate: 0.10
+      min_forward_velocity_ratio: 0.50
+      max_forward_velocity_error_m_s: 0.08
+      max_abs_lateral_velocity_m_s: 0.08
+      max_yaw_rate_error_rad_s: 0.30
+      min_contact_phase_match: 0.65
+      max_double_support: 0.70
+      min_feet_phase_score: 0.75
+      max_actuator_torque_rms_nm: 1.0157
+      max_mean_step_peak_torque_nm: 3.5
+      max_sustained_torque_exposure: 2.0
+      max_action_saturation_fraction: 0.10
+      max_nonfinite_state: 0.0
+
+  - name: robust_walking
+    max_cycles: 8
+    evaluation_commands_m_s: [0.10, 0.15, 0.20]
+    required_gates:
+      - episode_length
+      - fall_rate
+      - forward_velocity_ratio
+      - forward_velocity_error
+      - contact_phase
+      - action_saturation
+    overrides:
+      domain_randomization.enabled: true
+      environment.command_forward_range_m_s: [0.10, 0.25]
+      environment.zero_command_probability: 0.20
+    goal:
+      min_walking_score: 0.55
+      min_episode_length: 995
+      max_fall_rate: 0.01
+      min_forward_velocity_ratio: 0.90
+      max_forward_velocity_error_m_s: 0.02
+      max_abs_lateral_velocity_m_s: 0.03
+      max_yaw_rate_error_rad_s: 0.10
+      min_contact_phase_match: 0.80
+      max_double_support: 0.25
+      min_feet_phase_score: 1.10
+      max_actuator_torque_rms_nm: 1.0157
+      max_mean_step_peak_torque_nm: 3.0
+      max_sustained_torque_exposure: 1.0
+      max_action_saturation_fraction: 0.02
+      max_nonfinite_state: 0.0

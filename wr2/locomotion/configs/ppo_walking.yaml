@@ -1,7 +1,7 @@
-# WR2 initial standing-to-walking PPO configuration.
-# This is a training baseline, not a hardware-deployment qualification.
-version: "0.1.0"
-version_name: "WR2 provisional actuator walking baseline"
+# WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
+# policy while preserving WR2's measured actuator envelope.
+version: "0.2.0"
+version_name: "WR2 phase-guided forward walking"
 seed: 0
 
 environment:
@@ -11,14 +11,25 @@ environment:
   action_delay_steps: 1
   reset_joint_noise_rad: 0.02
   reset_velocity_noise_rad_s: 0.05
-  command_forward_range_m_s: [0.0, 0.20]
+  # Walking commands exclude zero; zero_command_probability supplies explicit
+  # standing episodes so a stationary policy cannot exploit weak tracking.
+  command_forward_range_m_s: [0.10, 0.25]
   command_lateral_range_m_s: [0.0, 0.0]
   command_yaw_range_rad_s: [0.0, 0.0]
   zero_command_probability: 0.20
+  command_resample_steps: 150
+  command_active_threshold_m_s: 0.05
+  gait_cycle_s: 0.72
+  # Start each rollout from double support and phase zero, matching deployment.
+  randomize_gait_phase_on_reset: false
+  swing_height_m: 0.03
+  feet_phase_tracking_sigma_m2: 0.0004
+  min_feet_lateral_distance_m: 0.06
+  max_feet_lateral_distance_m: 0.12
   target_torso_height_m: 0.301
   terminate_height_m: 0.20
   terminate_projected_gravity_z: -0.50
-  velocity_tracking_sigma: 0.20
+  velocity_tracking_sigma: 0.08
   yaw_tracking_sigma: 0.40
   height_tracking_sigma: 0.03
   # A policy-demand metric, not a fitted thermal time constant. C6 repeats show
@@ -26,7 +37,7 @@ environment:
   torque_exposure_time_constant_s: 10.0
 
 reward_weights:
-  velocity_xy: 1.5
+  velocity_xy: 2.0
   yaw_rate: 0.5
   upright: 0.5
   torso_height: 0.25
@@ -37,6 +48,11 @@ reward_weights:
   foot_slip: -0.05
   mechanical_power: -0.0002
   actuator_torque_squared: -0.005
+  feet_phase: 2.0
+  contact_phase: 0.5
+  both_feet_contact: -0.5
+  feet_distance: 0.25
+  feet_orientation: 0.25
 
 observation_noise:
   joint_position_std_rad: 0.003
@@ -58,18 +74,34 @@ domain_randomization:
   target_bias_rad: [-0.034906585, 0.034906585]
 
 ppo:
-  num_timesteps: 20000000
+  num_timesteps: 1000000000
   num_envs: 2048
-  num_evals: 10
+  num_evals: 50
   num_eval_envs: 128
-  learning_rate: 0.0003
-  entropy_cost: 0.01
+  evaluation_forward_command_m_s: 0.20
+  learning_rate: 0.00003
+  entropy_cost: 0.0005
   discounting: 0.97
+  gae_lambda: 0.95
+  clipping_epsilon: 0.2
+  max_grad_norm: 1.0
   unroll_length: 20
   batch_size: 256
   num_minibatches: 8
   num_updates_per_batch: 4
   normalize_observations: true
+
+network:
+  policy_hidden_layer_sizes: [512, 256, 128]
+  value_hidden_layer_sizes: [512, 256, 128]
+  activation: elu
+  distribution_type: normal
+  noise_std_type: log
+  init_noise_std: 0.5
+
+checkpoints:
+  save_every_evaluation: true
+  keep_best: true
 
 output:
   root: results/wr2_walking

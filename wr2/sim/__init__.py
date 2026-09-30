@@ -5,6 +5,7 @@ from wr2.sim.interface import (
     RobotBackend,
     RobotObservation,
     build_wr2_proprio_v1,
+    build_wr2_proprio_v2,
 )
 from wr2.sim.robot import MotorSpec, RobotDescription
 
@@ -15,4 +16,5 @@ __all__ = [
     "RobotDescription",
     "RobotObservation",
     "build_wr2_proprio_v1",
+    "build_wr2_proprio_v2",
 ]

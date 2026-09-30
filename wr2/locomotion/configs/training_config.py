@@ -25,6 +25,11 @@ class RewardWeights:
     foot_slip: float
     mechanical_power: float
     actuator_torque_squared: float
+    feet_phase: float
+    contact_phase: float
+    both_feet_contact: float
+    feet_distance: float
+    feet_orientation: float
 
 
 @dataclass(frozen=True)
@@ -60,6 +65,14 @@ class WalkingEnvConfig:
     command_lateral_range_m_s: tuple[float, float]
     command_yaw_range_rad_s: tuple[float, float]
     zero_command_probability: float
+    command_resample_steps: int
+    command_active_threshold_m_s: float
+    gait_cycle_s: float
+    randomize_gait_phase_on_reset: bool
+    swing_height_m: float
+    feet_phase_tracking_sigma_m2: float
+    min_feet_lateral_distance_m: float
+    max_feet_lateral_distance_m: float
     target_torso_height_m: float
     terminate_height_m: float
     terminate_projected_gravity_z: float
@@ -78,14 +91,34 @@ class PPOConfig:
     num_envs: int
     num_evals: int
     num_eval_envs: int
+    evaluation_forward_command_m_s: float
     learning_rate: float
     entropy_cost: float
     discounting: float
+    gae_lambda: float
+    clipping_epsilon: float
+    max_grad_norm: float
     unroll_length: int
     batch_size: int
     num_minibatches: int
     num_updates_per_batch: int
     normalize_observations: bool
+
+
+@dataclass(frozen=True)
+class NetworkConfig:
+    policy_hidden_layer_sizes: tuple[int, ...]
+    value_hidden_layer_sizes: tuple[int, ...]
+    activation: str
+    distribution_type: str
+    noise_std_type: str
+    init_noise_std: float
+
+
+@dataclass(frozen=True)
+class CheckpointConfig:
+    save_every_evaluation: bool
+    keep_best: bool
 
 
 @dataclass(frozen=True)
@@ -101,6 +134,8 @@ class TrainingConfig:
     seed: int
     environment: WalkingEnvConfig
     ppo: PPOConfig
+    network: NetworkConfig
+    checkpoints: CheckpointConfig
     output: OutputConfig
 
 
@@ -174,6 +209,8 @@ def load_training_config(
         "observation_noise",
         "domain_randomization",
         "ppo",
+        "network",
+        "checkpoints",
         "output",
     }
     _expect_keys(root, root_keys, "training config")
@@ -214,13 +251,13 @@ def load_training_config(
         "command_lateral_range_m_s",
         "command_yaw_range_rad_s",
     }
+    integer_fields = {"episode_length", "action_delay_steps", "command_resample_steps"}
+    boolean_fields = {"randomize_gait_phase_on_reset"}
     float_fields = (
         env_fields
-        - {
-            "episode_length",
-            "active_groups",
-            "action_delay_steps",
-        }
+        - integer_fields
+        - boolean_fields
+        - {"active_groups"}
         - range_fields
     )
     active_groups = env_raw["active_groups"]
@@ -233,6 +270,13 @@ def load_training_config(
             env_raw["episode_length"], "environment.episode_length"
         ),
         action_delay_steps=int(env_raw["action_delay_steps"]),
+        command_resample_steps=_positive_int(
+            env_raw["command_resample_steps"], "environment.command_resample_steps"
+        ),
+        randomize_gait_phase_on_reset=_bool(
+            env_raw["randomize_gait_phase_on_reset"],
+            "environment.randomize_gait_phase_on_reset",
+        ),
         active_groups=tuple(active_groups),
         **{name: _float(env_raw[name], f"environment.{name}") for name in float_fields},
         **{
@@ -251,6 +295,22 @@ def load_training_config(
         raise ValueError("environment.zero_command_probability must be in [0, 1]")
     if environment.torque_exposure_time_constant_s <= 0.0:
         raise ValueError("environment.torque_exposure_time_constant_s must be positive")
+    if environment.command_active_threshold_m_s < 0.0:
+        raise ValueError("environment.command_active_threshold_m_s must be non-negative")
+    if environment.gait_cycle_s <= 0.0:
+        raise ValueError("environment.gait_cycle_s must be positive")
+    if environment.swing_height_m <= 0.0:
+        raise ValueError("environment.swing_height_m must be positive")
+    if environment.feet_phase_tracking_sigma_m2 <= 0.0:
+        raise ValueError("environment.feet_phase_tracking_sigma_m2 must be positive")
+    if not (
+        0.0
+        < environment.min_feet_lateral_distance_m
+        < environment.max_feet_lateral_distance_m
+    ):
+        raise ValueError(
+            "environment foot lateral distances must satisfy 0 < min < max"
+        )
 
     ppo_raw = _mapping(root["ppo"], "ppo")
     ppo_fields = {field.name for field in fields(PPOConfig)}
@@ -284,6 +344,63 @@ def load_training_config(
         raise ValueError("ppo.entropy_cost must be non-negative")
     if not 0.0 < ppo.discounting <= 1.0:
         raise ValueError("ppo.discounting must be in (0, 1]")
+    if not 0.0 < ppo.gae_lambda <= 1.0:
+        raise ValueError("ppo.gae_lambda must be in (0, 1]")
+    if ppo.clipping_epsilon <= 0.0:
+        raise ValueError("ppo.clipping_epsilon must be positive")
+    if ppo.max_grad_norm <= 0.0:
+        raise ValueError("ppo.max_grad_norm must be positive")
+    if ppo.evaluation_forward_command_m_s <= 0.0:
+        raise ValueError("ppo.evaluation_forward_command_m_s must be positive")
+    if not (
+        environment.command_forward_range_m_s[0]
+        <= ppo.evaluation_forward_command_m_s
+        <= environment.command_forward_range_m_s[1]
+    ):
+        raise ValueError(
+            "ppo.evaluation_forward_command_m_s must be inside the training range"
+        )
+
+    network_raw = _mapping(root["network"], "network")
+    network_fields = {field.name for field in fields(NetworkConfig)}
+    _expect_keys(network_raw, network_fields, "network")
+
+    def hidden_sizes(name: str) -> tuple[int, ...]:
+        values = network_raw[name]
+        if not isinstance(values, list) or not values:
+            raise ValueError(f"network.{name} must be a non-empty list")
+        return tuple(
+            _positive_int(value, f"network.{name}[{index}]")
+            for index, value in enumerate(values)
+        )
+
+    network = NetworkConfig(
+        policy_hidden_layer_sizes=hidden_sizes("policy_hidden_layer_sizes"),
+        value_hidden_layer_sizes=hidden_sizes("value_hidden_layer_sizes"),
+        activation=str(network_raw["activation"]),
+        distribution_type=str(network_raw["distribution_type"]),
+        noise_std_type=str(network_raw["noise_std_type"]),
+        init_noise_std=_float(network_raw["init_noise_std"], "network.init_noise_std"),
+    )
+    if network.activation not in {"elu", "relu", "silu", "tanh"}:
+        raise ValueError("network.activation must be one of: elu, relu, silu, tanh")
+    if network.distribution_type not in {"normal", "tanh_normal"}:
+        raise ValueError("network.distribution_type must be normal or tanh_normal")
+    if network.noise_std_type not in {"scalar", "log"}:
+        raise ValueError("network.noise_std_type must be scalar or log")
+    if network.init_noise_std <= 0.0:
+        raise ValueError("network.init_noise_std must be positive")
+
+    checkpoints_raw = _mapping(root["checkpoints"], "checkpoints")
+    checkpoint_fields = {field.name for field in fields(CheckpointConfig)}
+    _expect_keys(checkpoints_raw, checkpoint_fields, "checkpoints")
+    checkpoints = CheckpointConfig(
+        save_every_evaluation=_bool(
+            checkpoints_raw["save_every_evaluation"],
+            "checkpoints.save_every_evaluation",
+        ),
+        keep_best=_bool(checkpoints_raw["keep_best"], "checkpoints.keep_best"),
+    )
 
     output_raw = _mapping(root["output"], "output")
     _expect_keys(output_raw, {"root", "run_prefix"}, "output")
@@ -305,6 +422,8 @@ def load_training_config(
         seed=int(root["seed"]),
         environment=environment,
         ppo=ppo,
+        network=network,
+        checkpoints=checkpoints,
         output=output,
     )
 
@@ -325,5 +444,7 @@ def training_config_to_dict(config: TrainingConfig) -> dict[str, Any]:
         "observation_noise": observation_noise,
         "domain_randomization": randomization,
         "ppo": value["ppo"],
+        "network": value["network"],
+        "checkpoints": value["checkpoints"],
         "output": value["output"],
     }

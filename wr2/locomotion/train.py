@@ -1,4 +1,4 @@
-"""Smoke-test or train WR2's initial Brax PPO walking environment."""
+"""Smoke-test or train WR2's phase-guided Brax PPO walking environment."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from wr2.locomotion.configs import (
     load_training_config,
     training_config_to_dict,
 )
+from wr2.locomotion.walking_metrics import walking_score as calculate_walking_score
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _KNOWN_OPTIONAL_IMPORT_MESSAGES = (
@@ -140,6 +141,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         from brax.training.agents.ppo import train as ppo
 
         from wr2.locomotion.domain_randomization import make_domain_randomizer
+        from wr2.locomotion.ppo import make_network_factory
         from wr2.locomotion.walking_env import WR2WalkingEnv
 
     backend = jax.default_backend()
@@ -149,10 +151,25 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             f"JAX backend is {backend!r}, not 'gpu' (devices={devices}). "
             "Fix the CUDA runtime or pass --allow-cpu for an intentional CPU run."
         )
+    if args.restore_checkpoint is not None and not args.restore_checkpoint.exists():
+        raise FileNotFoundError(
+            f"Restore checkpoint does not exist: {args.restore_checkpoint}"
+        )
 
     environment = WR2WalkingEnv(
         training_config.environment,
         add_observation_noise=True,
+    )
+    evaluation_environment = WR2WalkingEnv(
+        replace(
+            training_config.environment,
+            command_forward_range_m_s=(
+                training_config.ppo.evaluation_forward_command_m_s,
+                training_config.ppo.evaluation_forward_command_m_s,
+            ),
+            zero_command_probability=0.0,
+        ),
+        add_observation_noise=False,
     )
     output_root = Path(training_config.output.root)
     if not output_root.is_absolute():
@@ -175,7 +192,25 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     print(f"  Environments: {training_config.ppo.num_envs:,}")
     print(f"  Target steps: {training_config.ppo.num_timesteps:,}")
     print(f"  Episode:      {training_config.environment.episode_length} steps")
+    print(
+        "  Evaluation:   "
+        f"fixed {training_config.ppo.evaluation_forward_command_m_s:.2f}m/s forward"
+    )
+    print(
+        "  Gait:         "
+        f"{training_config.environment.gait_cycle_s:.2f}s cycle, "
+        f"{training_config.environment.swing_height_m:.3f}m swing"
+    )
+    print(
+        "  Network:      "
+        f"policy={list(training_config.network.policy_hidden_layer_sizes)} "
+        f"value={list(training_config.network.value_hidden_layer_sizes)} "
+        f"activation={training_config.network.activation} "
+        f"distribution={training_config.network.distribution_type}"
+    )
     print(f"  Randomized:   {training_config.environment.randomization.enabled}")
+    if args.restore_checkpoint is not None:
+        print(f"  Restore:      {args.restore_checkpoint.resolve()}")
     print("=" * 72)
     effective_config = training_config_to_dict(training_config)
     (output / "training_config.yaml").write_text(
@@ -200,9 +235,15 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
 
     training_started = time.monotonic()
     progress_index = 0
+    latest_params: dict[str, object] = {}
+    best_walking_score = -math.inf
+
+    def receive_policy_params(step: int, _make_policy, params) -> None:
+        latest_params["step"] = int(step)
+        latest_params["value"] = params
 
     def progress(step: int, metrics) -> None:
-        nonlocal progress_index
+        nonlocal best_walking_score, progress_index
         elapsed_s = time.monotonic() - training_started
         step = int(step)
         target_steps = training_config.ppo.num_timesteps
@@ -223,6 +264,29 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             if steps_per_second is not None and steps_per_second > 0.0
             else None
         )
+        episode_return = metric("eval/episode_reward")
+        reward_per_step = metric("eval/episode_reward_per_step")
+        episode_length = metric("eval/avg_episode_length")
+        velocity_error = metric(
+            "eval/episode_forward_velocity_error_m_s_per_step"
+        )
+        contact_match = metric("eval/episode_contact_phase_match_per_step")
+        double_support = metric("eval/episode_double_support_per_step")
+        walking_score = None
+        if (
+            episode_length is not None
+            and velocity_error is not None
+            and contact_match is not None
+            and double_support is not None
+        ):
+            walking_score = calculate_walking_score(
+                episode_length=episode_length,
+                target_episode_length=training_config.environment.episode_length,
+                velocity_error_m_s=velocity_error,
+                velocity_sigma_m_s=training_config.environment.velocity_tracking_sigma,
+                contact_match=contact_match,
+                double_support=double_support,
+            )
         serializable_metrics = {
             name: np.asarray(value).tolist() for name, value in metrics.items()
         }
@@ -235,15 +299,12 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                         "progress_fraction": progress_fraction,
                         "elapsed_s": elapsed_s,
                         "eta_s": eta_s,
+                        "walking_score": walking_score,
                         "metrics": serializable_metrics,
                     }
                 )
                 + "\n"
             )
-
-        episode_return = metric("eval/episode_reward")
-        reward_per_step = metric("eval/episode_reward_per_step")
-        episode_length = metric("eval/avg_episode_length")
         throughput = (
             f"{steps_per_second:,.0f}" if steps_per_second is not None else "warming-up"
         )
@@ -261,7 +322,8 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             "  └─ return: "
             f"episode={show(episode_return, '.2f')} "
             f"reward/step={show(reward_per_step)} "
-            f"ep_len={show(episode_length, '.0f')}",
+            f"ep_len={show(episode_length, '.0f')} "
+            f"walking_score={show(walking_score)}",
             flush=True,
         )
         print(
@@ -284,6 +346,16 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             flush=True,
         )
         print(
+            "  └─ gait  : "
+            f"phase_score={show(metric('eval/episode_feet_phase_tracking_per_step'))} "
+            f"contact_match={show(metric('eval/episode_contact_phase_match_per_step'), '.1%')} "
+            f"double_support={show(metric('eval/episode_double_support_per_step'), '.1%')} "
+            f"foot_z=L{show(metric('eval/episode_left_foot_height_m_per_step'))}m"
+            f"/R{show(metric('eval/episode_right_foot_height_m_per_step'))}m "
+            f"width={show(metric('eval/episode_feet_lateral_distance_m_per_step'))}m",
+            flush=True,
+        )
+        print(
             "  └─ servo : "
             f"rms={show(metric('eval/episode_actuator_torque_rms_nm_per_step'))}Nm "
             f"mean_peak={show(metric('eval/episode_actuator_torque_peak_nm_per_step'))}Nm "
@@ -303,6 +375,31 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 f"kl={show(metric('training/kl_mean'), '.5f')}",
                 flush=True,
             )
+        if (
+            training_config.checkpoints.keep_best
+            and walking_score is not None
+            and walking_score > best_walking_score
+            and latest_params.get("step") == step
+        ):
+            best_walking_score = walking_score
+            model.save_params(output / "best_params", latest_params["value"])
+            (output / "best_checkpoint.json").write_text(
+                json.dumps(
+                    {
+                        "step": step,
+                        "eval_episode_reward": episode_return,
+                        "walking_score": walking_score,
+                        "evaluation": progress_index,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            print(
+                f"  └─ saved : new best checkpoint at step {step:,}", flush=True
+            )
         progress_index += 1
 
     randomization_fn = (
@@ -311,6 +408,12 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         else make_domain_randomizer(environment.config.randomization)
     )
     ppo_config = training_config.ppo
+    network_factory = make_network_factory(training_config.network)
+    checkpoint_path = (
+        str(output / "checkpoints")
+        if training_config.checkpoints.save_every_evaluation
+        else None
+    )
     print(
         "Starting PPO; the first JIT compile and evaluation may take several minutes."
     )
@@ -321,17 +424,30 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         episode_length=environment.config.episode_length,
         num_evals=ppo_config.num_evals,
         num_eval_envs=ppo_config.num_eval_envs,
+        eval_env=evaluation_environment,
         learning_rate=ppo_config.learning_rate,
         entropy_cost=ppo_config.entropy_cost,
         discounting=ppo_config.discounting,
+        gae_lambda=ppo_config.gae_lambda,
+        clipping_epsilon=ppo_config.clipping_epsilon,
+        max_grad_norm=ppo_config.max_grad_norm,
         unroll_length=ppo_config.unroll_length,
         batch_size=ppo_config.batch_size,
         num_minibatches=ppo_config.num_minibatches,
         num_updates_per_batch=ppo_config.num_updates_per_batch,
         normalize_observations=ppo_config.normalize_observations,
+        network_factory=network_factory,
         randomization_fn=randomization_fn,
         seed=training_config.seed,
         progress_fn=progress,
+        policy_params_fn=receive_policy_params,
+        save_checkpoint_path=checkpoint_path,
+        restore_checkpoint_path=(
+            str(args.restore_checkpoint.resolve())
+            if args.restore_checkpoint is not None
+            else None
+        ),
+        deterministic_eval=True,
     )
     del make_inference_fn
     jax.block_until_ready(params)
@@ -422,6 +538,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--run-id",
         help="Optional explicit run ID; defaults to a timestamped ID",
+    )
+    parser.add_argument(
+        "--restore-checkpoint",
+        type=Path,
+        help="Resume from a Brax checkpoint directory in a new output run",
     )
     return parser.parse_args()
 

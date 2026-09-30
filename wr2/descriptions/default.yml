@@ -15,11 +15,12 @@ action:
     joint_limit_margin_rad: 0.0
 
 # Actor-visible, hardware-reproducible proprioception. Contact and base linear
-# velocity remain available to rewards/the privileged critic, but are excluded
-# from the deployed actor until equivalent hardware measurements exist.
+# velocity remain available to rewards, but are excluded from the actor and
+# critic until equivalent hardware measurements exist.
 observation:
-    layout_id: wr2_proprio_v1
+    layout_id: wr2_proprio_v2
     fields:
+        - {name: gait_phase, size: 2, units: "sin,cos"}
         - {name: command_velocity, size: 3, frame: torso, units: "m/s,m/s,rad/s"}
         - {name: joint_position_error, size: 17, units: rad}
         - {name: joint_velocity, size: 17, units: rad/s}
@@ -27,6 +28,7 @@ observation:
         - {name: torso_angular_velocity, size: 3, frame: torso, units: rad/s}
         - {name: projected_gravity, size: 3, frame: torso, units: normalized}
     scales:
+        gait_phase: 1.0
         command_velocity: [1.0, 1.0, 1.0]
         joint_position_error: 1.0
         joint_velocity: 0.05

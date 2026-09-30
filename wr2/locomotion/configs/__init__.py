@@ -1,8 +1,10 @@
 """Versioned YAML configuration and typed loading for WR2 training."""
 
 from wr2.locomotion.configs.training_config import (
+    CheckpointConfig,
     DEFAULT_TRAINING_CONFIG_PATH,
     DynamicsRandomization,
+    NetworkConfig,
     ObservationNoise,
     OutputConfig,
     PPOConfig,
@@ -14,8 +16,10 @@ from wr2.locomotion.configs.training_config import (
 )
 
 __all__ = [
+    "CheckpointConfig",
     "DEFAULT_TRAINING_CONFIG_PATH",
     "DynamicsRandomization",
+    "NetworkConfig",
     "ObservationNoise",
     "OutputConfig",
     "PPOConfig",

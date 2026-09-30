@@ -125,6 +125,29 @@ def build_wr2_proprio_v1(
     )
 
 
+def build_wr2_proprio_v2(
+    observation: RobotObservation,
+    *,
+    gait_phase_rad: float,
+    home_position_rad: npt.ArrayLike,
+    previous_action: npt.ArrayLike,
+    command_velocity: npt.ArrayLike,
+) -> FloatArray:
+    """Build the 62-value walking observation, including a local gait clock."""
+    if not np.isfinite(gait_phase_rad):
+        raise ValueError("gait_phase_rad must be finite")
+    phase = np.asarray(
+        [np.sin(gait_phase_rad), np.cos(gait_phase_rad)], dtype=np.float32
+    )
+    proprio = build_wr2_proprio_v1(
+        observation,
+        home_position_rad=home_position_rad,
+        previous_action=previous_action,
+        command_velocity=command_velocity,
+    )
+    return np.concatenate([phase, proprio], dtype=np.float32)
+
+
 class RobotBackend(Protocol):
     """Interface that both a simulator and physical WR2 backend must satisfy."""
 

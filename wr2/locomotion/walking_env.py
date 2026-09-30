@@ -1,4 +1,4 @@
-"""Minimal Brax/MJX standing-to-walking environment for WR2."""
+"""Phase-guided Brax/MJX walking environment for WR2."""
 
 from __future__ import annotations
 
@@ -11,6 +11,43 @@ from brax.io import mjcf
 
 from wr2.locomotion.configs import WalkingEnvConfig, load_training_config
 from wr2.sim.robot import RobotDescription
+
+
+_TWO_PI = 2.0 * np.pi
+
+
+def _smoothstep(value: jax.Array) -> jax.Array:
+    value = jp.clip(value, 0.0, 1.0)
+    return value * value * (3.0 - 2.0 * value)
+
+
+def expected_foot_heights(
+    gait_phase: jax.Array,
+    swing_height_m: float,
+    is_walking: jax.Array,
+) -> jax.Array:
+    """Return left/right ground-relative swing targets for one gait cycle."""
+    phase = jp.mod(gait_phase, _TWO_PI)
+
+    def swing_profile(progress: jax.Array) -> jax.Array:
+        triangular = jp.where(progress < 0.5, 2.0 * progress, 2.0 * (1.0 - progress))
+        return swing_height_m * _smoothstep(triangular)
+
+    left_progress = phase / np.pi
+    right_progress = (phase - np.pi) / np.pi
+    left_height = jp.where(phase < np.pi, swing_profile(left_progress), 0.0)
+    right_height = jp.where(phase >= np.pi, swing_profile(right_progress), 0.0)
+    targets = jp.stack([left_height, right_height])
+    return jp.where(is_walking, targets, jp.zeros(2))
+
+
+def expected_foot_contacts(
+    gait_phase: jax.Array, is_walking: jax.Array
+) -> jax.Array:
+    """Return desired left/right stance contact for one gait cycle."""
+    left_stance = jp.mod(gait_phase, _TWO_PI) >= np.pi
+    contacts = jp.stack([left_stance, ~left_stance])
+    return jp.where(is_walking, contacts, jp.ones(2, dtype=jp.bool_))
 
 
 def _rotate_vector(quaternion: jax.Array, vector: jax.Array) -> jax.Array:
@@ -59,6 +96,21 @@ class WR2WalkingEnv(PipelineEnv):
         if key_id < 0:
             raise ValueError("MJX model is missing the walk_home keyframe")
 
+        foot_site_ids = np.asarray(
+            [
+                mujoco.mj_name2id(
+                    mj_model, mujoco.mjtObj.mjOBJ_SITE, f"{side}_foot_center"
+                )
+                for side in ("left", "right")
+            ],
+            dtype=np.int32,
+        )
+        if np.any(foot_site_ids < 0):
+            raise ValueError("MJX model is missing a configured foot-center site")
+        home_data = mujoco.MjData(mj_model)
+        mujoco.mj_resetDataKeyframe(mj_model, home_data, key_id)
+        mujoco.mj_forward(mj_model, home_data)
+
         system = mjcf.load_model(mj_model)
         n_frames = round(self.robot.control_period_s / self.robot.simulation_timestep_s)
         super().__init__(system, backend="mjx", n_frames=n_frames)
@@ -67,6 +119,11 @@ class WR2WalkingEnv(PipelineEnv):
         self._home_ctrl = jp.asarray(mj_model.key_ctrl[key_id])
         self._ctrl_lower = jp.asarray(mj_model.actuator_ctrlrange[:, 0])
         self._ctrl_upper = jp.asarray(mj_model.actuator_ctrlrange[:, 1])
+        self._foot_site_ids = jp.asarray(foot_site_ids)
+        self._home_foot_site_z = jp.asarray(home_data.site_xpos[foot_site_ids, 2])
+        self._gait_phase_increment = float(
+            _TWO_PI * self.robot.control_period_s / self.config.gait_cycle_s
+        )
         servo_config = self.robot.config["actuators"]["htd45hServo"]
         self._torque_exposure_reference_nm = float(
             servo_config["maximum_validated_load_nm"]
@@ -134,6 +191,11 @@ class WR2WalkingEnv(PipelineEnv):
                 for side in ("left", "right")
             ]
         )
+        if bool(np.any(np.asarray(self._foot_geom_ids) < 0)):
+            raise ValueError("MJX model is missing a configured foot collision geom")
+
+    def _is_walking(self, command: jax.Array) -> jax.Array:
+        return jp.linalg.norm(command) >= self.config.command_active_threshold_m_s
 
     def _sample_command(self, rng: jax.Array) -> jax.Array:
         keys = jax.random.split(rng, 4)
@@ -178,6 +240,7 @@ class WR2WalkingEnv(PipelineEnv):
         pipeline_state,
         previous_action: jax.Array,
         command: jax.Array,
+        gait_phase: jax.Array,
         rng: jax.Array,
     ) -> jax.Array:
         joint_position = pipeline_state.q[self._joint_qpos_indices]
@@ -213,6 +276,7 @@ class WR2WalkingEnv(PipelineEnv):
 
         return jp.concatenate(
             [
+                jp.stack([jp.sin(gait_phase), jp.cos(gait_phase)]),
                 command,
                 joint_position - self._home_ctrl,
                 self._joint_velocity_observation_scale * joint_velocity,
@@ -243,9 +307,10 @@ class WR2WalkingEnv(PipelineEnv):
             joint_rng,
             velocity_rng,
             command_rng,
+            phase_rng,
             observation_rng,
             actuator_bias_rng,
-        ) = jax.random.split(rng, 6)
+        ) = jax.random.split(rng, 7)
         qpos = self._default_qpos.at[self._joint_qpos_indices].add(
             jax.random.uniform(
                 joint_rng,
@@ -261,11 +326,15 @@ class WR2WalkingEnv(PipelineEnv):
             maxval=self.config.reset_velocity_noise_rad_s,
         )
         bias_range = self.config.randomization.target_bias_rad
-        actuator_target_bias = jax.random.uniform(
-            actuator_bias_rng,
-            (self.robot.actuator_count,),
-            minval=bias_range[0],
-            maxval=bias_range[1],
+        actuator_target_bias = (
+            jax.random.uniform(
+                actuator_bias_rng,
+                (self.robot.actuator_count,),
+                minval=bias_range[0],
+                maxval=bias_range[1],
+            )
+            if self.config.randomization.enabled
+            else jp.zeros(self.robot.actuator_count)
         )
         initial_target = jp.clip(
             self._quantize_target(self._home_ctrl + actuator_target_bias),
@@ -274,9 +343,20 @@ class WR2WalkingEnv(PipelineEnv):
         )
         pipeline_state = self.pipeline_init(qpos, qvel, ctrl=initial_target)
         command = self._sample_command(command_rng)
+        is_walking = self._is_walking(command)
+        random_phase = jax.random.uniform(phase_rng, (), maxval=_TWO_PI)
+        gait_phase = jp.where(
+            is_walking & self.config.randomize_gait_phase_on_reset,
+            random_phase,
+            0.0,
+        )
         previous_action = jp.zeros(self.robot.actuator_count)
         observation = self._observation(
-            pipeline_state, previous_action, command, observation_rng
+            pipeline_state,
+            previous_action,
+            command,
+            gait_phase,
+            observation_rng,
         )
         zero = jp.zeros(())
         metrics = {
@@ -296,6 +376,11 @@ class WR2WalkingEnv(PipelineEnv):
             "foot_slip": zero,
             "mechanical_power": zero,
             "actuator_torque_squared": zero,
+            "feet_phase": zero,
+            "contact_phase": zero,
+            "both_feet_contact": zero,
+            "feet_distance": zero,
+            "feet_orientation": zero,
             "actuator_torque_rms_nm_per_step": zero,
             "actuator_torque_peak_nm_per_step": zero,
             "sustained_torque_exposure_per_step": zero,
@@ -311,6 +396,14 @@ class WR2WalkingEnv(PipelineEnv):
             "action_saturation_fraction_per_step": zero,
             "left_foot_contact_per_step": zero,
             "right_foot_contact_per_step": zero,
+            "double_support_per_step": zero,
+            "feet_phase_tracking_per_step": zero,
+            "contact_phase_match_per_step": zero,
+            "left_foot_height_m_per_step": zero,
+            "right_foot_height_m_per_step": zero,
+            "left_foot_target_height_m_per_step": zero,
+            "right_foot_target_height_m_per_step": zero,
+            "feet_lateral_distance_m_per_step": zero,
             "fall": zero,
             "nonfinite_state": zero,
             "left_foot_contact": zero,
@@ -319,6 +412,7 @@ class WR2WalkingEnv(PipelineEnv):
         info = {
             "rng": rng,
             "command": command,
+            "gait_phase": gait_phase,
             "actuator_target_bias": actuator_target_bias,
             "torque_exposure": jp.zeros(self.robot.actuator_count),
             "previous_action": previous_action,
@@ -328,7 +422,7 @@ class WR2WalkingEnv(PipelineEnv):
         return State(pipeline_state, observation, zero, zero, metrics, info)
 
     def step(self, state: State, action: jax.Array) -> State:
-        rng, observation_rng = jax.random.split(state.info["rng"])
+        rng, observation_rng, command_rng = jax.random.split(state.info["rng"], 3)
         action = jp.clip(action, -1.0, 1.0) * self._active_mask
         if self.config.action_delay_steps == 1:
             applied_action = state.info["previous_action"]
@@ -353,12 +447,18 @@ class WR2WalkingEnv(PipelineEnv):
         )
         target = jp.clip(target, self._ctrl_lower, self._ctrl_upper)
         pipeline_state = self.pipeline_step(state.pipeline_state, target)
-        _, angular_velocity, linear_velocity, projected_gravity = (
+        torso_quat, angular_velocity, linear_velocity, projected_gravity = (
             self._kinematic_observation(pipeline_state)
         )
         joint_position = pipeline_state.q[self._joint_qpos_indices]
         joint_velocity = pipeline_state.qd[self._joint_qvel_indices]
         command = state.info["command"]
+        is_walking = self._is_walking(command)
+        gait_phase = jp.where(
+            is_walking,
+            jp.mod(state.info["gait_phase"] + self._gait_phase_increment, _TWO_PI),
+            0.0,
+        )
 
         velocity_xy = jp.exp(
             -jp.sum(jp.square(linear_velocity[:2] - command[:2]))
@@ -380,6 +480,48 @@ class WR2WalkingEnv(PipelineEnv):
         action_rate = jp.sum(jp.square(action - state.info["previous_action"]))
         joint_velocity_cost = jp.sum(jp.square(joint_velocity))
         foot_contact = self._foot_contact(pipeline_state)
+        desired_foot_height = expected_foot_heights(
+            gait_phase, self.config.swing_height_m, is_walking
+        )
+        foot_height = (
+            pipeline_state.site_xpos[self._foot_site_ids, 2]
+            - self._home_foot_site_z
+        )
+        foot_height_error_squared = jp.sum(
+            jp.square(foot_height - desired_foot_height)
+        )
+        feet_phase = jp.exp(
+            -foot_height_error_squared
+            / self.config.feet_phase_tracking_sigma_m2
+        ) * (
+            1.0
+            + jp.max(desired_foot_height) / self.config.swing_height_m
+        )
+        desired_contact = expected_foot_contacts(gait_phase, is_walking)
+        contact_phase = jp.mean((foot_contact == desired_contact).astype(jp.float32))
+        both_feet_contact = is_walking.astype(jp.float32) * jp.all(
+            foot_contact
+        ).astype(jp.float32)
+
+        foot_delta_world = (
+            pipeline_state.site_xpos[self._foot_site_ids[1]]
+            - pipeline_state.site_xpos[self._foot_site_ids[0]]
+        )
+        foot_delta_torso = _inverse_rotate_vector(torso_quat, foot_delta_world)
+        feet_lateral_distance = jp.abs(foot_delta_torso[1])
+        feet_distance_error = jp.maximum(
+            self.config.min_feet_lateral_distance_m - feet_lateral_distance, 0.0
+        ) + jp.maximum(
+            feet_lateral_distance - self.config.max_feet_lateral_distance_m, 0.0
+        )
+        feet_distance = jp.exp(-jp.square(feet_distance_error / 0.02))
+        foot_projected_gravity = jax.vmap(_inverse_rotate_vector)(
+            pipeline_state.x.rot[self._foot_link_indices],
+            jp.broadcast_to(jp.array([0.0, 0.0, -1.0]), (2, 3)),
+        )
+        feet_orientation = jp.mean(
+            jp.exp(-5.0 * jp.sum(jp.square(foot_projected_gravity[:, :2]), axis=1))
+        )
         foot_velocity_xy = pipeline_state.xd.vel[self._foot_link_indices, :2]
         foot_slip = jp.sum(
             foot_contact.astype(foot_velocity_xy.dtype)
@@ -415,6 +557,11 @@ class WR2WalkingEnv(PipelineEnv):
             + weights.foot_slip * foot_slip
             + weights.mechanical_power * mechanical_power
             + weights.actuator_torque_squared * actuator_torque_squared
+            + weights.feet_phase * feet_phase
+            + weights.contact_phase * contact_phase
+            + weights.both_feet_contact * both_feet_contact
+            + weights.feet_distance * feet_distance
+            + weights.feet_orientation * feet_orientation
         )
 
         step_count = state.info["step_count"] + 1
@@ -433,12 +580,30 @@ class WR2WalkingEnv(PipelineEnv):
         )
         torso_tilt_rad = jp.arccos(jp.clip(-projected_gravity[2], -1.0, 1.0))
 
+        sampled_command = self._sample_command(command_rng)
+        resample_command = (
+            jp.mod(step_count, self.config.command_resample_steps) == 0
+        )
+        next_command = jp.where(resample_command, sampled_command, command)
+        next_is_walking = self._is_walking(next_command)
+        next_gait_phase = jp.where(next_is_walking, gait_phase, 0.0)
+        next_gait_phase = jp.where(
+            resample_command & next_is_walking & ~is_walking,
+            0.0,
+            next_gait_phase,
+        )
         observation = self._observation(
-            pipeline_state, action, command, observation_rng
+            pipeline_state,
+            action,
+            next_command,
+            next_gait_phase,
+            observation_rng,
         )
         info = {
             **state.info,
             "rng": rng,
+            "command": next_command,
+            "gait_phase": next_gait_phase,
             "previous_action": action,
             "previous_target": target,
             "torque_exposure": torque_exposure,
@@ -461,6 +626,11 @@ class WR2WalkingEnv(PipelineEnv):
             "foot_slip": -foot_slip,
             "mechanical_power": -mechanical_power,
             "actuator_torque_squared": -actuator_torque_squared,
+            "feet_phase": feet_phase,
+            "contact_phase": contact_phase,
+            "both_feet_contact": -both_feet_contact,
+            "feet_distance": feet_distance,
+            "feet_orientation": feet_orientation,
             "actuator_torque_rms_nm_per_step": actuator_torque_rms_nm,
             "actuator_torque_peak_nm_per_step": actuator_torque_peak_nm,
             "sustained_torque_exposure_per_step": sustained_torque_exposure,
@@ -478,6 +648,14 @@ class WR2WalkingEnv(PipelineEnv):
             "action_saturation_fraction_per_step": action_saturation_fraction,
             "left_foot_contact_per_step": foot_contact[0].astype(jp.float32),
             "right_foot_contact_per_step": foot_contact[1].astype(jp.float32),
+            "double_support_per_step": both_feet_contact,
+            "feet_phase_tracking_per_step": feet_phase,
+            "contact_phase_match_per_step": contact_phase,
+            "left_foot_height_m_per_step": foot_height[0],
+            "right_foot_height_m_per_step": foot_height[1],
+            "left_foot_target_height_m_per_step": desired_foot_height[0],
+            "right_foot_target_height_m_per_step": desired_foot_height[1],
+            "feet_lateral_distance_m_per_step": feet_lateral_distance,
             "fall": unhealthy.astype(jp.float32),
             "nonfinite_state": nonfinite.astype(jp.float32),
             "left_foot_contact": foot_contact[0].astype(jp.float32),

@@ -7,6 +7,7 @@
 #   ./scripts/scp_from_remote.sh --latest 3
 #   ./scripts/scp_from_remote.sh --latest servo_sysid 3
 #   ./scripts/scp_from_remote.sh --latest training 2
+#   ./scripts/scp_from_remote.sh --latest walking_agent
 #   ./scripts/scp_from_remote.sh --list servo_sysid
 #   ./scripts/scp_from_remote.sh --copy servo_sysid htd45h-unit-a
 #   ./scripts/scp_from_remote.sh results/servo_sysid/deployment_spec.json
@@ -38,6 +39,7 @@ Usage:
 
 Result groups live below results/ on both machines. Aliases:
   training -> wr2_walking
+  walking_agent -> wr2_walking_agent
   sysid    -> servo_sysid
 
 Connection options may appear anywhere:
@@ -59,6 +61,7 @@ Examples:
   ./scripts/scp_from_remote.sh --latest servo_sysid
   ./scripts/scp_from_remote.sh --latest servo_sysid 3
   ./scripts/scp_from_remote.sh --latest training 2
+  ./scripts/scp_from_remote.sh --latest walking_agent
   ./scripts/scp_from_remote.sh --copy servo_sysid htd45h-unit-a
   ./scripts/scp_from_remote.sh --host gpu-box --latest contact_tests 4
 EOF
@@ -233,6 +236,7 @@ remote_rsync() {
 resolve_group() {
     case "$1" in
         training) echo "wr2_walking" ;;
+        walking_agent) echo "wr2_walking_agent" ;;
         sysid) echo "servo_sysid" ;;
         *) echo "$1" ;;
     esac
