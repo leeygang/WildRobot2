@@ -1,4 +1,6 @@
+from contextlib import redirect_stdout
 import importlib.util
+import io
 import json
 import math
 from pathlib import Path
@@ -21,7 +23,11 @@ from wr2.actuation.htd45h import (
 from wr2.tools.servo_sysid.analyze import analyze_campaigns
 from wr2.tools.servo_sysid.campaign import CONDITIONS, main as campaign_main
 from wr2.tools.servo_sysid.campaign import selected_conditions
-from wr2.tools.servo_sysid.capture import _check_health, capture_profile
+from wr2.tools.servo_sysid.capture import (
+    _check_health,
+    _wait_for_cooldown,
+    capture_profile,
+)
 from wr2.tools.servo_sysid.commission import summarize_series
 from wr2.tools.servo_sysid.core import (
     ProfileSegment,
@@ -32,6 +38,29 @@ from wr2.tools.servo_sysid.core import (
 
 
 class Htd45hProtocolTest(unittest.TestCase):
+    def test_cooldown_reports_status_and_completion(self):
+        class FakeBus:
+            def read_voltage_v(self, _servo_id):
+                return 12.4
+
+            def read_temperature_c(self, _servo_id):
+                return 30
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            samples = _wait_for_cooldown(
+                FakeBus(),
+                100,
+                target_c=30.0,
+                timeout_s=60.0,
+                poll_s=5.0,
+                min_voltage_v=9.6,
+            )
+
+        self.assertEqual(len(samples), 1)
+        self.assertIn("COOLDOWN STATUS", output.getvalue())
+        self.assertIn("COOLDOWN COMPLETE", output.getvalue())
+
     def test_temperature_limit_is_inclusive(self):
         healthy = {"voltage_v": 11.8, "temperature_c": 54.0, "loaded": True}
         _check_health(healthy, min_voltage_v=9.6, max_temperature_c=55.0)

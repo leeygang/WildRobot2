@@ -172,6 +172,12 @@ def _wait_for_cooldown(
 ) -> list[dict[str, float]]:
     started = time.monotonic()
     samples: list[dict[str, float]] = []
+    next_progress_s = 0.0
+    print(
+        f"COOLDOWN: torque is disabled; waiting for temperature <= {target_c:.1f} C "
+        f"(timeout {timeout_s:.0f} s).",
+        flush=True,
+    )
     while True:
         voltage = float(_read_required(lambda: bus.read_voltage_v(servo_id), "voltage"))
         temperature = float(
@@ -181,9 +187,20 @@ def _wait_for_cooldown(
         samples.append(
             {"elapsed_s": elapsed, "voltage_v": voltage, "temperature_c": temperature}
         )
+        if elapsed >= next_progress_s:
+            print(
+                f"COOLDOWN STATUS: {temperature:.1f} C, {voltage:.3f} V, "
+                f"elapsed {elapsed:.0f} s.",
+                flush=True,
+            )
+            next_progress_s = elapsed + 30.0
         if voltage < min_voltage_v:
             raise RuntimeError(f"cooldown voltage {voltage:.3f} V is too low")
         if temperature <= target_c:
+            print(
+                f"COOLDOWN COMPLETE: {temperature:.1f} C after {elapsed:.0f} s.",
+                flush=True,
+            )
             return samples
         if elapsed >= timeout_s:
             raise RuntimeError(f"cooldown timed out at {temperature:.1f} C")
@@ -367,7 +384,9 @@ def _timing_summary(arrays: dict[str, np.ndarray]) -> dict[str, float | None]:
         values = _finite(arrays[name])
         if not values.size:
             return None
-        value = np.max(values) if percentile is None else np.percentile(values, percentile)
+        value = (
+            np.max(values) if percentile is None else np.percentile(values, percentile)
+        )
         return 1000.0 * float(value)
 
     return {
@@ -472,7 +491,9 @@ def _validate_args(args: argparse.Namespace) -> None:
     }
     for name, value in non_negative.items():
         if not math.isfinite(float(value)) or float(value) < 0.0:
-            raise SystemExit(f"--{name.replace('_', '-')} must be finite and non-negative")
+            raise SystemExit(
+                f"--{name.replace('_', '-')} must be finite and non-negative"
+            )
     if not 0 <= args.servo_id <= 253:
         raise SystemExit("--servo-id must be between 0 and 253")
     if not math.isfinite(args.center_deg):
@@ -658,7 +679,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"EEPROM limit {temperature_limit} C"
             )
         if motor_mode[0] != 0:
-            raise RuntimeError(f"servo is in motor mode {motor_mode}; position mode required")
+            raise RuntimeError(
+                f"servo is in motor mode {motor_mode}; position mode required"
+            )
         cooldown = _wait_for_cooldown(
             bus,
             args.servo_id,
@@ -673,6 +696,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"servo voltage {cooldown_voltage:.3f} V is outside EEPROM limits "
                 f"{voltage_limits}"
             )
+        print("PREPARATION: moving servo to the neutral 0.0 deg position.", flush=True)
         preparation.extend(
             _move_and_monitor(
                 bus,
@@ -685,6 +709,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_position_error_deg=args.max_position_error_deg,
             )
         )
+        if args.prepare_only:
+            print(
+                f"TEST START: moving to {args.center_deg:+.1f} deg at "
+                f"{args.prepare_speed_deg_s:.1f} deg/s, then holding for "
+                f"{args.settle_s:.1f} s. Safety monitoring is active.",
+                flush=True,
+            )
+        else:
+            print(
+                f"PREPARATION: moving servo to the test center "
+                f"{args.center_deg:+.1f} deg.",
+                flush=True,
+            )
         preparation.extend(
             _move_and_monitor(
                 bus,
@@ -698,6 +735,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         if not args.prepare_only:
+            profile_duration_s = (
+                sum(len(segment.targets_rad) for segment in segments) / args.sample_hz
+            )
+            profile_description = (
+                f"holding {args.center_deg:+.1f} deg"
+                if args.constant_hold_s is not None
+                else "running the dynamic position profile"
+            )
+            print(
+                f"TEST START: {profile_description} for {profile_duration_s:.1f} s; "
+                f"shutdown temperature is {args.max_temperature_c:.1f} C. "
+                "Safety monitoring is active; capture may be quiet until completion.",
+                flush=True,
+            )
             buffer = capture_profile(
                 bus,
                 args.servo_id,
@@ -712,6 +763,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_position_error_duration_s=args.max_position_error_duration_s,
                 buffer=buffer,
             )
+        print("TEST COMPLETE: commanded test duration finished.", flush=True)
         outcome = "completed"
     except BaseException as exc:
         error = f"{type(exc).__name__}: {exc}"
@@ -727,6 +779,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             outcome = "failed"
         try:
             if outcome == "completed":
+                print(
+                    "RETURN: moving servo to neutral 0.0 deg before torque-off.",
+                    flush=True,
+                )
                 _move_and_monitor(
                     bus,
                     args.servo_id,
@@ -737,6 +793,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     max_temperature_c=args.max_temperature_c,
                     max_position_error_deg=args.max_position_error_deg,
                 )
+                print("RETURN COMPLETE: neutral position reached.", flush=True)
+            else:
+                print(
+                    "SAFE STOP: test did not complete; skipping controlled return and "
+                    "disabling torque.",
+                    flush=True,
+                )
         except BaseException as unload_exc:
             error = f"{error or ''}; unload return failed: {unload_exc}".strip("; ")
             outcome = "failed"
@@ -744,11 +807,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 bus.set_loaded(args.servo_id, False)
                 if bool(
-                    _read_required(
-                        lambda: bus.read_loaded(args.servo_id), "load-state"
-                    )
+                    _read_required(lambda: bus.read_loaded(args.servo_id), "load-state")
                 ):
                     raise RuntimeError("torque-off could not be verified")
+                print("TORQUE OFF: servo load state verified disabled.", flush=True)
             except BaseException as unload_exc:
                 error = f"{error or ''}; torque-off failed: {unload_exc}".strip("; ")
                 outcome = "failed"
