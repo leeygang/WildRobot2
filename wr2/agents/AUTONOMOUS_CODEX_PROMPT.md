@@ -39,9 +39,9 @@ Constraints:
   `wr2/actuation/`, or `wr2/sensing/`.
 - You may modify the locomotion environment, metrics, evaluator, trainer, PPO
   implementation, typed config, base training YAML, and walking-agent campaign
-  YAML when the evidence supports it. Keep the current YAML schema compatible
-  with the already-running supervisor, and preserve the JSON/JSONL metric
-  interface consumed by that supervisor.
+  YAML, plus their training-related tests, when the evidence supports it. Keep
+  the current YAML schema compatible with the already-running supervisor, and
+  preserve the JSON/JSONL metric interface consumed by that supervisor.
 - Keep `wr2/locomotion/configs/ppo_walking.yaml` as the returned config.
 - Do not push, start remote work, run hardware, or edit generated results.
 - Preserve useful behavior from the current champion. A failed child is

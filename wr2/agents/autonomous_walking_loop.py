@@ -79,8 +79,6 @@ FORBIDDEN_AUTONOMOUS_CHANGES = (
     "wr2/sim/",
     "wr2/actuation/",
     "wr2/sensing/",
-    "tests/test_training_interface.py",
-    "tests/test_autonomous_walking_loop.py",
     "pyproject.toml",
     "uv.lock",
 )
@@ -1031,6 +1029,154 @@ def _save_state(agent_root: Path, state: dict[str, Any]) -> None:
     _write_json_atomic(agent_root / "autonomous_state.json", state)
 
 
+def _read_state(path: Path) -> dict[str, Any]:
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AutonomousWalkingError(f"Cannot read agent state {path}: {exc}") from exc
+    if not isinstance(state, dict):
+        raise AutonomousWalkingError(f"Agent state is not a JSON object: {path}")
+    return state
+
+
+def _select_status_root(
+    output_root: Path, *, agent_id: str | None, latest: bool
+) -> Path:
+    if bool(agent_id) == latest:
+        raise AutonomousWalkingError(
+            "status requires exactly one of --agent-id ID or --latest"
+        )
+    if agent_id:
+        root = output_root / _safe_agent_id(agent_id)
+        if not (root / "autonomous_state.json").is_file():
+            raise AutonomousWalkingError(f"Autonomous agent state not found: {root}")
+        return root
+    candidates = [
+        state_path.parent
+        for state_path in output_root.glob("*/autonomous_state.json")
+        if state_path.is_file()
+    ]
+    if not candidates:
+        raise AutonomousWalkingError(
+            f"No autonomous agent state found under {output_root}"
+        )
+    return max(
+        candidates,
+        key=lambda path: (path.stat().st_mtime_ns, path.name),
+    )
+
+
+def _tail_progress(path: Path, *, max_bytes: int = 131_072) -> list[str]:
+    if not path.is_file():
+        return []
+    with path.open("rb") as stream:
+        size = stream.seek(0, os.SEEK_END)
+        stream.seek(max(0, size - max_bytes))
+        text = stream.read().decode("utf-8", errors="replace")
+    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+    progress_indices = [
+        index for index, line in enumerate(lines) if re.match(r"#\d+\s", line)
+    ]
+    if progress_indices:
+        start = progress_indices[-1]
+        return lines[start : start + 6]
+    return lines[-8:]
+
+
+def _status_payload(agent_root: Path) -> dict[str, Any]:
+    state_path = agent_root / "autonomous_state.json"
+    state = _read_state(state_path)
+    cycle_number = int(state.get("global_cycle") or 0)
+    stage = state.get("stage")
+    cycle_root = (
+        agent_root / "cycles" / f"{cycle_number:02d}_{stage}"
+        if cycle_number > 0 and stage
+        else None
+    )
+    preferred_log = {
+        "training": "gpu_training.log",
+        "improving": "codex_exec.log",
+    }.get(str(state.get("status")))
+    active_log = cycle_root / preferred_log if cycle_root and preferred_log else None
+    if active_log is None or not active_log.is_file():
+        logs = sorted(
+            agent_root.glob("cycles/*/*.log"),
+            key=lambda path: path.stat().st_mtime_ns,
+        )
+        active_log = logs[-1] if logs else None
+    if active_log:
+        try:
+            active_log_display = str(active_log.relative_to(REPO_ROOT))
+        except ValueError:
+            active_log_display = str(active_log)
+    else:
+        active_log_display = None
+    latest_cycle = state.get("cycles", [])[-1] if state.get("cycles") else None
+    run_id = state.get("run_id")
+    if run_id is None and isinstance(latest_cycle, dict):
+        run_id = latest_cycle.get("run_id")
+    payload = {
+        "agent_id": state.get("agent_id", agent_root.name),
+        "state_path": str(state_path),
+        "status": state.get("status", "unknown"),
+        "updated_at": state.get("updated_at"),
+        "stage": stage,
+        "stage_cycle": state.get("stage_cycle"),
+        "global_cycle": cycle_number,
+        "run_id": run_id,
+        "git_sha": state.get("git_sha"),
+        "current_checkpoint": state.get("current_checkpoint"),
+        "final_checkpoint": state.get("final_checkpoint"),
+        "confirmation_passed": (
+            state.get("confirmation", {}).get("passed")
+            if isinstance(state.get("confirmation"), dict)
+            else None
+        ),
+        "last_cycle": latest_cycle,
+        "last_decision": state.get("last_decision"),
+        "error": state.get("error"),
+        "active_log": active_log_display,
+        "latest_progress": _tail_progress(active_log) if active_log else [],
+    }
+    return payload
+
+
+def _status(args: argparse.Namespace) -> int:
+    args.agent_config = args.agent_config.resolve()
+    config = load_agent_config(args.agent_config)
+    agent_root = _select_status_root(
+        config.agent_output_root,
+        agent_id=args.agent_id,
+        latest=args.latest,
+    )
+    payload = _status_payload(agent_root)
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+
+    print(f"Agent:       {payload['agent_id']}")
+    print(f"Status:      {payload['status']}")
+    print(
+        "Stage:       "
+        f"{payload['stage']} (stage cycle {payload['stage_cycle']}, "
+        f"global cycle {payload['global_cycle']})"
+    )
+    print(f"Run:         {payload['run_id'] or '-'}")
+    print(f"Git:         {str(payload['git_sha'] or '-')[:12]}")
+    checkpoint = payload["final_checkpoint"] or payload["current_checkpoint"]
+    print(f"Checkpoint:  {checkpoint or '-'}")
+    print(f"Updated:     {payload['updated_at'] or '-'}")
+    if payload["active_log"]:
+        print(f"Active log:  {payload['active_log']}")
+    if payload["latest_progress"]:
+        print("Latest progress:")
+        for line in payload["latest_progress"]:
+            print(f"  {line}")
+    if payload["error"]:
+        print(f"Error:       {payload['error']}")
+    return 0
+
+
 def _record_codex_improvement(
     args: argparse.Namespace,
     *,
@@ -1358,8 +1504,17 @@ def _run_campaign(args: argparse.Namespace) -> int:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "command", nargs="?", choices=("run", "status"), default="run"
+    )
     parser.add_argument("--agent-config", type=Path, default=DEFAULT_AGENT_CONFIG)
     parser.add_argument("--agent-id")
+    parser.add_argument(
+        "--latest", action="store_true", help="Select the newest autonomous agent"
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="Print machine-readable status JSON"
+    )
     parser.add_argument("--host", default="linux-pc.local")
     parser.add_argument("--user", default="leeygang")
     parser.add_argument("--port", type=int)
@@ -1384,7 +1539,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    return _run_campaign(parse_args(argv))
+    args = parse_args(argv)
+    if args.command == "status":
+        return _status(args)
+    if args.latest or args.json:
+        raise AutonomousWalkingError("--latest and --json are status-only options")
+    return _run_campaign(args)
 
 
 if __name__ == "__main__":

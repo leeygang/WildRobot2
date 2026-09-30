@@ -146,6 +146,25 @@ with `status=failed`; it never skips the failed stage or silently weakens a
 gate. The initial version is intentionally foreground and does not adopt a
 partially completed remote cycle after the SSH process is interrupted.
 
+Query the newest campaign from another Mac terminal without contacting or
+changing the GPU job:
+
+```bash
+uv run python -m wr2.agents.autonomous_walking_loop status --latest
+```
+
+Select a specific campaign or request machine-readable output with:
+
+```bash
+uv run python -m wr2.agents.autonomous_walking_loop status \
+  --agent-id wr2_auto_walk_20260930_212129
+
+uv run python -m wr2.agents.autonomous_walking_loop status --latest --json
+```
+
+Human-readable status includes the active stage and cycle, run ID, commit,
+checkpoint, most recent GPU/Codex log excerpt, and any terminal error.
+
 ## Artifacts
 
 The fixed campaign writes `agent_state.json`; the autonomous Mac campaign

@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from argparse import Namespace
@@ -13,10 +14,14 @@ from wr2.agents.autonomous_walking_loop import (
     _analyze_cycle,
     _contract_snapshot,
     _score_confirmation,
+    _select_status_root,
+    _status_payload,
+    _tail_progress,
     _training_compatibility,
     _validate_changed_files,
     _validate_decision_shape,
     _validate_remote,
+    parse_args,
 )
 from wr2.agents.walking_training_agent import (
     DEFAULT_AGENT_CONFIG,
@@ -138,6 +143,8 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
                 "wr2/locomotion/ppo.py",
                 "wr2/locomotion/configs/training_config.py",
                 "wr2/locomotion/configs/walking_agent.yaml",
+                "tests/test_autonomous_walking_loop.py",
+                "tests/test_training_interface.py",
                 "docs/design/walking_training_agent.md",
             ]
         )
@@ -147,6 +154,77 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
             _validate_changed_files(["wr2/agents/autonomous_walking_loop.py"])
         with self.assertRaises(AutonomousWalkingError):
             _validate_changed_files(["scripts/scp_from_remote.sh"])
+
+    def test_status_cli_selects_latest_or_named_agent(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_root = Path(temporary_directory)
+            older = output_root / "older"
+            newer = output_root / "newer"
+            for root in (older, newer):
+                root.mkdir()
+                (root / "autonomous_state.json").write_text("{}")
+            os.utime(older / "autonomous_state.json", ns=(1, 1))
+            os.utime(newer / "autonomous_state.json", ns=(2, 2))
+
+            self.assertEqual(
+                _select_status_root(output_root, agent_id=None, latest=True),
+                newer,
+            )
+            self.assertEqual(
+                _select_status_root(output_root, agent_id="older", latest=False),
+                older,
+            )
+            with self.assertRaises(AutonomousWalkingError):
+                _select_status_root(output_root, agent_id=None, latest=False)
+
+        args = parse_args(["status", "--latest", "--json"])
+        self.assertEqual(args.command, "status")
+        self.assertTrue(args.latest)
+        self.assertTrue(args.json)
+
+    def test_status_payload_reports_latest_gpu_progress(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            agent_root = Path(temporary_directory) / "agent-one"
+            cycle_root = agent_root / "cycles/01_gait_acquisition"
+            cycle_root.mkdir(parents=True)
+            (agent_root / "autonomous_state.json").write_text(
+                json.dumps(
+                    {
+                        "agent_id": "agent-one",
+                        "status": "training",
+                        "stage": "gait_acquisition",
+                        "stage_cycle": 1,
+                        "global_cycle": 1,
+                        "run_id": "run-one",
+                        "git_sha": "a" * 40,
+                        "cycles": [],
+                    }
+                )
+            )
+            log = cycle_root / "gpu_training.log"
+            log.write_text(
+                "starting\n#0  [00:01:00] Steps: 1/10\n"
+                "  └─ return: episode=1\n"
+                "#1  [00:02:00] Steps: 2/10\n"
+                "  └─ return: episode=2\n"
+            )
+
+            payload = _status_payload(agent_root)
+
+        self.assertEqual(payload["status"], "training")
+        self.assertEqual(payload["run_id"], "run-one")
+        self.assertEqual(
+            payload["latest_progress"],
+            ["#1  [00:02:00] Steps: 2/10", "  └─ return: episode=2"],
+        )
+
+    def test_tail_progress_does_not_treat_markdown_heading_as_training(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            log = Path(temporary_directory) / "codex.log"
+            log.write_text("# heading\nline one\nline two\n")
+            self.assertEqual(
+                _tail_progress(log), ["# heading", "line one", "line two"]
+            )
 
     def test_structured_decision_is_strict_and_keeps_base_config(self):
         relative_config = self.config.base_training_config.relative_to(
