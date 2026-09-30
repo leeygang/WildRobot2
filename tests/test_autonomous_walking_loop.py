@@ -9,9 +9,11 @@ import yaml
 from wr2.agents.autonomous_walking_loop import (
     AutonomousWalkingError,
     DECISION_FIELDS,
+    _acceptance_contract,
     _analyze_cycle,
     _contract_snapshot,
     _score_confirmation,
+    _training_compatibility,
     _validate_changed_files,
     _validate_decision_shape,
     _validate_remote,
@@ -58,6 +60,7 @@ def _decision(config: str) -> dict:
         "expected_outcome": "Contact match rises without increasing saturation.",
         "falsification_condition": "Contact match does not improve next cycle.",
         "config": config,
+        "start_mode": "warm_start",
         "verification": ["unit tests passed"],
     }
 
@@ -99,15 +102,40 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
         self.assertEqual(contract["action"]["representation"], "joint_position_residual")
         self.assertEqual(contract["active_groups"], ["leg"])
         self.assertEqual(contract["servo_model"]["torque_limit_nm"], 4.0)
-        self.assertEqual(contract["network"]["distribution_type"], "normal")
         self.assertEqual(
             len(contract["walking_env_source"]["observation_method_sha256"]), 64
         )
+        self.assertEqual(len(contract["walking_metric_acceptance_sha256"]), 64)
+
+    def test_acceptance_is_frozen_but_network_is_training_compatible(self):
+        acceptance = _acceptance_contract(self.config)
+        compatibility = _training_compatibility(self.config)
+        self.assertEqual(
+            acceptance["confirmation_commands_m_s"], [0.10, 0.15, 0.20]
+        )
+        self.assertEqual(
+            acceptance["stages"][-1]["required_gates"],
+            [
+                "episode_length",
+                "fall_rate",
+                "forward_velocity_ratio",
+                "forward_velocity_error",
+                "contact_phase",
+                "action_saturation",
+            ],
+        )
+        self.assertEqual(compatibility["network"]["distribution_type"], "normal")
 
     def test_codex_change_allowlist_requires_training_change(self):
         _validate_changed_files(
             [
                 "wr2/locomotion/configs/ppo_walking.yaml",
+                "wr2/locomotion/train.py",
+                "wr2/locomotion/evaluate.py",
+                "wr2/locomotion/walking_metrics.py",
+                "wr2/locomotion/ppo.py",
+                "wr2/locomotion/configs/training_config.py",
+                "wr2/locomotion/configs/walking_agent.yaml",
                 "docs/design/walking_training_agent.md",
             ]
         )
@@ -126,6 +154,10 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
         self.assertEqual(set(decision), DECISION_FIELDS)
         _validate_decision_shape(decision, self.config.base_training_config)
         decision["config"] = "wr2/locomotion/configs/another.yaml"
+        with self.assertRaises(AutonomousWalkingError):
+            _validate_decision_shape(decision, self.config.base_training_config)
+        decision = _decision(relative_config)
+        decision["start_mode"] = "resume_optimizer"
         with self.assertRaises(AutonomousWalkingError):
             _validate_decision_shape(decision, self.config.base_training_config)
 

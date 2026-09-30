@@ -36,6 +36,10 @@
     "config": {
       "type": "string"
     },
+    "start_mode": {
+      "type": "string",
+      "enum": ["warm_start", "cold_start"]
+    },
     "verification": {
       "type": "array",
       "items": {
@@ -53,6 +57,7 @@
     "expected_outcome",
     "falsification_condition",
     "config",
+    "start_mode",
     "verification"
   ],
   "additionalProperties": false

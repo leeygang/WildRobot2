@@ -69,6 +69,7 @@ DECISION_FIELDS = frozenset(
         "expected_outcome",
         "falsification_condition",
         "config",
+        "start_mode",
         "verification",
     }
 )
@@ -78,32 +79,20 @@ FORBIDDEN_AUTONOMOUS_CHANGES = (
     "wr2/sim/",
     "wr2/actuation/",
     "wr2/sensing/",
-    "wr2/locomotion/configs/walking_agent.yaml",
-    "wr2/locomotion/configs/training_config.py",
-    "wr2/locomotion/configs/__init__.py",
-    "wr2/locomotion/walking_metrics.py",
-    "wr2/locomotion/evaluate.py",
-    "wr2/locomotion/train.py",
-    "wr2/locomotion/ppo.py",
     "tests/test_training_interface.py",
-    "tests/test_walking_training_agent.py",
     "tests/test_autonomous_walking_loop.py",
     "pyproject.toml",
     "uv.lock",
 )
 ALLOWED_AUTONOMOUS_CHANGES = (
-    "wr2/locomotion/configs/ppo_walking.yaml",
-    "wr2/locomotion/walking_env.py",
-    "wr2/locomotion/domain_randomization.py",
+    "wr2/locomotion/",
     "wr2/reference/",
     "tests/",
     "docs/",
     "README.md",
 )
 TRAINING_RELEVANT_CHANGES = (
-    "wr2/locomotion/configs/ppo_walking.yaml",
-    "wr2/locomotion/walking_env.py",
-    "wr2/locomotion/domain_randomization.py",
+    "wr2/locomotion/",
     "wr2/reference/",
 )
 REMOTE_RESULT_FILES = (
@@ -409,6 +398,39 @@ def _walking_env_contract_fingerprints() -> dict[str, str]:
     }
 
 
+def _metric_acceptance_fingerprint() -> str:
+    path = REPO_ROOT / "wr2/locomotion/walking_metrics.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    protected_names = {
+        "WALKING_GATE_NAMES",
+        "WalkingGoal",
+        "WalkingGoalResult",
+        "_METRIC_NAMES",
+        "_scalar",
+        "evaluate_walking_goal",
+    }
+    protected_nodes: list[ast.stmt] = []
+    for node in tree.body:
+        name = getattr(node, "name", None)
+        assigned_names = {
+            target.id
+            for target in getattr(node, "targets", [])
+            if isinstance(target, ast.Name)
+        }
+        if name in protected_names or assigned_names & protected_names:
+            protected_nodes.append(node)
+    if len(protected_nodes) != len(protected_names):
+        raise AutonomousWalkingError(
+            "Could not locate the complete walking acceptance implementation"
+        )
+    normalized = ast.dump(
+        ast.Module(body=protected_nodes, type_ignores=[]),
+        annotate_fields=True,
+        include_attributes=False,
+    )
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 def _contract_snapshot(training_config: Path) -> dict[str, Any]:
     training = load_training_config(training_config)
     robot = RobotDescription.load(include_local_calibration=False)
@@ -420,9 +442,47 @@ def _contract_snapshot(training_config: Path) -> dict[str, Any]:
         "active_groups": list(training.environment.active_groups),
         "action_scale_rad": training.environment.action_scale_rad,
         "normalize_observations": training.ppo.normalize_observations,
-        "network": asdict(training.network),
         "output": asdict(training.output),
         "walking_env_source": _walking_env_contract_fingerprints(),
+        "walking_metric_acceptance_sha256": _metric_acceptance_fingerprint(),
+    }
+
+
+def _acceptance_contract(config: WalkingAgentConfig) -> dict[str, Any]:
+    """Return final success, hard-safety, and campaign-budget invariants."""
+    return {
+        "base_training_config": _relative_repo_path(
+            config.base_training_config, "base training config"
+        ).as_posix(),
+        "agent_output_root": _relative_repo_path(
+            config.agent_output_root, "agent output root"
+        ).as_posix(),
+        "num_timesteps_per_cycle": config.cycle.num_timesteps,
+        "confirmation_commands_m_s": list(
+            config.cycle.confirmation_commands_m_s
+        ),
+        "confirmation_seeds": list(config.cycle.confirmation_seeds),
+        "confirmation_num_envs": config.cycle.confirmation_num_envs,
+        "hard_safety": asdict(config.hard_safety),
+        "stages": [
+            {
+                "name": stage.name,
+                "max_cycles": stage.max_cycles,
+                "required_gates": list(stage.required_gates),
+                "goal": walking_goal_to_dict(stage.goal),
+            }
+            for stage in config.stages
+        ],
+    }
+
+
+def _training_compatibility(config: WalkingAgentConfig) -> dict[str, Any]:
+    """Identify changes that invalidate the existing Brax parameter tree."""
+    training = load_training_config(config.base_training_config)
+    ppo_source = (REPO_ROOT / "wr2/locomotion/ppo.py").read_bytes()
+    return {
+        "network": asdict(training.network),
+        "ppo_source_sha256": hashlib.sha256(ppo_source).hexdigest(),
     }
 
 
@@ -611,6 +671,10 @@ def _validate_decision_shape(
             )
     if decision["intervention_family"] not in INTERVENTION_FAMILIES:
         raise AutonomousWalkingError("Codex returned an unknown intervention family")
+    if decision["start_mode"] not in {"warm_start", "cold_start"}:
+        raise AutonomousWalkingError(
+            "Codex start_mode must be 'warm_start' or 'cold_start'"
+        )
     verification = decision["verification"]
     if not isinstance(verification, list) or not verification or not all(
         isinstance(item, str) and item.strip() for item in verification
@@ -635,10 +699,13 @@ def _validate_codex_commit(
     before_sha: str,
     branch: str,
     decision: Mapping[str, Any],
+    agent_config_path: Path,
     base_training_config: Path,
     frozen_contract: Mapping[str, Any],
+    frozen_acceptance: Mapping[str, Any],
+    before_training_compatibility: Mapping[str, Any],
     verification_log: Path,
-) -> str:
+) -> tuple[str, WalkingAgentConfig, bool]:
     after_sha = _require_clean_branch(branch)
     if after_sha == before_sha:
         raise AutonomousWalkingError("Codex did not create the required commit")
@@ -662,7 +729,20 @@ def _validate_codex_commit(
     current_contract = _contract_snapshot(base_training_config)
     if current_contract != frozen_contract:
         raise AutonomousWalkingError(
-            "Codex changed the frozen action, observation, network, or servo contract"
+            "Codex changed the frozen action, observation, metric-gate, or servo "
+            "contract"
+        )
+    updated_agent_config = load_agent_config(agent_config_path)
+    if _acceptance_contract(updated_agent_config) != frozen_acceptance:
+        raise AutonomousWalkingError(
+            "Codex changed final P0 gates, hard safety, confirmation, or the "
+            "bounded campaign budget"
+        )
+    after_training_compatibility = _training_compatibility(updated_agent_config)
+    requires_cold_start = after_training_compatibility != before_training_compatibility
+    if requires_cold_start and decision["start_mode"] != "cold_start":
+        raise AutonomousWalkingError(
+            "The policy parameter contract changed; Codex must request cold_start"
         )
     test_command = [
         shutil.which("uv") or "uv",
@@ -681,7 +761,7 @@ def _validate_codex_commit(
         )
     if _git_output("status", "--porcelain", "--untracked-files=normal"):
         raise AutonomousWalkingError("Verification left the Git worktree dirty")
-    return after_sha
+    return after_sha, updated_agent_config, decision["start_mode"] == "cold_start"
 
 
 def _codex_prompt(
@@ -706,7 +786,9 @@ def _codex_prompt(
         "cycle_analysis": analysis,
         "confirmation": confirmation,
         "experiment_history": state.get("experiment_history", []),
-        "frozen_contract": state["frozen_contract"],
+        "frozen_deployment_contract": state["frozen_contract"],
+        "frozen_acceptance_contract": state["frozen_acceptance"],
+        "current_training_compatibility": state["training_compatibility"],
         "toddlerbot_source": str(toddlerbot_repo),
         "wr1_training_agent_reference": str(
             Path.home()
@@ -931,6 +1013,8 @@ def _prepare_state(
             config.base_training_config, "base training config"
         ).as_posix(),
         "frozen_contract": _contract_snapshot(config.base_training_config),
+        "frozen_acceptance": _acceptance_contract(config),
+        "training_compatibility": _training_compatibility(config),
         "global_cycle": 0,
         "stage": None,
         "stage_cycle": 0,
@@ -956,9 +1040,14 @@ def _record_codex_improvement(
     confirmation: Mapping[str, Any] | None,
     cycle_root: Path,
     agent_root: Path,
-) -> None:
+) -> tuple[WalkingAgentConfig, bool]:
     before_sha = _require_clean_branch(args.branch)
-    state.update(status="improving", git_sha=before_sha)
+    before_training_compatibility = _training_compatibility(config)
+    state.update(
+        status="improving",
+        git_sha=before_sha,
+        training_compatibility=before_training_compatibility,
+    )
     _save_state(agent_root, state)
     decision = _invoke_codex(
         args,
@@ -968,12 +1057,15 @@ def _record_codex_improvement(
         base_training_config=config.base_training_config,
         cycle_root=cycle_root,
     )
-    after_sha = _validate_codex_commit(
+    after_sha, updated_config, requires_cold_start = _validate_codex_commit(
         before_sha=before_sha,
         branch=args.branch,
         decision=decision,
+        agent_config_path=args.agent_config,
         base_training_config=config.base_training_config,
         frozen_contract=state["frozen_contract"],
+        frozen_acceptance=state["frozen_acceptance"],
+        before_training_compatibility=before_training_compatibility,
         verification_log=cycle_root / "post_codex_tests.log",
     )
     _push(args.branch)
@@ -985,13 +1077,21 @@ def _record_codex_improvement(
             **decision,
         }
     )
-    state.update(status="active", git_sha=after_sha, last_decision=decision)
+    if requires_cold_start:
+        state["current_checkpoint"] = None
+    state.update(
+        status="active",
+        git_sha=after_sha,
+        last_decision=decision,
+        training_compatibility=_training_compatibility(updated_config),
+    )
     _save_state(agent_root, state)
     print(
         f"Mac: validated and pushed Codex commit {after_sha[:12]}: "
         f"{decision['summary']}",
         flush=True,
     )
+    return updated_config, requires_cold_start
 
 
 def _run_campaign(args: argparse.Namespace) -> int:
@@ -1019,7 +1119,8 @@ def _run_campaign(args: argparse.Namespace) -> int:
     global_cycle = 0
 
     try:
-        for stage_index, stage in enumerate(config.stages):
+        for stage_index in range(len(config.stages)):
+            stage = config.stages[stage_index]
             stage_best: Candidate | None = None
             for stage_cycle in range(1, stage.max_cycles + 1):
                 global_cycle += 1
@@ -1229,7 +1330,7 @@ def _run_campaign(args: argparse.Namespace) -> int:
                     )
                     return 2
 
-                _record_codex_improvement(
+                config, cold_start = _record_codex_improvement(
                     args,
                     state=state,
                     config=config,
@@ -1238,6 +1339,10 @@ def _run_campaign(args: argparse.Namespace) -> int:
                     cycle_root=cycle_root,
                     agent_root=agent_root,
                 )
+                stage = config.stages[stage_index]
+                if cold_start:
+                    current_checkpoint = None
+                    stage_best = None
         state.update(
             status="goal_not_met",
             stopped_at=_utc_now(),

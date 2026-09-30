@@ -106,16 +106,23 @@ Keep this foreground Mac process running. For each bounded cycle it:
    checkpoint stays on the GPU;
 4. evaluates P0, P1, and hard safety locally and records `analysis.json`;
 5. when another experiment is needed, invokes non-interactive `codex exec` on
-   the Mac for one evidence-backed code/config change and one commit;
-6. rejects changes to the action/observation/network/servo contract, success
-   gates, evaluator, trainer, or automation control plane, reruns all tests,
-   and pushes the validated commit; and
+   the Mac for one high-confidence, ToddlerBot-aligned experiment and one
+   commit;
+6. allows coherent changes across the locomotion environment, metrics,
+   evaluator, trainer, PPO code, typed config, and campaign YAML, then reruns
+   all tests and pushes the validated commit; and
 7. starts the next GPU cycle from the best hard-safe checkpoint, after the GPU
    has pulled the validated commit.
 
-The coding agent cannot push or select a checkpoint itself. Acquisition can
-advance directly to robust training without a code change; robust completion
-still requires the independent three-speed, three-seed confirmation.
+The coding agent cannot push or select a checkpoint itself. The supervisor
+still freezes the hardware/deployment interface, final P0 definitions,
+confirmation matrix, hard servo limits, total campaign budget, and its own
+control plane. A network/parameter-contract change must explicitly request a
+cold start; compatible changes retain the best hard-safe GPU checkpoint unless
+the accepted hypothesis explicitly requires retraining from scratch.
+Acquisition can advance directly to robust training without a code change;
+robust completion still requires the independent three-speed, three-seed
+confirmation.
 
 The Mac must have the Codex CLI authenticated. The GPU host should use SSH-key
 authentication because one campaign makes several unattended SSH/SCP calls.
