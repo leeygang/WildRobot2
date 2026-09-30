@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy while preserving WR2's measured actuator envelope.
-version: "0.2.0"
-version_name: "WR2 phase-guided forward walking"
+version: "0.3.0"
+version_name: "WR2 bounded-action phase-guided forward walking"
 seed: 0
 
 environment:
@@ -95,7 +95,10 @@ network:
   policy_hidden_layer_sizes: [512, 256, 128]
   value_hidden_layer_sizes: [512, 256, 128]
   activation: elu
-  distribution_type: normal
+  # Unlike ToddlerBot's unconstrained target path, WR2 clips normalized actions
+  # before applying its frozen residual-action contract.  Model that bound in
+  # PPO so distinct Gaussian samples do not alias to the same clipped action.
+  distribution_type: tanh_normal
   noise_std_type: log
   init_noise_std: 0.5
 

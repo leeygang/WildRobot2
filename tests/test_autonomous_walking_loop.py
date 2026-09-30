@@ -124,7 +124,9 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
                 "action_saturation",
             ],
         )
-        self.assertEqual(compatibility["network"]["distribution_type"], "normal")
+        self.assertEqual(
+            compatibility["network"]["distribution_type"], "tanh_normal"
+        )
 
     def test_codex_change_allowlist_requires_training_change(self):
         _validate_changed_files(

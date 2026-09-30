@@ -2,9 +2,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import jax.numpy as jp
 import numpy as np
 
 from wr2.locomotion.configs import load_training_config
+from wr2.locomotion.ppo import make_network_factory
 from wr2.locomotion.train import _create_run_directory
 from wr2.locomotion.walking_metrics import walking_score
 from wr2.sensing.imu import canonicalize_sensor_sample
@@ -153,10 +155,30 @@ class TrainingInterfaceTest(unittest.TestCase):
             self.training_config.network.policy_hidden_layer_sizes,
             (512, 256, 128),
         )
-        self.assertEqual(self.training_config.network.distribution_type, "normal")
+        self.assertEqual(
+            self.training_config.network.distribution_type, "tanh_normal"
+        )
         self.assertTrue(self.training_config.checkpoints.save_every_evaluation)
         self.assertTrue(self.training_config.checkpoints.keep_best)
         self.assertEqual(self.training_config.output.root, "results/wr2_walking")
+
+    def test_policy_distribution_enforces_normalized_action_bounds(self):
+        networks = make_network_factory(self.training_config.network)(
+            self.robot.observation_size,
+            self.robot.actuator_count,
+        )
+        distribution = networks.parametric_action_distribution
+        self.assertEqual(distribution.param_size, 2 * self.robot.actuator_count)
+
+        logits = jp.concatenate(
+            [
+                jp.linspace(-20.0, 20.0, self.robot.actuator_count),
+                jp.zeros(self.robot.actuator_count),
+            ]
+        )
+        action = np.asarray(distribution.mode(logits))
+        self.assertTrue(np.all(action >= -1.0))
+        self.assertTrue(np.all(action <= 1.0))
 
     def test_zero_action_maps_to_home(self):
         targets = self.robot.action.targets(
