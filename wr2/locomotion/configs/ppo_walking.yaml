@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy while preserving WR2's measured actuator envelope.
-version: "0.3.0"
-version_name: "WR2 bounded-action phase-guided forward walking"
+version: "0.4.0"
+version_name: "WR2 stable-support phase-guided forward walking"
 seed: 0
 
 environment:
@@ -50,7 +50,11 @@ reward_weights:
   actuator_torque_squared: -0.005
   feet_phase: 2.0
   contact_phase: 0.5
-  both_feet_contact: -0.5
+  # The phase-height and contact-match terms already reward alternating support.
+  # Do not penalize transient double support: the first 100M-step cycle reduced
+  # it while an initially safe stance destabilized, unlike ToddlerBot's proven
+  # phase-guided reward which has no always-on double-support penalty.
+  both_feet_contact: 0.0
   feet_distance: 0.25
   feet_orientation: 0.25
 

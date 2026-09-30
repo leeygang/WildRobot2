@@ -144,7 +144,10 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(environment.swing_height_m, 0.03)
         self.assertLess(environment.velocity_tracking_sigma, 0.1)
         self.assertGreater(environment.rewards.feet_phase, 0.0)
-        self.assertLess(environment.rewards.both_feet_contact, 0.0)
+        # Alternating contact remains rewarded directly.  Double support is a
+        # diagnostic, not a competing dense penalty that can reward falling.
+        self.assertGreater(environment.rewards.contact_phase, 0.0)
+        self.assertEqual(environment.rewards.both_feet_contact, 0.0)
         self.assertEqual(self.training_config.ppo.num_timesteps, 1_000_000_000)
         self.assertEqual(
             self.training_config.ppo.evaluation_forward_command_m_s, 0.20
