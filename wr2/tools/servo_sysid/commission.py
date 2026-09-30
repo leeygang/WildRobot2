@@ -170,9 +170,9 @@ def summarize_series(
     if (
         not final_temperature.size
         or not np.all(np.isfinite(final_temperature))
-        or float(np.max(final_temperature)) > max_temperature_c
+        or float(np.max(final_temperature)) >= max_temperature_c
     ):
-        failures.append("temperature exceeds limit")
+        failures.append("temperature reaches or exceeds limit")
     return {
         "schema_version": 1,
         "created_at": datetime.now(timezone.utc).isoformat(),

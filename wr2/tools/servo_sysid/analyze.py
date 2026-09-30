@@ -157,8 +157,8 @@ def analyze_campaigns(
             temperatures.extend(condition_temperature)
             if condition_voltage and min(condition_voltage) < min_voltage_v:
                 condition_failures.append("voltage below limit")
-            if condition_temperature and max(condition_temperature) > max_temperature_c:
-                condition_failures.append("temperature above limit")
+            if condition_temperature and max(condition_temperature) >= max_temperature_c:
+                condition_failures.append("temperature reaches or exceeds limit")
             trace = capture.get("trace_summary", {})
             if trace.get("tracking_abs_p95_deg") is not None:
                 value = float(trace["tracking_abs_p95_deg"])

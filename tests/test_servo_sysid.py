@@ -21,7 +21,7 @@ from wr2.actuation.htd45h import (
 from wr2.tools.servo_sysid.analyze import analyze_campaigns
 from wr2.tools.servo_sysid.campaign import CONDITIONS, main as campaign_main
 from wr2.tools.servo_sysid.campaign import selected_conditions
-from wr2.tools.servo_sysid.capture import capture_profile
+from wr2.tools.servo_sysid.capture import _check_health, capture_profile
 from wr2.tools.servo_sysid.commission import summarize_series
 from wr2.tools.servo_sysid.core import (
     ProfileSegment,
@@ -32,6 +32,14 @@ from wr2.tools.servo_sysid.core import (
 
 
 class Htd45hProtocolTest(unittest.TestCase):
+    def test_temperature_limit_is_inclusive(self):
+        healthy = {"voltage_v": 11.8, "temperature_c": 54.0, "loaded": True}
+        _check_health(healthy, min_voltage_v=9.6, max_temperature_c=55.0)
+
+        at_limit = {"voltage_v": 11.8, "temperature_c": 55.0, "loaded": True}
+        with self.assertRaisesRegex(RuntimeError, "reaches or exceeds"):
+            _check_health(at_limit, min_voltage_v=9.6, max_temperature_c=55.0)
+
     def test_packet_round_trip(self):
         packet = build_packet(100, 28, [0x34, 0x12])
         self.assertEqual(packet[-1], checksum(packet[:-1]))

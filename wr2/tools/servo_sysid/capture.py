@@ -152,10 +152,10 @@ def _check_health(
         raise RuntimeError(
             f"voltage {float(health['voltage_v']):.3f} V is below {min_voltage_v:.3f} V"
         )
-    if float(health["temperature_c"]) > max_temperature_c:
+    if float(health["temperature_c"]) >= max_temperature_c:
         raise RuntimeError(
-            f"temperature {float(health['temperature_c']):.1f} C exceeds "
-            f"{max_temperature_c:.1f} C"
+            f"temperature {float(health['temperature_c']):.1f} C reaches or exceeds "
+            f"the {max_temperature_c:.1f} C limit"
         )
     if not bool(health["loaded"]):
         raise RuntimeError("servo unexpectedly disabled torque")
