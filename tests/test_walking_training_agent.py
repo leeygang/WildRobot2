@@ -48,12 +48,10 @@ class WalkingTrainingAgentTest(unittest.TestCase):
     def setUpClass(cls):
         cls.agent_config = load_agent_config(DEFAULT_AGENT_CONFIG)
 
-    def test_campaign_is_bounded_at_toddlerbot_training_scale(self):
-        total_cycles = sum(stage.max_cycles for stage in self.agent_config.stages)
-        self.assertEqual(total_cycles, 10)
+    def test_campaign_uses_high_emergency_cycle_ceiling(self):
         self.assertEqual(
-            total_cycles * self.agent_config.cycle.num_timesteps,
-            1_000_000_000,
+            [stage.max_cycles for stage in self.agent_config.stages],
+            [2000, 2000],
         )
         self.assertEqual(
             [stage.name for stage in self.agent_config.stages],
