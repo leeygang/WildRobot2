@@ -53,10 +53,21 @@ uv run python -m wr2.tools.post_process
 uv run python -m wr2.locomotion.train --smoke
 ```
 
+On Linux, the training extra installs CUDA 12 JAX. Confirm that JAX sees the
+GPU before starting a long run:
+
+```bash
+uv run --extra training python -c 'import jax; print(jax.devices())'
+```
+
 See [`docs/design/training_interface.md`](docs/design/training_interface.md)
 for the 60-value actor observation, 17-value action contract, and remaining
 hardware gates. See [`docs/design/servo_model.md`](docs/design/servo_model.md)
 for the evidence and limitations behind the initial HTD-45H model.
+Training values are defined in
+[`wr2/locomotion/configs/ppo_walking.yaml`](wr2/locomotion/configs/ppo_walking.yaml);
+the trainer accepts explicit CLI overrides and snapshots the effective YAML in
+every run directory.
 The staged high-load qualification procedure is in
 [`docs/hardware/htd45h_deployment_test.md`](docs/hardware/htd45h_deployment_test.md).
 

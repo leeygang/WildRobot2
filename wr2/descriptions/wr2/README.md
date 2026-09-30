@@ -61,11 +61,12 @@ The initial environment uses `scene_mjx.xml`, the `walk_home` keyframe, the
 `docs/design/training_interface.md` for the observation contract and training
 gates.
 
-The nominal HTD-45H dynamics are transferred from WR1's low-load system
-identification. Only `kp`, joint damping, and friction loss were fitted.
-Armature, `kv`, and the 4 N m force cap were held fixed, and the highest
-held-out load was about 0.56 N m. They are adequate for software bring-up but
-are not a validated WR2 walking-load or continuous-torque model.
+The HTD-45H model uses a provisional WR2 unit-A static midpoint for `kp`, with
+damping, friction loss, armature, and `kv` still transferred from WR1. The
+highest short-duration WR2 fixture load observed so far is about 1.016 N m;
+this is not a continuous-torque rating. Training uncertainty ranges and reward
+weights live in `wr2/locomotion/configs/ppo_walking.yaml`, separate from the
+robot description.
 
 Generated XML files must be produced from the raw export plus the post-process
 script and must not be edited independently.

@@ -9,7 +9,7 @@ import numpy as np
 from brax.envs.base import PipelineEnv, State
 from brax.io import mjcf
 
-from wr2.locomotion.config import WalkingEnvConfig
+from wr2.locomotion.configs import WalkingEnvConfig, load_training_config
 from wr2.sim.robot import RobotDescription
 
 
@@ -38,7 +38,7 @@ class WR2WalkingEnv(PipelineEnv):
         *,
         add_observation_noise: bool = True,
     ):
-        self.config = config or WalkingEnvConfig()
+        self.config = config or load_training_config().environment
         self.robot = RobotDescription.load(include_local_calibration=False)
         self.add_observation_noise = add_observation_noise
         if not np.isclose(self.config.action_scale_rad, self.robot.action.scale_rad):
@@ -68,10 +68,13 @@ class WR2WalkingEnv(PipelineEnv):
         self._ctrl_lower = jp.asarray(mj_model.actuator_ctrlrange[:, 0])
         self._ctrl_upper = jp.asarray(mj_model.actuator_ctrlrange[:, 1])
         servo_config = self.robot.config["actuators"]["htd45hServo"]
-        self._command_resolution_rad = float(servo_config["command_resolution_rad"])
-        target_speed_limit = float(
-            servo_config["training_target_speed_limit_rad_s"]
+        self._torque_exposure_reference_nm = float(
+            servo_config["maximum_validated_load_nm"]
         )
+        if self._torque_exposure_reference_nm <= 0.0:
+            raise ValueError("Torque-exposure reference must be positive")
+        self._command_resolution_rad = float(servo_config["command_resolution_rad"])
+        target_speed_limit = float(servo_config["training_target_speed_limit_rad_s"])
         # Commands are integer servo units. Using a whole-unit step keeps both
         # the vendor no-load speed ceiling and command quantization exact.
         self._max_command_step_units = max(
@@ -86,6 +89,14 @@ class WR2WalkingEnv(PipelineEnv):
         )
         self._max_command_step_rad = (
             self._max_command_step_units * self._command_resolution_rad
+        )
+        if self.config.torque_exposure_time_constant_s <= 0.0:
+            raise ValueError("Torque-exposure time constant must be positive")
+        self._torque_exposure_decay = float(
+            np.exp(
+                -self.robot.control_period_s
+                / self.config.torque_exposure_time_constant_s
+            )
         )
 
         joint_ids = [
@@ -227,9 +238,14 @@ class WR2WalkingEnv(PipelineEnv):
         )
 
     def reset(self, rng: jax.Array) -> State:
-        rng, joint_rng, velocity_rng, command_rng, observation_rng = jax.random.split(
-            rng, 5
-        )
+        (
+            rng,
+            joint_rng,
+            velocity_rng,
+            command_rng,
+            observation_rng,
+            actuator_bias_rng,
+        ) = jax.random.split(rng, 6)
         qpos = self._default_qpos.at[self._joint_qpos_indices].add(
             jax.random.uniform(
                 joint_rng,
@@ -244,7 +260,19 @@ class WR2WalkingEnv(PipelineEnv):
             minval=-self.config.reset_velocity_noise_rad_s,
             maxval=self.config.reset_velocity_noise_rad_s,
         )
-        pipeline_state = self.pipeline_init(qpos, qvel, ctrl=self._home_ctrl)
+        bias_range = self.config.randomization.target_bias_rad
+        actuator_target_bias = jax.random.uniform(
+            actuator_bias_rng,
+            (self.robot.actuator_count,),
+            minval=bias_range[0],
+            maxval=bias_range[1],
+        )
+        initial_target = jp.clip(
+            self._quantize_target(self._home_ctrl + actuator_target_bias),
+            self._ctrl_lower,
+            self._ctrl_upper,
+        )
+        pipeline_state = self.pipeline_init(qpos, qvel, ctrl=initial_target)
         command = self._sample_command(command_rng)
         previous_action = jp.zeros(self.robot.actuator_count)
         observation = self._observation(
@@ -262,14 +290,20 @@ class WR2WalkingEnv(PipelineEnv):
             "joint_velocity": zero,
             "foot_slip": zero,
             "mechanical_power": zero,
+            "actuator_torque_squared": zero,
+            "actuator_torque_rms_nm_per_step": zero,
+            "actuator_torque_peak_nm_per_step": zero,
+            "sustained_torque_exposure_per_step": zero,
             "left_foot_contact": zero,
             "right_foot_contact": zero,
         }
         info = {
             "rng": rng,
             "command": command,
+            "actuator_target_bias": actuator_target_bias,
+            "torque_exposure": jp.zeros(self.robot.actuator_count),
             "previous_action": previous_action,
-            "previous_target": self._quantize_target(self._home_ctrl),
+            "previous_target": initial_target,
             "step_count": jp.zeros((), dtype=jp.int32),
         }
         return State(pipeline_state, observation, zero, zero, metrics, info)
@@ -285,7 +319,9 @@ class WR2WalkingEnv(PipelineEnv):
             raise ValueError("The initial environment supports only 0 or 1 delay steps")
 
         desired_target = jp.clip(
-            self._home_ctrl + self.config.action_scale_rad * applied_action,
+            self._home_ctrl
+            + state.info["actuator_target_bias"]
+            + self.config.action_scale_rad * applied_action,
             self._ctrl_lower,
             self._ctrl_upper,
         )
@@ -333,6 +369,19 @@ class WR2WalkingEnv(PipelineEnv):
         mechanical_power = jp.sum(
             jp.abs(pipeline_state.actuator_force * joint_velocity)
         )
+        actuator_torque_squared = jp.sum(jp.square(pipeline_state.actuator_force))
+        actuator_torque_rms_nm = jp.sqrt(
+            jp.mean(jp.square(pipeline_state.actuator_force))
+        )
+        actuator_torque_peak_nm = jp.max(jp.abs(pipeline_state.actuator_force))
+        normalized_torque_squared = jp.square(
+            pipeline_state.actuator_force / self._torque_exposure_reference_nm
+        )
+        torque_exposure = (
+            self._torque_exposure_decay * state.info["torque_exposure"]
+            + (1.0 - self._torque_exposure_decay) * normalized_torque_squared
+        )
+        sustained_torque_exposure = jp.max(torque_exposure)
 
         weights = self.config.rewards
         reward = (
@@ -346,6 +395,7 @@ class WR2WalkingEnv(PipelineEnv):
             + weights.joint_velocity * joint_velocity_cost
             + weights.foot_slip * foot_slip
             + weights.mechanical_power * mechanical_power
+            + weights.actuator_torque_squared * actuator_torque_squared
         )
 
         step_count = state.info["step_count"] + 1
@@ -365,6 +415,7 @@ class WR2WalkingEnv(PipelineEnv):
             "rng": rng,
             "previous_action": action,
             "previous_target": target,
+            "torque_exposure": torque_exposure,
             "step_count": step_count,
         }
         metrics = {
@@ -378,6 +429,10 @@ class WR2WalkingEnv(PipelineEnv):
             "joint_velocity": -joint_velocity_cost,
             "foot_slip": -foot_slip,
             "mechanical_power": -mechanical_power,
+            "actuator_torque_squared": -actuator_torque_squared,
+            "actuator_torque_rms_nm_per_step": actuator_torque_rms_nm,
+            "actuator_torque_peak_nm_per_step": actuator_torque_peak_nm,
+            "sustained_torque_exposure_per_step": sustained_torque_exposure,
             "left_foot_contact": foot_contact[0].astype(jp.float32),
             "right_foot_contact": foot_contact[1].astype(jp.float32),
         }

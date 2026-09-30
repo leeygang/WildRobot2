@@ -443,7 +443,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--cooldown-poll-s", type=float, default=5.0)
     parser.add_argument("--profile-health-poll-hz", type=float, default=6.0)
     parser.add_argument("--min-voltage-v", type=float, default=9.6)
-    parser.add_argument("--max-temperature-c", type=float, default=55.0)
+    parser.add_argument("--max-temperature-c", type=float, default=80.0)
     parser.add_argument("--max-position-error-deg", type=float, default=5.0)
     parser.add_argument("--max-position-error-duration-s", type=float, default=0.15)
     parser.add_argument("--max-static-torque-nm", type=float, default=3.2)

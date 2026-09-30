@@ -48,8 +48,8 @@ imu_randomization:
 
 actuators:
     htd45hServo:
-        model_status: provisional_wr1_low_load_transfer
-        source: WR1_2026-09-12_A1_B1_B2_sysid
+        model_status: provisional_wr2_unit_a_static_envelope
+        source: WR2_2026-09-29_to_30_unit_a_static_thermal_plus_WR1_dynamic
         vendor_spec_source: HTD-45H_Bus_Servo_User_Manual_page_5
         rated_voltage_v: 11.1
         operating_voltage_range_v: [9.6, 12.6]
@@ -61,30 +61,41 @@ actuators:
         command_range_deg: [0.0, 240.0]
         command_resolution_rad: 0.0041887902
         training_target_speed_limit_rad_s: 5.8177642
-        kp_sim: 31.902
+        # Provisional midpoint for training. WR2 static tests motivate a broad
+        # 8--32 N m/rad range; a WR2 dynamic fit is still pending.
+        kp_sim: 16.0
         kv_sim: 0.5
         torque_limit_nm: 4.0
         damping: 1.10618
         frictionloss: 0.324094
         armature: 0.024992
-        fitted_parameters: [kp_sim, damping, frictionloss]
+        wr1_fitted_parameters: [kp_sim, damping, frictionloss]
+        wr2_overridden_parameters: [kp_sim]
         held_fixed_parameters: [kv_sim, armature, torque_limit_nm]
         mean_capture_replay_rmse_deg: 0.4386
         held_out_replay_rmse_deg: 0.480
-        maximum_validated_load_nm: 0.56
+        maximum_validated_load_nm: 1.0157
+        maximum_validated_load_duration_s: 3.0
         torque_limit_status: conservative_below_vendor_stall_upper_bound
-        wr2_commissioning_status: low_load_tracking_observed_power_path_unqualified
-        maximum_observed_wr2_fixture_load_nm: 0.5715
+        wr2_commissioning_status: unit_a_training_envelope_deployment_unqualified
+        maximum_observed_wr2_fixture_load_nm: 1.0157
+        continuous_load_status: bracket_pending_C9
+        continuous_actual_load_pass_nm: 0.0833
+        continuous_actual_load_fail_nm: 0.3170
+        continuous_test_duration_s: 600.0
+        torque_enabled_baseline_temperature_c: 74.0
+        thermal_short_hold_condition: plus8deg
+        thermal_short_hold_actual_load_nm: 0.3172
+        thermal_short_hold_duration_s: 180.0
+        thermal_short_hold_repeat_count: 2
+        thermal_short_hold_peak_temperature_c: 72.0
+        thermal_short_hold_final_slope_range_c_per_min: [3.6610, 3.7123]
+        thermal_short_hold_quantized_target_deg: 7.92
+        thermal_short_hold_mean_position_deg: 6.0070
+        thermal_short_hold_apparent_stiffness_nm_per_rad: 9.50
+        thermal_short_hold_status: repeatable_pass_not_at_equilibrium
+        software_temperature_shutdown_c: 80.0
         fitted_extra_command_delay_steps: 0
-        initial_training_randomization:
-            kp_scale: [0.8, 1.2]
-            kv_scale: [0.8, 1.2]
-            damping_scale: [0.8, 1.2]
-            armature_scale: [0.8, 1.2]
-            frictionloss_scale: [0.7, 1.3]
-            # Includes unmeasured voltage, wiring, BusLinker, temperature, and
-            # unit-to-unit capacity variation. It never exceeds the 4 N m cap.
-            torque_limit_scale: [0.6, 1.0]
 
 contact:
     foot_collision_geoms: [left_foot_collision, right_foot_collision]

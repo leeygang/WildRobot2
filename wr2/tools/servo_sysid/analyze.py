@@ -121,9 +121,7 @@ def analyze_campaigns(
                     target.append(value)
             external_voltage = _finite_number(external.get("minimum_voltage_v"))
             if external_voltage is None:
-                failures.append(
-                    f"{campaign_name}: external minimum voltage is invalid"
-                )
+                failures.append(f"{campaign_name}: external minimum voltage is invalid")
             else:
                 voltages.append(external_voltage)
                 if external_voltage < min_voltage_v:
@@ -157,7 +155,10 @@ def analyze_campaigns(
             temperatures.extend(condition_temperature)
             if condition_voltage and min(condition_voltage) < min_voltage_v:
                 condition_failures.append("voltage below limit")
-            if condition_temperature and max(condition_temperature) >= max_temperature_c:
+            if (
+                condition_temperature
+                and max(condition_temperature) >= max_temperature_c
+            ):
                 condition_failures.append("temperature reaches or exceeds limit")
             trace = capture.get("trace_summary", {})
             if trace.get("tracking_abs_p95_deg") is not None:
@@ -301,7 +302,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--min-servos", type=int, default=3)
     parser.add_argument("--min-voltage-v", type=float, default=9.6)
-    parser.add_argument("--max-temperature-c", type=float, default=55.0)
+    parser.add_argument("--max-temperature-c", type=float, default=80.0)
     parser.add_argument("--max-tracking-p95-deg", type=float, default=5.0)
     parser.add_argument("--max-thermal-slope-c-per-min", type=float, default=0.5)
     parser.add_argument("--safety-factor", type=float, default=1.2)

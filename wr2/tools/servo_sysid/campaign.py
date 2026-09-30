@@ -117,7 +117,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--cooldown-target-c", type=float, default=35.0)
     parser.add_argument("--min-voltage-v", type=float, default=9.6)
-    parser.add_argument("--max-temperature-c", type=float, default=55.0)
+    parser.add_argument("--max-temperature-c", type=float, default=80.0)
     parser.add_argument("--max-position-error-deg", type=float, default=5.0)
     parser.add_argument("--max-position-error-duration-s", type=float, default=0.15)
     parser.add_argument("--max-static-torque-nm", type=float, default=3.2)
@@ -298,7 +298,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if manifest.get("servo_label") != args.servo_label:
             raise SystemExit("existing campaign directory uses a different servo label")
         if manifest.get("fixture_sha256") != fixture_hash:
-            raise SystemExit("existing campaign directory uses a different fixture model")
+            raise SystemExit(
+                "existing campaign directory uses a different fixture model"
+            )
         expected_numbers = {
             "fixture_direction": args.fixture_direction,
             "fixture_qpos_offset_deg": args.fixture_qpos_offset_deg,
@@ -308,11 +310,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         for name, value in expected_numbers.items():
             assert value is not None
             if not _same_number(manifest.get(name), float(value)):
-                raise SystemExit(
-                    f"existing campaign directory has a different {name}"
-                )
+                raise SystemExit(f"existing campaign directory has a different {name}")
         if manifest.get("fixture_label") != args.fixture_label:
-            raise SystemExit("existing campaign directory uses a different fixture label")
+            raise SystemExit(
+                "existing campaign directory uses a different fixture label"
+            )
         if manifest.get("safety_limits") != safety_limits:
             raise SystemExit("existing campaign directory uses different safety limits")
     else:

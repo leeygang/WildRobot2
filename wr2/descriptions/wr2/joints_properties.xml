@@ -1,9 +1,9 @@
 <default>
     <default class="htd45hServo">
       <geom contype="0" conaffinity="0" />
-      <!-- 2026-09-12 A1/B1/B2 low-load HTD-45H SysID; armature, kv, and torque limit held fixed. -->
+      <!-- Provisional WR2 unit-A static midpoint; WR2 dynamic fitting remains pending. -->
       <joint damping="1.10618" frictionloss="0.324094" armature="0.024992" />
-      <position kp="31.902" kv="0.5" forcerange="-4.0 4.0" />
+      <position kp="16.0" kv="0.5" forcerange="-4.0 4.0" />
     </default>
     <default class="backlash">
         <!-- +/- 0.5° of backlash -->

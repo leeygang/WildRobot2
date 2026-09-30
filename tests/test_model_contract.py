@@ -27,7 +27,9 @@ class ModelContractTest(unittest.TestCase):
         self.assertEqual(actual, actuator_order())
 
     def test_servo_defaults_and_imu_sensors_are_present(self):
-        self.assertIsNotNone(self.root.find(".//default[@class='htd45hServo']"))
+        servo_default = self.root.find(".//default[@class='htd45hServo']")
+        self.assertIsNotNone(servo_default)
+        self.assertEqual(servo_default.find("position").get("kp"), "16.0")
         actual_sensors = {
             element.get("name") for element in self.root.findall("sensor/*")
         }

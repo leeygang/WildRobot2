@@ -1,16 +1,36 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
 
-from wr2.locomotion.config import DynamicsRandomization
+from wr2.locomotion.configs import load_training_config
+from wr2.locomotion.train import _create_run_directory
 from wr2.sensing.imu import canonicalize_sensor_sample
 from wr2.sim import RobotDescription, RobotObservation, build_wr2_proprio_v1
 
 
 class TrainingInterfaceTest(unittest.TestCase):
+    def test_training_run_directory_is_generated_without_overwriting(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_root = Path(temporary_directory)
+            first_id, first_path = _create_run_directory(output_root, None, seed=3)
+            second_id, second_path = _create_run_directory(output_root, None, seed=3)
+
+            self.assertRegex(first_id, r"^wr2_ppo_\d{8}_\d{6}_seed3(?:_\d{2})?$")
+            self.assertTrue(first_path.is_dir())
+            self.assertTrue(second_path.is_dir())
+            self.assertNotEqual(first_id, second_id)
+
+    def test_explicit_training_run_id_cannot_escape_output_root(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with self.assertRaisesRegex(ValueError, "single directory name"):
+                _create_run_directory(Path(temporary_directory), "../outside", seed=0)
+
     @classmethod
     def setUpClass(cls):
         cls.robot = RobotDescription.load(include_local_calibration=False)
+        cls.training_config = load_training_config()
 
     def test_robot_description_matches_canonical_model(self):
         self.assertEqual(self.robot.actuator_count, 17)
@@ -33,20 +53,33 @@ class TrainingInterfaceTest(unittest.TestCase):
             self.robot.home_position_rad, expected_walk_home, atol=1e-7
         )
         servo = self.robot.config["actuators"]["htd45hServo"]
-        self.assertEqual(servo["model_status"], "provisional_wr1_low_load_transfer")
         self.assertEqual(
-            set(servo["fitted_parameters"]),
+            servo["model_status"], "provisional_wr2_unit_a_static_envelope"
+        )
+        self.assertEqual(
+            set(servo["wr1_fitted_parameters"]),
             {"kp_sim", "damping", "frictionloss"},
         )
-        self.assertEqual(servo["maximum_validated_load_nm"], 0.56)
+        self.assertEqual(servo["wr2_overridden_parameters"], ["kp_sim"])
+        self.assertEqual(servo["kp_sim"], 16.0)
+        self.assertEqual(servo["maximum_validated_load_nm"], 1.0157)
+        self.assertEqual(servo["maximum_validated_load_duration_s"], 3.0)
+        self.assertEqual(servo["thermal_short_hold_repeat_count"], 2)
+        self.assertEqual(servo["thermal_short_hold_duration_s"], 180.0)
+        self.assertEqual(servo["thermal_short_hold_peak_temperature_c"], 72.0)
+        self.assertEqual(servo["thermal_short_hold_quantized_target_deg"], 7.92)
+        self.assertEqual(servo["thermal_short_hold_apparent_stiffness_nm_per_rad"], 9.5)
+        self.assertEqual(
+            servo["thermal_short_hold_status"],
+            "repeatable_pass_not_at_equilibrium",
+        )
+        self.assertEqual(servo["software_temperature_shutdown_c"], 80.0)
         self.assertEqual(servo["rated_voltage_v"], 11.1)
         self.assertEqual(servo["operating_voltage_range_v"], [9.6, 12.6])
         self.assertAlmostEqual(servo["vendor_stall_torque_nm"], 4.4129925)
         self.assertEqual(servo["vendor_stall_current_a"], 3.0)
         self.assertAlmostEqual(servo["vendor_no_load_speed_rad_s"], 5.8177642)
-        self.assertLessEqual(
-            servo["torque_limit_nm"], servo["vendor_stall_torque_nm"]
-        )
+        self.assertLessEqual(servo["torque_limit_nm"], servo["vendor_stall_torque_nm"])
         resolution = servo["command_resolution_rad"]
         maximum_step_units = int(
             np.floor(
@@ -60,10 +93,29 @@ class TrainingInterfaceTest(unittest.TestCase):
             maximum_step_units * resolution / self.robot.control_period_s,
             servo["vendor_no_load_speed_rad_s"],
         )
-        randomization = DynamicsRandomization()
-        configured_ranges = servo["initial_training_randomization"]
-        for name, configured_range in configured_ranges.items():
-            self.assertEqual(tuple(configured_range), getattr(randomization, name))
+        randomization = self.training_config.environment.randomization
+        self.assertEqual(
+            tuple(value * servo["kp_sim"] for value in randomization.kp_scale),
+            (8.0, 32.0),
+        )
+        self.assertEqual(
+            tuple(
+                value * servo["torque_limit_nm"]
+                for value in randomization.torque_limit_scale
+            ),
+            (1.0, 4.0),
+        )
+        self.assertAlmostEqual(randomization.target_bias_rad[0], np.deg2rad(-2.0))
+        self.assertAlmostEqual(randomization.target_bias_rad[1], np.deg2rad(2.0))
+
+        self.assertLess(
+            self.training_config.environment.rewards.actuator_torque_squared, 0.0
+        )
+        self.assertGreater(
+            self.training_config.environment.torque_exposure_time_constant_s, 0.0
+        )
+        self.assertEqual(self.training_config.ppo.num_timesteps, 20_000_000)
+        self.assertEqual(self.training_config.output.root, "results/wr2_walking")
 
     def test_zero_action_maps_to_home(self):
         targets = self.robot.action.targets(

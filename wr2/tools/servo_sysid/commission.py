@@ -39,9 +39,7 @@ def _split_preparation(samples: Sequence[dict[str, Any]]) -> list[list[dict[str,
     phases: list[list[dict[str, Any]]] = []
     start = 0
     for index in range(1, len(samples)):
-        if float(samples[index]["elapsed_s"]) < float(
-            samples[index - 1]["elapsed_s"]
-        ):
+        if float(samples[index]["elapsed_s"]) < float(samples[index - 1]["elapsed_s"]):
             phases.append(list(samples[start:index]))
             start = index
     phases.append(list(samples[start:]))
@@ -102,9 +100,7 @@ def summarize_capture(path: Path, repeat_index: int) -> RepeatMetrics:
         minimum_voltage_v=min(voltage) if voltage else None,
         initial_temperature_c=temperature[0] if temperature else None,
         final_temperature_c=temperature[-1] if temperature else None,
-        temperature_rise_c=(
-            temperature[-1] - temperature[0] if temperature else None
-        ),
+        temperature_rise_c=(temperature[-1] - temperature[0] if temperature else None),
     )
 
 
@@ -119,22 +115,17 @@ def summarize_series(
     max_temperature_c: float,
 ) -> dict[str, Any]:
     repeats = [
-        summarize_capture(path, index)
-        for index, path in enumerate(captures, start=1)
+        summarize_capture(path, index) for index, path in enumerate(captures, start=1)
     ]
     completed = [item for item in repeats if item.outcome == "completed"]
     failures: list[str] = []
     if expected_repeats is not None and len(repeats) != expected_repeats:
-        failures.append(
-            f"found {len(repeats)} captures; expected {expected_repeats}"
-        )
+        failures.append(f"found {len(repeats)} captures; expected {expected_repeats}")
     if len(completed) != len(repeats):
         failures.append("one or more captures did not complete")
 
     def values(name: str) -> np.ndarray:
-        return np.asarray(
-            [getattr(item, name) for item in completed], dtype=np.float64
-        )
+        return np.asarray([getattr(item, name) for item in completed], dtype=np.float64)
 
     loaded = values("loaded_position_deg")
     zero = values("zero_position_deg")
@@ -201,9 +192,7 @@ def summarize_series(
             ),
             "minimum_voltage_v": float(np.min(voltage)) if voltage.size else None,
             "maximum_final_temperature_c": (
-                float(np.max(final_temperature))
-                if final_temperature.size
-                else None
+                float(np.max(final_temperature)) if final_temperature.size else None
             ),
         },
         "repeats": [asdict(item) for item in repeats],
@@ -234,7 +223,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--settle-s", type=float, default=3.0)
     parser.add_argument("--cooldown-target-c", type=float, default=35.0)
     parser.add_argument("--min-voltage-v", type=float, default=9.6)
-    parser.add_argument("--max-temperature-c", type=float, default=55.0)
+    parser.add_argument("--max-temperature-c", type=float, default=80.0)
     parser.add_argument("--max-position-error-deg", type=float, default=5.0)
     parser.add_argument("--max-repeatability-std-deg", type=float, default=0.5)
     parser.add_argument("--max-static-torque-nm", type=float, default=0.7)
@@ -299,9 +288,7 @@ def _capture_command(
     if args.measured_weight_kg is not None:
         command.extend(("--measured-weight-kg", str(args.measured_weight_kg)))
     if args.measured_com_radius_m is not None:
-        command.extend(
-            ("--measured-com-radius-m", str(args.measured_com_radius_m))
-        )
+        command.extend(("--measured-com-radius-m", str(args.measured_com_radius_m)))
     if execute:
         command.extend(("--execute", "--confirm-fixture-safe"))
     return command

@@ -7,7 +7,7 @@ from functools import partial
 import jax
 from brax import base
 
-from wr2.locomotion.config import DynamicsRandomization
+from wr2.locomotion.configs import DynamicsRandomization
 
 
 def make_domain_randomizer(

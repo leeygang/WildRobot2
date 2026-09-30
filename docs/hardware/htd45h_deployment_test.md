@@ -77,6 +77,14 @@ timestamped result directory can be copied as one logical result with
 
 ## Staged hardware execution
 
+The original high-load conditions below are retained for future deployment
+qualification, but are not prerequisites for starting policy training. Do not
+run E1, E2, or E4--E7 with the current unit-A evidence: WR2 has validated only
+approximately 1 N m actual fixture torque for short holds, and approximately
+0.317 N m reached the 80 C software cutoff before ten minutes. Run the
+gravity-neutral E3 dynamic condition first and redesign later conditions from
+the trained policy's measured torque, speed, and duty-cycle distribution.
+
 Run and inspect one condition at a time. Hardware motion requires both safety
 flags and an explicit stopping condition:
 
@@ -138,8 +146,9 @@ uv run python -m wr2.tools.servo_sysid.analyze \
 ```
 
 The default qualification requires three distinct servo labels, complete
-signed static and loaded-dynamic coverage, voltage >=9.6 V, temperature <=55 C,
-tracking p95 <=5 degrees, and a final thermal slope <=0.5 C/min. The report
+signed static and loaded-dynamic coverage, voltage >=9.6 V, temperature below
+the inclusive 80 C shutdown, tracking p95 <=5 degrees, and a final thermal
+slope <=0.5 C/min. The report
 applies a 1.2 safety factor before recommending peak and continuous torque
 limits. Thresholds are explicit command-line parameters and should ultimately
 be tied to the WR2 policy's measured error tolerance and required operating

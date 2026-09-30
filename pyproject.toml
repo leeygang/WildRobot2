@@ -21,7 +21,8 @@ training = [
     # Brax 0.14 still calls jax.device_put_replicated, removed by newer JAX.
     "brax>=0.14,<0.15",
     "gin-config",
-    "jax>=0.6,<0.7",
+    "jax>=0.6,<0.7; sys_platform == 'darwin'",
+    "jax[cuda12]>=0.6,<0.7; sys_platform != 'darwin'",
     "mujoco>=3.3,<4",
     "mujoco-mjx>=3.3,<4",
     "wandb",
@@ -48,6 +49,7 @@ wr2 = [
     "descriptions/**/*.yml",
     "descriptions/**/*.xml",
     "descriptions/**/*.stl",
+    "locomotion/configs/*.yaml",
     "tools/servo_sysid/fixtures/*.xml",
     "tools/servo_sysid/*.json",
 ]

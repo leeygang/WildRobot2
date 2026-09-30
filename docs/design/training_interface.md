@@ -79,20 +79,46 @@ models remain gated on WR2 sensor measurements.
 Actuator targets are quantized to HTD-45H command units (0.24 degrees) and
 slew-limited to 27 units per 20 ms control step, or 5.655 rad/s. This is below
 the vendor's 5.818 rad/s no-load speed at 11.1 V. The MJCF force cap remains
-4.0 N m, below the 4.413 N m vendor stall value, and is randomized downward;
-neither value is treated as a continuous-torque rating.
+4.0 N m, below the 4.413 N m vendor stall value, and is randomized from 1 to
+4 N m; neither value is treated as a continuous-torque rating. The provisional
+nominal position gain is 16 N m/rad and is randomized from 8 to 32 N m/rad.
+Each episode adds an independent +/-2-degree actuator-target bias so the policy
+cannot assume perfect zero calibration or rigid target tracking.
+
+The reward includes a squared actuator-torque cost as a proxy for winding
+heating. Mechanical power alone is insufficient because a stationary servo can
+draw current and heat while mechanical power is zero. Evaluation metrics expose
+mean per-step RMS torque, mean per-step peak torque, and a ten-second
+exponential torque-exposure signal normalized to the measured 1.016 N m
+short-duration load envelope. This signal is not a thermal model; hardware
+temperature remains protected by an inclusive 80 C runtime shutdown. Each
+training output records the complete environment and actuator configuration in
+`run_config.json` and evaluation telemetry in `training_metrics.jsonl`.
 
 Run the JIT environment gate with:
 
 ```bash
-uv run --extra training python -m wr2.locomotion.train --smoke
+uv run --extra training python -m wr2.locomotion.train \
+  --config wr2/locomotion/configs/ppo_walking.yaml --smoke
 ```
 
 Start PPO with:
 
 ```bash
-uv run --extra training python -m wr2.locomotion.train
+uv run --extra training python -m wr2.locomotion.train \
+  --config wr2/locomotion/configs/ppo_walking.yaml
 ```
+
+As in WildRobot, the YAML is the source of truth for environment parameters,
+reward weights, randomization, PPO hyperparameters, seed, and output settings.
+The Python module under `wr2/locomotion/configs/` only defines the typed schema,
+strict loader, and validation. Explicit CLI values override the loaded YAML.
+
+The trainer generates a run ID such as
+`wr2_ppo_20260930_142500_seed0` and writes the run below
+`results/wr2_walking/`. Use `--output-root` to select a different parent
+directory or `--run-id` to supply an explicit ID. Each run also receives an
+effective `training_config.yaml` snapshot after CLI overrides.
 
 Before hardware deployment, complete the remaining gates:
 
