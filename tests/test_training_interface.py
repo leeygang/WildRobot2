@@ -7,6 +7,7 @@ import numpy as np
 
 from wr2.locomotion.configs import load_training_config
 from wr2.locomotion.ppo import make_network_factory
+from wr2.locomotion.walking_env import soft_action_limit_cost
 from wr2.locomotion.train import _create_run_directory
 from wr2.locomotion.walking_metrics import walking_score
 from wr2.sensing.imu import canonicalize_sensor_sample
@@ -142,12 +143,14 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(environment.command_resample_steps, 150)
         self.assertEqual(environment.gait_cycle_s, 0.72)
         self.assertEqual(environment.swing_height_m, 0.03)
+        self.assertEqual(environment.action_soft_limit, 0.8)
         self.assertLess(environment.velocity_tracking_sigma, 0.1)
         self.assertGreater(environment.rewards.feet_phase, 0.0)
         # Alternating contact remains rewarded directly.  Double support is a
         # diagnostic, not a competing dense penalty that can reward falling.
         self.assertGreater(environment.rewards.contact_phase, 0.0)
         self.assertEqual(environment.rewards.both_feet_contact, 0.0)
+        self.assertLess(environment.rewards.action_limit, 0.0)
         self.assertEqual(self.training_config.ppo.num_timesteps, 1_000_000_000)
         self.assertEqual(
             self.training_config.ppo.evaluation_forward_command_m_s, 0.20
@@ -182,6 +185,18 @@ class TrainingInterfaceTest(unittest.TestCase):
         action = np.asarray(distribution.mode(logits))
         self.assertTrue(np.all(action >= -1.0))
         self.assertTrue(np.all(action <= 1.0))
+
+    def test_soft_action_limit_cost_preserves_interior_actions(self):
+        active_mask = jp.array([1.0, 1.0, 0.0])
+        interior = soft_action_limit_cost(
+            jp.array([-0.8, 0.5, 1.0]), active_mask, soft_limit=0.8
+        )
+        boundary = soft_action_limit_cost(
+            jp.array([-1.0, 0.9, 1.0]), active_mask, soft_limit=0.8
+        )
+
+        self.assertEqual(float(interior), 0.0)
+        self.assertAlmostEqual(float(boundary), 0.05, places=6)
 
     def test_zero_action_maps_to_home(self):
         targets = self.robot.action.targets(

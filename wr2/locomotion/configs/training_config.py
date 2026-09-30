@@ -21,6 +21,7 @@ class RewardWeights:
     alive: float
     pose: float
     action_rate: float
+    action_limit: float
     joint_velocity: float
     foot_slip: float
     mechanical_power: float
@@ -57,6 +58,7 @@ class DynamicsRandomization:
 class WalkingEnvConfig:
     episode_length: int
     action_scale_rad: float
+    action_soft_limit: float
     active_groups: tuple[str, ...]
     action_delay_steps: int
     reset_joint_noise_rad: float
@@ -291,6 +293,8 @@ def load_training_config(
         raise ValueError("environment.action_delay_steps must be 0 or 1")
     if environment.action_scale_rad <= 0.0:
         raise ValueError("environment.action_scale_rad must be positive")
+    if not 0.0 < environment.action_soft_limit < 1.0:
+        raise ValueError("environment.action_soft_limit must be in (0, 1)")
     if not 0.0 <= environment.zero_command_probability <= 1.0:
         raise ValueError("environment.zero_command_probability must be in [0, 1]")
     if environment.torque_exposure_time_constant_s <= 0.0:

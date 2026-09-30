@@ -1,12 +1,16 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy while preserving WR2's measured actuator envelope.
-version: "0.4.0"
-version_name: "WR2 stable-support phase-guided forward walking"
+version: "0.5.0"
+version_name: "WR2 soft-limit phase-guided forward walking"
 seed: 0
 
 environment:
   episode_length: 1000
   action_scale_rad: 0.25
+  # Keep the interior 80% of the frozen residual-action range unpenalized.
+  # Cycle 1 drove mean action magnitude to 0.946 and saturation to 0.784,
+  # although its untrained policy completed all 1000 evaluation steps.
+  action_soft_limit: 0.80
   active_groups: [leg]
   action_delay_steps: 1
   reset_joint_noise_rad: 0.02
@@ -44,6 +48,10 @@ reward_weights:
   alive: 0.2
   pose: -0.02
   action_rate: -0.01
+  # ToddlerBot's phase-guided gait relies on substantially stronger action/pose
+  # regularization. WR2 additionally needs a persistent boundary cost because
+  # its frozen deployment contract clips normalized residual actions.
+  action_limit: -5.0
   joint_velocity: -0.0005
   foot_slip: -0.05
   mechanical_power: -0.0002

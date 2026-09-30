@@ -50,6 +50,14 @@ def expected_foot_contacts(
     return jp.where(is_walking, contacts, jp.ones(2, dtype=jp.bool_))
 
 
+def soft_action_limit_cost(
+    action: jax.Array, active_mask: jax.Array, soft_limit: float
+) -> jax.Array:
+    """Return squared normalized-action excess above a symmetric soft limit."""
+    excess = jp.maximum(jp.abs(action) - soft_limit, 0.0)
+    return jp.sum(jp.square(excess) * active_mask)
+
+
 def _rotate_vector(quaternion: jax.Array, vector: jax.Array) -> jax.Array:
     """Rotate a vector using a normalized wxyz quaternion."""
     quaternion = quaternion / jp.linalg.norm(quaternion)
@@ -372,6 +380,7 @@ class WR2WalkingEnv(PipelineEnv):
             "height_tracking_per_step": zero,
             "pose": zero,
             "action_rate": zero,
+            "action_limit": zero,
             "joint_velocity": zero,
             "foot_slip": zero,
             "mechanical_power": zero,
@@ -478,6 +487,9 @@ class WR2WalkingEnv(PipelineEnv):
         )
         pose = jp.sum(jp.square(joint_position - self._home_ctrl))
         action_rate = jp.sum(jp.square(action - state.info["previous_action"]))
+        action_limit = soft_action_limit_cost(
+            action, self._active_mask, self.config.action_soft_limit
+        )
         joint_velocity_cost = jp.sum(jp.square(joint_velocity))
         foot_contact = self._foot_contact(pipeline_state)
         desired_foot_height = expected_foot_heights(
@@ -553,6 +565,7 @@ class WR2WalkingEnv(PipelineEnv):
             + weights.alive
             + weights.pose * pose
             + weights.action_rate * action_rate
+            + weights.action_limit * action_limit
             + weights.joint_velocity * joint_velocity_cost
             + weights.foot_slip * foot_slip
             + weights.mechanical_power * mechanical_power
@@ -622,6 +635,7 @@ class WR2WalkingEnv(PipelineEnv):
             "height_tracking_per_step": torso_height,
             "pose": -pose,
             "action_rate": -action_rate,
+            "action_limit": -action_limit,
             "joint_velocity": -joint_velocity_cost,
             "foot_slip": -foot_slip,
             "mechanical_power": -mechanical_power,
