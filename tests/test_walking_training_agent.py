@@ -193,6 +193,69 @@ class WalkingTrainingAgentTest(unittest.TestCase):
         self.assertEqual(candidate.step, 100)
         self.assertTrue(candidate.goal_result.passed)
 
+    def test_candidate_selection_prioritizes_p0_gate_count(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run = Path(temporary_directory)
+            training = load_training_config(self.agent_config.base_training_config)
+            (run / "training_config.yaml").write_text(
+                yaml.safe_dump(training_config_to_dict(training), sort_keys=False),
+                encoding="utf-8",
+            )
+            almost_p0 = _good_metrics(
+                **{
+                    "eval/episode_forward_velocity_m_s_per_step": 0.131,
+                    "eval/episode_forward_velocity_error_m_s_per_step": 0.019,
+                    "eval/episode_contact_phase_match_per_step": 0.79,
+                    "eval/episode_double_support_per_step": 0.20,
+                }
+            )
+            high_score_but_two_p0_failures = _good_metrics(
+                **{
+                    "eval/episode_fall": 0.02,
+                    "eval/episode_forward_velocity_m_s_per_step": 0.15,
+                    "eval/episode_forward_velocity_error_m_s_per_step": 0.0,
+                    "eval/episode_contact_phase_match_per_step": 0.99,
+                    "eval/episode_double_support_per_step": 0.0,
+                    "eval/episode_action_saturation_fraction_per_step": 0.03,
+                }
+            )
+            rows = [
+                {"evaluation": 1, "step": 100, "metrics": almost_p0},
+                {
+                    "evaluation": 2,
+                    "step": 200,
+                    "metrics": high_score_but_two_p0_failures,
+                },
+            ]
+            (run / "training_metrics.jsonl").write_text(
+                "".join(json.dumps(row) + "\n" for row in rows),
+                encoding="utf-8",
+            )
+            for step in (100, 200):
+                (run / "checkpoints" / f"{step:012d}").mkdir(parents=True)
+
+            candidate = select_cycle_candidate(
+                run,
+                self.agent_config.stages[-1],
+                self.agent_config.hard_safety,
+            )
+
+        self.assertGreater(
+            evaluate_walking_goal(
+                high_score_but_two_p0_failures,
+                self.agent_config.stages[-1].goal,
+                target_episode_length=training.environment.episode_length,
+                velocity_sigma_m_s=training.environment.velocity_tracking_sigma,
+            ).score,
+            evaluate_walking_goal(
+                almost_p0,
+                self.agent_config.stages[-1].goal,
+                target_episode_length=training.environment.episode_length,
+                velocity_sigma_m_s=training.environment.velocity_tracking_sigma,
+            ).score,
+        )
+        self.assertEqual(candidate.step, 100)
+
     def test_local_dry_run_writes_reproducible_state_and_cycle_config(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary_root = Path(temporary_directory)

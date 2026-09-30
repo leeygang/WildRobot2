@@ -92,12 +92,18 @@ class Candidate:
         return self.goal_result.passes(self.required_gates)
 
     @property
-    def rank(self) -> tuple[bool, float, int, float]:
+    def rank(self) -> tuple[bool, int, float, float, float, float, float, float, float]:
+        values = self.goal_result.values
         return (
             self.required_passed,
+            sum(self.goal_result.gates[name] for name in self.required_gates),
+            values["episode_length"],
+            -values["fall_rate"],
+            -values["forward_velocity_error_m_s"],
+            values["forward_velocity_ratio"],
+            values["contact_phase_match"],
+            -values["action_saturation_fraction"],
             self.goal_result.score,
-            self.goal_result.passed_gate_count,
-            self.goal_result.values["episode_length"],
         )
 
 
@@ -413,17 +419,21 @@ def select_cycle_candidate(
     run_directory: Path,
     stage: StageConfig,
     hard_safety: HardSafetyConfig,
+    *,
+    checkpoint_root: Path | None = None,
+    require_local_checkpoint: bool = True,
 ) -> Candidate:
     """Select the highest walking-score checkpoint satisfying hard invariants."""
     training = load_training_config(run_directory / "training_config.yaml")
+    checkpoint_root = checkpoint_root or run_directory / "checkpoints"
     candidates: list[Candidate] = []
     rejected: list[str] = []
     for row in _read_metric_rows(run_directory / "training_metrics.jsonl"):
         step = int(row.get("step", 0))
         if step <= 0:
             continue
-        checkpoint = run_directory / "checkpoints" / f"{step:012d}"
-        if not checkpoint.is_dir():
+        checkpoint = checkpoint_root / f"{step:012d}"
+        if require_local_checkpoint and not checkpoint.is_dir():
             rejected.append(f"step {step}: checkpoint missing")
             continue
         try:
@@ -517,7 +527,9 @@ def _confirmation(
                     "command_forward_m_s": command_result["command_forward_m_s"],
                     "seed": seed_result["seed"],
                     **result.to_dict(),
-                    "required_passed": result.passes(required_gates),
+                    "hard_safe": _hard_safe(result, agent_config.hard_safety),
+                    "required_passed": result.passes(required_gates)
+                    and _hard_safe(result, agent_config.hard_safety),
                     "p1_warnings": _failed_gates(
                         result,
                         tuple(sorted(WALKING_GATE_NAMES - set(required_gates))),

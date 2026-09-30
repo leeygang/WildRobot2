@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["continue"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "failure_mode": {
+      "type": "string"
+    },
+    "hypothesis": {
+      "type": "string"
+    },
+    "intervention_family": {
+      "type": "string",
+      "enum": [
+        "reward_shaping",
+        "gait_timing",
+        "command_curriculum",
+        "ppo_optimization",
+        "domain_randomization",
+        "environment_dynamics",
+        "infrastructure"
+      ]
+    },
+    "expected_outcome": {
+      "type": "string"
+    },
+    "falsification_condition": {
+      "type": "string"
+    },
+    "config": {
+      "type": "string"
+    },
+    "verification": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    }
+  },
+  "required": [
+    "decision",
+    "summary",
+    "failure_mode",
+    "hypothesis",
+    "intervention_family",
+    "expected_outcome",
+    "falsification_condition",
+    "config",
+    "verification"
+  ],
+  "additionalProperties": false
+}

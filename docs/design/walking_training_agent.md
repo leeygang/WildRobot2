@@ -69,7 +69,7 @@ contain the observation normalizer, policy, and critic, but not optimizer
 state; cycle boundaries therefore restart Adam while preserving the learned
 networks.
 
-## Launch from a Mac
+## Launch the fixed campaign from a Mac
 
 The Mac control path verifies that both machines are on the exact same clean
 Git commit, then streams the same agent process over SSH:
@@ -85,16 +85,71 @@ For a public host, pass `--host "$LINUX_PUBLIC_IP"` and, if needed,
 `--port "$LINUX_PUBLIC_PORT"`. The Mac needs only the base dependencies; JAX,
 MJX, and CUDA are loaded by the GPU-side process.
 
+## Autonomous Mac analysis and improvement
+
+Use the separate autonomous entry point when the Mac should own every
+train/analyze/change iteration, as in the WR1 training agent:
+
+```bash
+uv run python -m wr2.agents.autonomous_walking_loop \
+  --host linux-pc.local \
+  --user leeygang \
+  --remote-repo /home/leeygang/projects/WildRobot2
+```
+
+Keep this foreground Mac process running. For each bounded cycle it:
+
+1. requires a clean local `main`, pushes its exact commit, and fast-forwards
+   the clean GPU checkout to that SHA;
+2. transfers a generated cycle config and runs PPO on the GPU;
+3. copies only the effective config and JSON/JSONL metrics to the Mac—the
+   checkpoint stays on the GPU;
+4. evaluates P0, P1, and hard safety locally and records `analysis.json`;
+5. when another experiment is needed, invokes non-interactive `codex exec` on
+   the Mac for one evidence-backed code/config change and one commit;
+6. rejects changes to the action/observation/network/servo contract, success
+   gates, evaluator, trainer, or automation control plane, reruns all tests,
+   and pushes the validated commit; and
+7. starts the next GPU cycle from the best hard-safe checkpoint, after the GPU
+   has pulled the validated commit.
+
+The coding agent cannot push or select a checkpoint itself. Acquisition can
+advance directly to robust training without a code change; robust completion
+still requires the independent three-speed, three-seed confirmation.
+
+The Mac must have the Codex CLI authenticated. The GPU host should use SSH-key
+authentication because one campaign makes several unattended SSH/SCP calls.
+Verify both before a long run:
+
+```bash
+codex exec --ephemeral "Reply with OK"
+ssh leeygang@linux-pc.local true
+```
+
+Use `--dry-run` to validate local configuration and preview the first cycle
+without pushing or opening SSH. `--codex-model MODEL` selects a model and
+`--codex-timeout-minutes` bounds one improvement turn. A warm-start checkpoint,
+when supplied, must be an absolute GPU path under
+`/home/leeygang/projects/WildRobot2/results/wr2_walking/`.
+
+The supervisor writes durable state to
+`results/wr2_walking_agent/<agent-id>/autonomous_state.json`. If training,
+Codex, Git validation, tests, push, or remote synchronization fails, it stops
+with `status=failed`; it never skips the failed stage or silently weakens a
+gate. The initial version is intentionally foreground and does not adopt a
+partially completed remote cycle after the SSH process is interrupted.
+
 ## Artifacts
 
-Each campaign writes `results/wr2_walking_agent/<agent-id>/agent_state.json`,
-generated cycle configurations, cycle logs, and the final multi-seed
-confirmation report. The PPO runs and resumable checkpoints remain under
-`results/wr2_walking/`. Copy the supervisor report with:
+The fixed campaign writes `agent_state.json`; the autonomous Mac campaign
+writes `autonomous_state.json`, per-cycle analysis, Codex decisions, and logs.
+The PPO runs and resumable checkpoints remain under `results/wr2_walking/`.
+Copy a GPU-side fixed-supervisor report with:
 
 ```bash
 ./scripts/scp_from_remote.sh --latest walking_agent
 ```
 
-The final checkpoint is recorded in `agent_state.json`; a policy is not a
-hardware candidate merely because the agent reached `complete`.
+The final checkpoint is recorded in `agent_state.json` or
+`autonomous_state.json`; a policy is not a hardware candidate merely because
+the agent reached `complete`.

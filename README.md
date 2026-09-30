@@ -70,6 +70,9 @@ the trainer accepts explicit CLI overrides and snapshots the effective YAML in
 every run directory.
 The bounded train/evaluate/promote campaign and Mac-to-GPU command are described
 in [`docs/design/walking_training_agent.md`](docs/design/walking_training_agent.md).
+That guide also covers the autonomous Mac supervisor, which analyzes each GPU
+cycle, asks Codex for one bounded improvement, validates and pushes its commit,
+and then fast-forwards the GPU before continuing.
 The staged high-load qualification procedure is in
 [`docs/hardware/htd45h_deployment_test.md`](docs/hardware/htd45h_deployment_test.md).
 

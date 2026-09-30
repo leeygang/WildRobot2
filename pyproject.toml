@@ -45,6 +45,8 @@ dev = [
 
 [tool.setuptools.package-data]
 wr2 = [
+    "agents/*.json",
+    "agents/*.md",
     "descriptions/**/*.json",
     "descriptions/**/*.yml",
     "descriptions/**/*.xml",
