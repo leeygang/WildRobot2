@@ -732,8 +732,12 @@ class WR2WalkingEnv(PipelineEnv):
             "torso_height_m_per_step": zero,
             "torso_tilt_rad_per_step": zero,
             "action_abs_mean_per_step": zero,
+            "action_max_abs_per_step": zero,
             "action_deviation_from_home_abs_mean_per_step": zero,
             "action_saturation_fraction_per_step": zero,
+            "action_near_boundary_fraction_per_step": zero,
+            "target_excursion_from_home_rad_per_step": zero,
+            "target_excursion_over_tb_range_fraction_per_step": zero,
             "target_clipping_fraction_per_step": zero,
             "target_slew_limiting_fraction_per_step": zero,
             "left_foot_contact_per_step": zero,
@@ -755,13 +759,17 @@ class WR2WalkingEnv(PipelineEnv):
             "rng": rng,
             "command": command,
             "gait_phase": gait_phase,
+            "reset_command": command,
+            "reset_gait_phase": gait_phase,
             "actuator_target_bias": actuator_target_bias,
             "actuator_noise": actuator_noise,
             "backlash": backlash,
             "imu_state": imu_state,
+            "reset_imu_state": imu_state,
             "torque_exposure": jp.zeros(self.robot.actuator_count),
             "previous_action": previous_action,
             "previous_target": initial_target,
+            "reset_target": initial_target,
             "step_count": jp.zeros((), dtype=jp.int32),
         }
         return State(pipeline_state, observation, zero, zero, metrics, info)
@@ -1003,10 +1011,17 @@ class WR2WalkingEnv(PipelineEnv):
         done = (unhealthy | nonfinite | timeout).astype(jp.float32)
         active_count = float(self.action_size)
         action_abs_mean = jp.mean(jp.abs(action))
+        action_max_abs = jp.max(jp.abs(action))
         action_deviation_from_home_abs_mean = jp.mean(
             jp.abs(action - self._home_action)
         )
         policy_saturation = jp.abs(action) >= 0.99
+        policy_near_boundary = jp.abs(action) >= 0.90
+        target_excursion = jp.abs(
+            requested_active_target - self._home_ctrl[self._active_indices]
+        )
+        target_excursion_mean = jp.mean(target_excursion)
+        target_excursion_over_tb_range = target_excursion > 0.25
         target_clipping = (
             jp.abs(
                 unconstrained_target[self._active_indices]
@@ -1030,6 +1045,12 @@ class WR2WalkingEnv(PipelineEnv):
         target_slew_limiting_fraction = jp.sum(target_slew_limiting) / active_count
         action_saturation_fraction = (
             jp.sum(policy_saturation | target_clipping) / active_count
+        )
+        action_near_boundary_fraction = (
+            jp.sum(policy_near_boundary | target_clipping) / active_count
+        )
+        target_excursion_over_tb_range_fraction = (
+            jp.sum(target_excursion_over_tb_range) / active_count
         )
 
         sampled_command = self._sample_command(command_rng)
@@ -1067,16 +1088,33 @@ class WR2WalkingEnv(PipelineEnv):
                 self._privileged_single_observation_size,
             ),
         }
+        reset_episode = done.astype(jp.bool_)
+
+        def reset_if_done(current, reset):
+            return jp.where(reset_episode, reset, current)
+
+        reset_imu_state = jax.tree.map(
+            reset_if_done,
+            imu_state,
+            state.info["reset_imu_state"],
+        )
         info = {
             **state.info,
             "rng": rng,
-            "command": next_command,
-            "gait_phase": next_gait_phase,
-            "previous_action": action,
-            "previous_target": target,
-            "imu_state": imu_state,
-            "torque_exposure": torque_exposure,
-            "step_count": step_count,
+            # Brax AutoReset restores only the initial pipeline state and
+            # observation. Reset WR2's recurrent episode state here so a
+            # timeout/fall cannot become a permanent one-step episode.
+            "command": reset_if_done(next_command, state.info["reset_command"]),
+            "gait_phase": reset_if_done(
+                next_gait_phase, state.info["reset_gait_phase"]
+            ),
+            "previous_action": reset_if_done(action, self._home_action),
+            "previous_target": reset_if_done(target, state.info["reset_target"]),
+            "imu_state": reset_imu_state,
+            "torque_exposure": reset_if_done(
+                torque_exposure, jp.zeros_like(torque_exposure)
+            ),
+            "step_count": reset_if_done(step_count, jp.zeros_like(step_count)),
         }
         metrics = {
             "reward": reward,
@@ -1115,10 +1153,16 @@ class WR2WalkingEnv(PipelineEnv):
             "torso_height_m_per_step": torso_z,
             "torso_tilt_rad_per_step": torso_tilt_rad,
             "action_abs_mean_per_step": action_abs_mean,
+            "action_max_abs_per_step": action_max_abs,
             "action_deviation_from_home_abs_mean_per_step": (
                 action_deviation_from_home_abs_mean
             ),
             "action_saturation_fraction_per_step": action_saturation_fraction,
+            "action_near_boundary_fraction_per_step": (action_near_boundary_fraction),
+            "target_excursion_from_home_rad_per_step": target_excursion_mean,
+            "target_excursion_over_tb_range_fraction_per_step": (
+                target_excursion_over_tb_range_fraction
+            ),
             "target_clipping_fraction_per_step": target_clipping_fraction,
             "target_slew_limiting_fraction_per_step": target_slew_limiting_fraction,
             "left_foot_contact_per_step": foot_contact[0].astype(jp.float32),

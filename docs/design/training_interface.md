@@ -118,6 +118,14 @@ initial torso roll/pitch, target bias, backlash, controller gain, torque,
 braking, and maximum speed. IMU and backlash ranges are provisional and must be
 replaced by measured WR2 distributions before deployment.
 
+WR2 explicitly resets its recurrent episode state when a fall or timeout is
+reported. Brax's standard AutoReset wrapper restores the initial pipeline state
+and observation, but it does not reset environment-owned counters, delayed
+actions, target slew state, IMU filter state, gait phase, command, or torque
+exposure. Leaving WR2's `step_count` terminal made every transition after the
+first timeout another one-step episode. The reset contract keeps these fields
+synchronized with the pipeline and is covered by a multi-episode wrapped test.
+
 Actuator targets are quantized to HTD-45H command units (0.24 degrees) and
 slew-limited to 27 units per 20 ms control step, or 5.655 rad/s. This is below
 the vendor's 5.818 rad/s no-load speed at 11.1 V. The training MJCF uses torque
@@ -140,6 +148,9 @@ training output records the complete environment and actuator configuration in
 `run_config.json`, deterministic evaluation telemetry in
 `training_metrics.jsonl`, and stochastic-policy rollout summaries in
 `rollout_metrics.jsonl`.
+Action telemetry distinguishes hard saturation at 0.99 from near-boundary use
+at 0.90 and reports both target excursion from `walk_home` and the fraction of
+targets beyond ToddlerBot's 0.25 rad residual envelope.
 
 Run the JIT environment gate with:
 
@@ -171,9 +182,10 @@ Brax checkpoints are written after each evaluation. During gait acquisition,
 ratio, contact-phase progress, and reduced double support; this prevents the
 strict final walking score from selecting a stationary policy. `params` stores
 the final policy. The active config evaluates at a fixed 0.10 m/s. An
-interrupted v0.9 run can initialize a new run with `--restore-checkpoint PATH`.
-Older residual-action checkpoints are incompatible with this action contract
-and must not be restored.
+interrupted reset-safe v0.9.1 run can initialize a new run with
+`--restore-checkpoint PATH`. Older residual-action checkpoints are incompatible
+with this action contract, and pre-v0.9.1 runs used the broken episode
+lifecycle; neither should be restored.
 
 Full PPO training fails fast unless JAX reports a GPU backend; `--allow-cpu`
 is reserved for intentional development checks. Console progress follows the

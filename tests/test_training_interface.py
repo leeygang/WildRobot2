@@ -1,11 +1,13 @@
 import math
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 import jax
 import jax.numpy as jp
 import numpy as np
+from brax.envs import training as env_training
 
 from wr2.locomotion.configs import load_training_config
 from wr2.locomotion.ppo import make_network_factory
@@ -240,6 +242,62 @@ class TrainingInterfaceTest(unittest.TestCase):
 
         self.assertLess(home_cost, 3e-6)
         self.assertGreater(legacy_local_z_cost, 1.9)
+
+    def test_training_wrapper_resets_wr2_episode_state_after_timeout(self):
+        environment_config = replace(
+            self.training_config.environment,
+            episode_length=5,
+            reset_joint_noise_rad=0.0,
+            reset_velocity_noise_rad_s=0.0,
+        )
+        environment = WR2WalkingEnv(environment_config, add_observation_noise=False)
+        wrapped = env_training.wrap(
+            environment,
+            episode_length=environment_config.episode_length,
+            action_repeat=1,
+        )
+        state = wrapped.reset(jax.random.split(jax.random.PRNGKey(7), 2))
+        commanded_action = environment.home_action + 0.001
+        action = jp.broadcast_to(commanded_action, (2, environment.action_size))
+        step = jax.jit(wrapped.step)
+
+        done_history = []
+        step_count_history = []
+        completed_lengths = []
+        completed_previous_actions = []
+        for _ in range(12):
+            state = step(state, action)
+            jax.block_until_ready(state.done)
+            done = np.asarray(state.done)
+            done_history.append(done.copy())
+            step_count_history.append(np.asarray(state.info["step_count"]).copy())
+            if np.any(done):
+                completed_lengths.extend(
+                    np.asarray(state.info["episode_metrics"]["length"])[done > 0]
+                )
+                completed_previous_actions.extend(
+                    np.asarray(state.info["previous_action"])[done > 0]
+                )
+
+        np.testing.assert_array_equal(
+            np.asarray(done_history)[:, 0],
+            [0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0],
+        )
+        np.testing.assert_array_equal(
+            np.asarray(step_count_history)[:, 0],
+            [1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 1, 2],
+        )
+        np.testing.assert_array_equal(completed_lengths, [5, 5, 5, 5])
+        np.testing.assert_allclose(
+            completed_previous_actions,
+            np.broadcast_to(np.asarray(environment.home_action), (4, 10)),
+            atol=1e-7,
+        )
+        np.testing.assert_allclose(
+            np.asarray(state.info["previous_action"]),
+            np.broadcast_to(np.asarray(commanded_action), (2, 10)),
+            atol=1e-7,
+        )
 
     def test_acquisition_velocity_reward_has_signal_without_weakening_score(self):
         command_error_m_s = 0.20

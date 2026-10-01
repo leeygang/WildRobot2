@@ -288,10 +288,33 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     progress_index = 0
     latest_params: dict[str, object] = {}
     best_selection_score = -math.inf
+    pending_checkpoints: dict[int, dict[str, object]] = {}
+
+    def save_best_checkpoint(params, candidate: dict[str, object]) -> None:
+        nonlocal best_selection_score
+        selection_score = float(candidate["selection_score"])
+        if selection_score <= best_selection_score:
+            return
+        best_selection_score = selection_score
+        model.save_params(output / "best_params", params)
+        (output / "best_checkpoint.json").write_text(
+            json.dumps(candidate, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        print(
+            "  └─ saved : new best "
+            f"{candidate['selection_metric']} checkpoint "
+            f"at step {int(candidate['step']):,} (score={selection_score:.3f})",
+            flush=True,
+        )
 
     def receive_policy_params(step: int, _make_policy, params) -> None:
-        latest_params["step"] = int(step)
+        step = int(step)
+        latest_params["step"] = step
         latest_params["value"] = params
+        candidate = pending_checkpoints.pop(step, None)
+        if candidate is not None:
+            save_best_checkpoint(params, candidate)
 
     def progress(step: int, metrics) -> None:
         nonlocal best_selection_score, progress_index
@@ -333,6 +356,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 f"vx={rollout_show('forward_velocity_m_s_per_step')} "
                 f"contact={rollout_show('contact_phase_match_per_step', '.1%')} "
                 f"sat={rollout_show('action_saturation_fraction_per_step', '.1%')} "
+                f"near={rollout_show('action_near_boundary_fraction_per_step', '.1%')} "
                 f"|a-home|={rollout_show('action_deviation_from_home_abs_mean_per_step')}",
                 flush=True,
             )
@@ -440,11 +464,15 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             f"exposure={show(metric('eval/episode_sustained_torque_exposure_per_step'))} "
             f"|action|={show(metric('eval/episode_action_abs_mean_per_step'))} "
             f"|a-home|={show(metric('eval/episode_action_deviation_from_home_abs_mean_per_step'))} "
-            f"sat={show(metric('eval/episode_action_saturation_fraction_per_step'), '.1%')}",
+            f"max|a|={show(metric('eval/episode_action_max_abs_per_step'))} "
+            f"sat={show(metric('eval/episode_action_saturation_fraction_per_step'), '.1%')} "
+            f"near={show(metric('eval/episode_action_near_boundary_fraction_per_step'), '.1%')}",
             flush=True,
         )
         print(
             "  └─ target: "
+            f"excursion={show(metric('eval/episode_target_excursion_from_home_rad_per_step'))}rad "
+            f">0.25rad={show(metric('eval/episode_target_excursion_over_tb_range_fraction_per_step'), '.1%')} "
             f"clip={show(metric('eval/episode_target_clipping_fraction_per_step'), '.1%')} "
             f"slew={show(metric('eval/episode_target_slew_limiting_fraction_per_step'), '.1%')}",
             flush=True,
@@ -498,39 +526,23 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             if training_config.checkpoints.selection_metric == "acquisition"
             else walking_score
         )
-        if (
-            training_config.checkpoints.keep_best
-            and selection_score is not None
-            and selection_score > best_selection_score
-            and latest_params.get("step") == step
-        ):
-            best_selection_score = selection_score
-            model.save_params(output / "best_params", latest_params["value"])
-            (output / "best_checkpoint.json").write_text(
-                json.dumps(
-                    {
-                        "step": step,
-                        "eval_episode_reward": episode_return,
-                        "walking_score": walking_score,
-                        "acquisition_score": acquisition_score,
-                        "selection_metric": (
-                            training_config.checkpoints.selection_metric
-                        ),
-                        "selection_score": selection_score,
-                        "evaluation": progress_index,
-                    },
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            print(
-                "  └─ saved : new best "
-                f"{training_config.checkpoints.selection_metric} checkpoint "
-                f"at step {step:,} (score={selection_score:.3f})",
-                flush=True,
-            )
+        if training_config.checkpoints.keep_best and selection_score is not None:
+            candidate = {
+                "step": step,
+                "eval_episode_reward": episode_return,
+                "walking_score": walking_score,
+                "acquisition_score": acquisition_score,
+                "selection_metric": training_config.checkpoints.selection_metric,
+                "selection_score": selection_score,
+                "evaluation": progress_index,
+            }
+            if latest_params.get("step") == step:
+                save_best_checkpoint(latest_params["value"], candidate)
+            elif selection_score > best_selection_score:
+                # Brax reports the initial evaluation before invoking
+                # policy_params_fn. Defer saving until its step-0 parameters
+                # arrive instead of losing the stable initial policy.
+                pending_checkpoints[step] = candidate
         progress_index += 1
 
     randomization_fn = (
