@@ -200,6 +200,8 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     print(f"  Episode:      {training_config.environment.episode_length} steps")
     print(
         "  Evaluation:   "
+        f"{training_config.ppo.num_evals} evaluations x "
+        f"{training_config.ppo.num_eval_envs} parallel episodes; "
         f"fixed {training_config.ppo.evaluation_forward_command_m_s:.2f}m/s forward"
     )
     print(
@@ -313,7 +315,8 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             f"{steps_per_second:,.0f}" if steps_per_second is not None else "warming-up"
         )
         print(
-            f"#{progress_index:<2} [{_format_duration(elapsed_s)}] "
+            f"Eval {progress_index + 1:>2}/{training_config.ppo.num_evals} "
+            f"[{_format_duration(elapsed_s)}] "
             f"Steps: {step:>10,}/{target_steps:,} ({100.0 * progress_fraction:5.1f}%) "
             f"ETA {_format_duration(eta_s)} | steps/s={throughput}",
             flush=True,
@@ -326,7 +329,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             "  └─ return: "
             f"episode={show(episode_return, '.2f')} "
             f"reward/step={show(reward_per_step)} "
-            f"ep_len={show(episode_length, '.0f')} "
+            f"avg_ep_len={show(episode_length, '.0f')} "
             f"walking_score={show(walking_score)}",
             flush=True,
         )

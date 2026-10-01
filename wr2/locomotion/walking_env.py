@@ -65,6 +65,23 @@ def _inverse_rotate_vector(quaternion: jax.Array, vector: jax.Array) -> jax.Arra
     return _rotate_vector(quaternion * jp.array([1.0, -1.0, -1.0, -1.0]), vector)
 
 
+def feet_orientation_error(
+    foot_projected_gravity: jax.Array,
+    home_foot_projected_gravity: jax.Array,
+) -> jax.Array:
+    """Return foot tilt relative to each foot's walk-home sole orientation."""
+    foot_projected_gravity = foot_projected_gravity / jp.linalg.norm(
+        foot_projected_gravity, axis=1, keepdims=True
+    )
+    home_foot_projected_gravity = home_foot_projected_gravity / jp.linalg.norm(
+        home_foot_projected_gravity, axis=1, keepdims=True
+    )
+    cross = jp.cross(foot_projected_gravity, home_foot_projected_gravity)
+    # This is ToddlerBot's sin(tilt) cost generalized to a model whose foot
+    # body's local vertical axis is Y instead of Z.
+    return jp.sum(jp.sqrt(jp.sum(jp.square(cross), axis=1) + 1e-12))
+
+
 def _quaternion_multiply(left: jax.Array, right: jax.Array) -> jax.Array:
     """Multiply two wxyz quaternions."""
     lw, lx, ly, lz = left
@@ -150,6 +167,25 @@ class WR2WalkingEnv(PipelineEnv):
         self._ctrl_upper = jp.asarray(self.robot.upper_limit_rad)
         self._foot_site_ids = jp.asarray(foot_site_ids)
         self._home_foot_site_z = jp.asarray(home_data.site_xpos[foot_site_ids, 2])
+        foot_body_ids = np.asarray(
+            [
+                mujoco.mj_name2id(
+                    mj_model, mujoco.mjtObj.mjOBJ_BODY, f"{side}_foot"
+                )
+                for side in ("left", "right")
+            ],
+            dtype=np.int32,
+        )
+        if np.any(foot_body_ids < 0):
+            raise ValueError("MJX model is missing a configured foot body")
+        world_from_foot = home_data.xmat[foot_body_ids].reshape(2, 3, 3)
+        self._home_foot_projected_gravity = jp.asarray(
+            np.einsum(
+                "bij,j->bi",
+                np.transpose(world_from_foot, (0, 2, 1)),
+                np.asarray([0.0, 0.0, -1.0]),
+            )
+        )
         self._gait_phase_increment = float(
             _TWO_PI * self.robot.control_period_s / self.config.gait_cycle_s
         )
@@ -841,7 +877,7 @@ class WR2WalkingEnv(PipelineEnv):
 
         velocity_xy = jp.exp(
             -jp.sum(jp.square(linear_velocity[:2] - command[:2]))
-            / self.config.velocity_tracking_sigma**2
+            / self.config.velocity_reward_sigma**2
         )
         yaw_rate = jp.exp(
             -jp.square(angular_velocity[2] - command[2])
@@ -890,8 +926,9 @@ class WR2WalkingEnv(PipelineEnv):
             pipeline_state.x.rot[self._foot_link_indices],
             jp.broadcast_to(jp.array([0.0, 0.0, -1.0]), (2, 3)),
         )
-        feet_orientation = jp.sum(
-            jp.sqrt(jp.sum(jp.square(foot_projected_gravity[:, :2]), axis=1) + 1e-12)
+        feet_orientation = feet_orientation_error(
+            foot_projected_gravity,
+            self._home_foot_projected_gravity,
         )
         foot_velocity_xy = pipeline_state.xd.vel[self._foot_link_indices, :2]
         foot_slip = jp.sum(

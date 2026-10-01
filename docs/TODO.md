@@ -7,9 +7,12 @@ completed before treating a policy as deployment-qualified.
 
 ## Walking training
 
-- [ ] Start a new cold PPO campaign with training contract v0.7. Existing
-  checkpoints are incompatible with the new 10-action actor and asymmetric
-  825/1440 actor/critic observations.
+- [ ] Start a new cold PPO gait-acquisition campaign with training contract
+  v0.8. Existing checkpoints are incompatible with the new 10-action actor
+  and asymmetric 825/1440 actor/critic observations.
+- [ ] After gait acquisition, tighten `velocity_reward_sigma` from 0.15 m/s
+  toward the unchanged 0.0316 m/s final tracking tolerance and confirm that
+  the gait survives fine-tuning.
 - [ ] Pass the P0 walking gates at 0.10, 0.15, and 0.20 m/s under independent
   randomized confirmation.
 - [ ] Export the accepted policy and implement the physical runtime adapter for

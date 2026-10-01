@@ -8,6 +8,7 @@ import numpy as np
 from wr2.locomotion.configs import load_training_config
 from wr2.locomotion.ppo import make_network_factory
 from wr2.locomotion.train import _create_run_directory
+from wr2.locomotion.walking_env import WR2WalkingEnv, feet_orientation_error
 from wr2.locomotion.walking_metrics import walking_score
 from wr2.sensing.imu import canonicalize_sensor_sample
 from wr2.sim import (
@@ -158,6 +159,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(environment.gait_cycle_s, 0.72)
         self.assertEqual(environment.swing_height_m, 0.04)
         self.assertEqual(environment.feet_phase_tracking_sigma_m2, 0.0007)
+        self.assertEqual(environment.velocity_reward_sigma, 0.15)
         self.assertAlmostEqual(environment.velocity_tracking_sigma**-2, 1000.0)
         self.assertEqual(environment.rewards.velocity_xy, 2.0)
         self.assertEqual(environment.rewards.feet_phase, 7.5)
@@ -184,6 +186,34 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertTrue(self.training_config.checkpoints.save_every_evaluation)
         self.assertTrue(self.training_config.checkpoints.keep_best)
         self.assertEqual(self.training_config.output.root, "results/wr2_walking")
+
+    def test_walk_home_foot_orientation_is_the_zero_tilt_reference(self):
+        environment = WR2WalkingEnv(
+            self.training_config.environment,
+            add_observation_noise=False,
+        )
+        home_gravity = environment._home_foot_projected_gravity
+        home_cost = float(feet_orientation_error(home_gravity, home_gravity))
+        legacy_local_z_cost = float(
+            jp.sum(jp.linalg.norm(home_gravity[:, :2], axis=1))
+        )
+
+        self.assertLess(home_cost, 3e-6)
+        self.assertGreater(legacy_local_z_cost, 1.9)
+
+    def test_acquisition_velocity_reward_has_signal_without_weakening_score(self):
+        command_error_m_s = 0.20
+        reward_at_rest = np.exp(
+            -command_error_m_s**2
+            / self.training_config.environment.velocity_reward_sigma**2
+        )
+        strict_score_at_rest = np.exp(
+            -command_error_m_s**2
+            / self.training_config.environment.velocity_tracking_sigma**2
+        )
+
+        self.assertGreater(reward_at_rest, 0.1)
+        self.assertLess(strict_score_at_rest, 1e-12)
 
     def test_policy_distribution_enforces_normalized_action_bounds(self):
         networks = make_network_factory(self.training_config.network)(

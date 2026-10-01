@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy while preserving WR2's measured actuator envelope.
-version: "0.7.0"
-version_name: "WR2 ToddlerBot-parity asymmetric-critic walking"
+version: "0.8.0"
+version_name: "WR2 phase-guided gait acquisition"
 seed: 0
 
 environment:
@@ -32,7 +32,12 @@ environment:
   target_torso_height_m: 0.301
   terminate_height_m: 0.20
   terminate_projected_gravity_z: -0.50
-  # Equivalent to ToddlerBot's exp(-1000 * velocity_error^2).
+  # Acquisition kernel: unlike the final ToddlerBot-equivalent tolerance below,
+  # this still supplies a useful gradient when a new policy stands at 0.20 m/s.
+  # Tighten this toward velocity_tracking_sigma after gait acquisition.
+  velocity_reward_sigma: 0.15
+  # Strict scoring tolerance, equivalent to ToddlerBot's
+  # exp(-1000 * velocity_error^2). This does not become easier during acquisition.
   velocity_tracking_sigma: 0.03162277660168379
   # Equivalent to ToddlerBot's exp(-4 * yaw_rate_error^2).
   yaw_tracking_sigma: 0.50
