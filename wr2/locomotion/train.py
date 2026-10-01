@@ -95,7 +95,9 @@ def smoke_test(steps: int, training_config: TrainingConfig | None = None) -> Non
     jax.block_until_ready(state.obs)
     elapsed = time.monotonic() - started
     print(
-        f"MJX smoke passed: steps={steps}, obs={state.obs.shape}, "
+        "MJX smoke passed: "
+        f"steps={steps}, actor_obs={state.obs['state'].shape}, "
+        f"critic_obs={state.obs['privileged_state'].shape}, "
         f"action={environment.action_size}, reward={float(state.reward):.6f}, "
         f"done={float(state.done):.0f}, root_z={float(state.pipeline_state.q[2]):.6f}, "
         f"elapsed={elapsed:.3f}s"
@@ -187,7 +189,11 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     print(f"  Output:       {output}")
     print(f"  JAX backend:  {backend}")
     print(f"  Devices:      {devices}")
-    print(f"  Observations: {environment.observation_size}")
+    print(
+        "  Observations: "
+        f"actor={environment.observation_size['state']} "
+        f"critic={environment.observation_size['privileged_state']}"
+    )
     print(f"  Actions:      {environment.action_size} (leg joints active)")
     print(f"  Environments: {training_config.ppo.num_envs:,}")
     print(f"  Target steps: {training_config.ppo.num_timesteps:,}")
@@ -267,9 +273,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         episode_return = metric("eval/episode_reward")
         reward_per_step = metric("eval/episode_reward_per_step")
         episode_length = metric("eval/avg_episode_length")
-        velocity_error = metric(
-            "eval/episode_forward_velocity_error_m_s_per_step"
-        )
+        velocity_error = metric("eval/episode_forward_velocity_error_m_s_per_step")
         contact_match = metric("eval/episode_contact_phase_match_per_step")
         double_support = metric("eval/episode_double_support_per_step")
         walking_score = None
@@ -364,6 +368,12 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             f"sat={show(metric('eval/episode_action_saturation_fraction_per_step'), '.1%')}",
             flush=True,
         )
+        print(
+            "  └─ target: "
+            f"clip={show(metric('eval/episode_target_clipping_fraction_per_step'), '.1%')} "
+            f"slew={show(metric('eval/episode_target_slew_limiting_fraction_per_step'), '.1%')}",
+            flush=True,
+        )
         total_loss = metric("training/total_loss")
         if total_loss is not None:
             print(
@@ -397,9 +407,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 + "\n",
                 encoding="utf-8",
             )
-            print(
-                f"  └─ saved : new best checkpoint at step {step:,}", flush=True
-            )
+            print(f"  └─ saved : new best checkpoint at step {step:,}", flush=True)
         progress_index += 1
 
     randomization_fn = (

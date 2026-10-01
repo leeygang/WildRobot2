@@ -87,9 +87,13 @@ class ModelContractTest(unittest.TestCase):
     def test_mjx_variant_is_sensor_free_and_keeps_the_contract(self):
         root = ET.parse(ROBOT_DIR / "wr2_mjx.xml").getroot()
         self.assertIsNone(root.find("sensor"))
-        actual = [element.get("name") for element in root.findall("actuator/*")]
+        actuators = root.findall("actuator/*")
+        actual = [element.get("name") for element in actuators]
         self.assertEqual(actual, actuator_order())
-        self.assertIsNotNone(root.find("keyframe/key[@name='walk_home']"))
+        self.assertTrue(all(element.tag == "motor" for element in actuators))
+        key = root.find("keyframe/key[@name='walk_home']")
+        self.assertIsNotNone(key)
+        self.assertTrue(all(float(value) == 0.0 for value in key.get("ctrl").split()))
 
 
 if __name__ == "__main__":

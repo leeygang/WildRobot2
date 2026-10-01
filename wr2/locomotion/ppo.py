@@ -20,4 +20,6 @@ def make_network_factory(config: NetworkConfig):
         distribution_type=config.distribution_type,
         noise_std_type=config.noise_std_type,
         init_noise_std=config.init_noise_std,
+        policy_obs_key="state",
+        value_obs_key="privileged_state",
     )

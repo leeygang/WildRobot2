@@ -24,7 +24,7 @@ def make_domain_randomizer(
     ) -> tuple[base.System, base.System]:
         @partial(jax.vmap)
         def randomize_one(key: jax.Array):
-            keys = jax.random.split(key, 7)
+            keys = jax.random.split(key, 5)
             friction_scale = jax.random.uniform(
                 keys[0],
                 minval=config.friction_scale[0],
@@ -48,24 +48,13 @@ def make_domain_randomizer(
                 minval=config.frictionloss_scale[0],
                 maxval=config.frictionloss_scale[1],
             )
-            kp_scale = jax.random.uniform(
+            body_mass_scale = jax.random.uniform(
                 keys[4],
-                (system.nu,),
-                minval=config.kp_scale[0],
-                maxval=config.kp_scale[1],
+                (system.body_mass.shape[0],),
+                minval=config.body_mass_scale[0],
+                maxval=config.body_mass_scale[1],
             )
-            kv_scale = jax.random.uniform(
-                keys[5],
-                (system.nu,),
-                minval=config.kv_scale[0],
-                maxval=config.kv_scale[1],
-            )
-            torque_limit_scale = jax.random.uniform(
-                keys[6],
-                (system.nu, 1),
-                minval=config.torque_limit_scale[0],
-                maxval=config.torque_limit_scale[1],
-            )
+            body_mass_scale = body_mass_scale.at[0].set(1.0)
 
             geom_friction = system.geom_friction.at[:, 0].multiply(friction_scale)
             dof_damping = system.dof_damping.at[6:].multiply(damping_scale)
@@ -73,18 +62,20 @@ def make_domain_randomizer(
             dof_frictionloss = system.dof_frictionloss.at[6:].multiply(
                 frictionloss_scale
             )
-            actuator_gainprm = system.actuator_gainprm.at[:, 0].multiply(kp_scale)
-            actuator_biasprm = system.actuator_biasprm.at[:, 1].multiply(kp_scale)
-            actuator_biasprm = actuator_biasprm.at[:, 2].multiply(kv_scale)
-            actuator_forcerange = system.actuator_forcerange * torque_limit_scale
+            body_mass = system.body_mass * body_mass_scale
+            body_inertia = system.body_inertia * body_mass_scale[:, None]
+            link_scale = body_mass_scale[1:]
+            link_mass = system.link.inertia.mass * link_scale
+            link_inertia = system.link.inertia.i * link_scale[:, None, None]
             return (
                 geom_friction,
                 dof_damping,
                 dof_armature,
                 dof_frictionloss,
-                actuator_gainprm,
-                actuator_biasprm,
-                actuator_forcerange,
+                body_mass,
+                body_inertia,
+                link_mass,
+                link_inertia,
             )
 
         (
@@ -92,9 +83,10 @@ def make_domain_randomizer(
             dof_damping,
             dof_armature,
             dof_frictionloss,
-            actuator_gainprm,
-            actuator_biasprm,
-            actuator_forcerange,
+            body_mass,
+            body_inertia,
+            link_mass,
+            link_inertia,
         ) = randomize_one(rng)
 
         replacements = {
@@ -102,9 +94,10 @@ def make_domain_randomizer(
             "dof_damping": dof_damping,
             "dof_armature": dof_armature,
             "dof_frictionloss": dof_frictionloss,
-            "actuator_gainprm": actuator_gainprm,
-            "actuator_biasprm": actuator_biasprm,
-            "actuator_forcerange": actuator_forcerange,
+            "body_mass": body_mass,
+            "body_inertia": body_inertia,
+            "link.inertia.mass": link_mass,
+            "link.inertia.i": link_inertia,
         }
         in_axes = jax.tree.map(lambda _: None, system).tree_replace(
             {name: 0 for name in replacements}

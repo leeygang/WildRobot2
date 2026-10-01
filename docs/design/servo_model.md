@@ -12,6 +12,9 @@ hardware qualification continues in parallel:
 | armature | 0.024992 kg m^2 | 0.8--1.2x | held fixed in WR1 fitting |
 | force cap | +/-4.0 N m | 1--4 N m | vendor-based peak bound |
 | target bias | 0 rad | +/-2 degrees | WR2 offset/hysteresis allowance |
+| no-load speed | 5.818 rad/s | 0.9--1.1x | vendor endpoint |
+| braking torque | 4.0 N m | 0.5--1.0x | provisional, unmeasured on WR2 |
+| backlash | 0 rad | 0--2 degrees | provisional until bidirectional sweep |
 
 The HTD-45H manual specifies 11.1 V nominal operation, a 9.6--12.6 V
 operating range, 45 kg cm (4.413 N m) stall torque, 3 A stall current,
@@ -45,6 +48,13 @@ of the current 8--32 N m/rad training range. It is not a direct `kp` fit because
 static friction also carries load. The repeat establishes three-minute
 behavior, but the positive slope and the C7 cutoff show that it is not a
 continuous rating.
+
+The training MJCF uses torque actuators rather than MuJoCo position actuators.
+At every 2 ms physics substep, a ToddlerBot-style controller computes PD torque
+and applies an asymmetric acceleration/braking envelope that tapers from the
+randomized peak torque to zero at the vendor no-load speed. The torque-speed
+shape and brake limit are provisional: only their stall/no-load endpoints are
+vendor-supported, so a dynamometer test is still required.
 
 The training command path quantizes targets to the servo's 0.24-degree units
 and limits each 20 ms update to 27 units, or 5.655 rad/s. Each episode also

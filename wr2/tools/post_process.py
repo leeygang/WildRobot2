@@ -296,11 +296,11 @@ def _write_mjx_variant(
     raw_scene: Path,
     robot_dir: Path,
 ) -> tuple[Path, Path]:
-    """Write a sensor-free MJX model and matching scene.
+    """Write a sensor-free, torque-controlled MJX model and matching scene.
 
-    The first training model keeps MuJoCo position actuators. This lets us
-    validate the environment and policy contract before replacing the actuator
-    with an explicit torque-speed controller.
+    The canonical model keeps convenient MuJoCo position actuators.  Training
+    uses motor actuators because the environment applies the same explicit
+    PD/torque-speed/braking envelope as ToddlerBot on every 2 ms physics step.
     """
     mjx_root = copy.deepcopy(canonical_root)
     sensors = mjx_root.find("sensor")
@@ -311,6 +311,23 @@ def _write_mjx_variant(
         raise ValueError("Canonical model is missing simulation options")
     option.set("iterations", "1")
     option.set("ls_iterations", "4")
+
+    actuator = mjx_root.find("actuator")
+    if actuator is None:
+        raise ValueError("Canonical model is missing actuators")
+    for element in actuator:
+        force_range = element.get("forcerange", "-4 4")
+        element.tag = "motor"
+        for attribute in ("class", "inheritrange", "kp", "kv", "dampratio"):
+            element.attrib.pop(attribute, None)
+        element.set("ctrllimited", "true")
+        element.set("ctrlrange", force_range)
+        element.set("forcelimited", "true")
+        element.set("forcerange", force_range)
+
+    # In the torque model keyframe controls are torques, not joint targets.
+    for key in mjx_root.findall("keyframe/key"):
+        key.set("ctrl", _numbers([0.0] * len(actuator)))
 
     model_path = robot_dir / "wr2_mjx.xml"
     mjx_tree = ET.ElementTree(mjx_root)

@@ -14,17 +14,17 @@ action:
     # pose still places shoulder-roll joints on CAD range endpoints.
     joint_limit_margin_rad: 0.0
 
-# Actor-visible, hardware-reproducible proprioception. Contact and base linear
-# velocity remain available to rewards, but are excluded from the actor and
-# critic until equivalent hardware measurements exist.
+# Actor-visible, hardware-reproducible proprioception. Simulator-only contact,
+# force, and base velocity are excluded from this deployment layout and used
+# only by the asymmetric critic and rewards during training.
 observation:
-    layout_id: wr2_proprio_v2
+    layout_id: wr2_proprio_v3
     fields:
         - {name: gait_phase, size: 2, units: "sin,cos"}
         - {name: command_velocity, size: 3, frame: torso, units: "m/s,m/s,rad/s"}
         - {name: joint_position_error, size: 17, units: rad}
         - {name: joint_velocity, size: 17, units: rad/s}
-        - {name: previous_action, size: 17, units: normalized}
+        - {name: previous_active_action, size: 10, units: normalized}
         - {name: torso_angular_velocity, size: 3, frame: torso, units: rad/s}
         - {name: projected_gravity, size: 3, frame: torso, units: normalized}
     scales:
@@ -32,7 +32,7 @@ observation:
         command_velocity: [1.0, 1.0, 1.0]
         joint_position_error: 1.0
         joint_velocity: 0.05
-        previous_action: 1.0
+        previous_active_action: 1.0
         torso_angular_velocity: 1.0
         projected_gravity: 1.0
     # Match ToddlerBot's active walking policy: newest frame first, followed by
@@ -100,6 +100,14 @@ actuators:
         thermal_short_hold_status: repeatable_pass_not_at_equilibrium
         software_temperature_shutdown_c: 80.0
         fitted_extra_command_delay_steps: 0
+        # Provisional torque-speed envelope. The stall/no-load endpoints come
+        # from the vendor manual; the plateau and braking values still require
+        # a WR2 dynamometer campaign.
+        torque_speed_model_status: provisional_vendor_endpoint_envelope
+        peak_torque_speed_rad_s: 0.0
+        torque_at_max_speed_nm: 0.0
+        brake_torque_limit_nm: 4.0
+        passive_active_ratio: 1.0
 
 contact:
     foot_collision_geoms: [left_foot_collision, right_foot_collision]

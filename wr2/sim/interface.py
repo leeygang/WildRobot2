@@ -95,6 +95,48 @@ class PositionActionContract:
             upper - self.joint_limit_margin_rad,
         ).astype(np.float32)
 
+    def active_targets(
+        self,
+        normalized_action: npt.ArrayLike,
+        *,
+        active_indices: npt.ArrayLike,
+        home_position_rad: npt.ArrayLike,
+        lower_limit_rad: npt.ArrayLike,
+        upper_limit_rad: npt.ArrayLike,
+    ) -> FloatArray:
+        """Expand active-joint actions with limit-aware residual scaling.
+
+        A policy value of ``+1`` or ``-1`` reaches the configured residual
+        scale unless the corresponding joint limit is closer.  This keeps all
+        policy dimensions useful without silently clipping asymmetric joints.
+        Inactive joints remain at their reference pose.
+        """
+        home = np.asarray(home_position_rad, dtype=np.float32)
+        if home.ndim != 1:
+            raise ValueError("home_position_rad must be one-dimensional")
+        size = home.shape[0]
+        lower = _vector(lower_limit_rad, size, "lower_limit_rad")
+        upper = _vector(upper_limit_rad, size, "upper_limit_rad")
+        indices = np.asarray(active_indices, dtype=np.int32)
+        if indices.ndim != 1 or len(np.unique(indices)) != indices.size:
+            raise ValueError("active_indices must be a unique one-dimensional array")
+        if np.any(indices < 0) or np.any(indices >= size):
+            raise ValueError("active_indices contains an out-of-range index")
+        action = _vector(normalized_action, indices.size, "normalized_action")
+        action = np.clip(action, -self.normalized_limit, self.normalized_limit)
+
+        active_home = home[indices]
+        active_lower = lower[indices] + self.joint_limit_margin_rad
+        active_upper = upper[indices] - self.joint_limit_margin_rad
+        if np.any(active_lower >= active_upper):
+            raise ValueError("Joint-limit margin leaves an empty command range")
+        positive_scale = np.minimum(self.scale_rad, active_upper - active_home)
+        negative_scale = np.minimum(self.scale_rad, active_home - active_lower)
+        residual = np.where(action >= 0.0, positive_scale, negative_scale) * action
+        target = home.copy()
+        target[indices] = active_home + residual
+        return target.astype(np.float32)
+
 
 def build_wr2_proprio_v1(
     observation: RobotObservation,
@@ -146,6 +188,48 @@ def build_wr2_proprio_v2(
         command_velocity=command_velocity,
     )
     return np.concatenate([phase, proprio], dtype=np.float32)
+
+
+def build_wr2_proprio_v3(
+    observation: RobotObservation,
+    *,
+    gait_phase_rad: float,
+    home_position_rad: npt.ArrayLike,
+    previous_active_action: npt.ArrayLike,
+    active_indices: npt.ArrayLike,
+    command_velocity: npt.ArrayLike,
+) -> FloatArray:
+    """Build the 55-value walking frame used by the active-leg policy.
+
+    Joint position and velocity retain all 17 actuators, as in ToddlerBot,
+    while the previous-action field contains only the ten policy-controlled
+    leg joints.
+    """
+    if not np.isfinite(gait_phase_rad):
+        raise ValueError("gait_phase_rad must be finite")
+    home = np.asarray(home_position_rad, dtype=np.float32)
+    if home.ndim != 1:
+        raise ValueError("home_position_rad must be one-dimensional")
+    observation.validate(home.size)
+    indices = np.asarray(active_indices, dtype=np.int32)
+    if indices.ndim != 1 or np.any(indices < 0) or np.any(indices >= home.size):
+        raise ValueError("active_indices must contain valid actuator indices")
+    previous = _vector(previous_active_action, indices.size, "previous_active_action")
+    command = _vector(command_velocity, 3, "command_velocity")
+    return np.concatenate(
+        [
+            np.asarray(
+                [np.sin(gait_phase_rad), np.cos(gait_phase_rad)], dtype=np.float32
+            ),
+            command,
+            observation.joint_position_rad - home,
+            0.05 * observation.joint_velocity_rad_s,
+            previous,
+            observation.angular_velocity_torso_rad_s,
+            observation.projected_gravity_torso,
+        ],
+        dtype=np.float32,
+    )
 
 
 def update_wr2_observation_history(

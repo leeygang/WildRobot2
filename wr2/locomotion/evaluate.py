@@ -79,10 +79,14 @@ def evaluate_checkpoint(
         )
     checkpoint_path = checkpoint_path.resolve()
     if not checkpoint_path.is_dir():
-        raise FileNotFoundError(f"Checkpoint directory does not exist: {checkpoint_path}")
+        raise FileNotFoundError(
+            f"Checkpoint directory does not exist: {checkpoint_path}"
+        )
 
     config = load_training_config(config_path)
-    commands = tuple(forward_commands_m_s or (config.ppo.evaluation_forward_command_m_s,))
+    commands = tuple(
+        forward_commands_m_s or (config.ppo.evaluation_forward_command_m_s,)
+    )
     eval_environment_config = replace(
         config.environment,
         command_forward_range_m_s=(commands[0], commands[0]),
@@ -119,7 +123,10 @@ def evaluate_checkpoint(
                 ),
                 zero_command_probability=0.0,
             ),
-            add_observation_noise=False,
+            # Training progress uses a nominal evaluator. Independent
+            # confirmation intentionally includes the configured dynamics and
+            # sensor randomization when robustness is enabled.
+            add_observation_noise=config.environment.randomization.enabled,
         )
         seed_results = []
         for seed in seeds:
@@ -158,9 +165,7 @@ def evaluate_checkpoint(
                 contact_match=float(
                     metrics["eval/episode_contact_phase_match_per_step"]
                 ),
-                double_support=float(
-                    metrics["eval/episode_double_support_per_step"]
-                ),
+                double_support=float(metrics["eval/episode_double_support_per_step"]),
             )
             result = {
                 "seed": int(seed),
@@ -190,6 +195,11 @@ def evaluate_checkpoint(
         "config": str(config_path.resolve()),
         "commands_forward_m_s": list(commands),
         "num_envs_per_seed": num_envs,
+        "evaluation_mode": (
+            "randomized_held_out"
+            if config.environment.randomization.enabled
+            else "nominal"
+        ),
         "seeds": list(seeds),
         "command_results": command_results,
     }

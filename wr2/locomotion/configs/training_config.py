@@ -16,6 +16,7 @@ DEFAULT_TRAINING_CONFIG_PATH = Path(__file__).with_name("ppo_walking.yaml")
 class RewardWeights:
     velocity_xy: float
     yaw_rate: float
+    angular_velocity_xy: float
     upright: float
     torso_height: float
     alive: float
@@ -28,7 +29,7 @@ class RewardWeights:
     feet_phase: float
     contact_phase: float
     both_feet_contact: float
-    feet_distance: float
+    close_feet: float
     feet_orientation: float
 
 
@@ -37,7 +38,14 @@ class ObservationNoise:
     joint_position_std_rad: float
     joint_velocity_std_rad_s: float
     gyro_std_rad_s: float
+    gyro_colored_std_rad_s: float
+    gyro_colored_alpha: float
+    gyro_bias_walk_std_rad_s: float
     projected_gravity_std: float
+    projected_gravity_colored_std: float
+    projected_gravity_colored_alpha: float
+    projected_gravity_bias_walk_std: float
+    imu_one_step_delay_probability: float
 
 
 @dataclass(frozen=True)
@@ -50,7 +58,14 @@ class DynamicsRandomization:
     kp_scale: tuple[float, float]
     kv_scale: tuple[float, float]
     torque_limit_scale: tuple[float, float]
+    body_mass_scale: tuple[float, float]
     target_bias_rad: tuple[float, float]
+    initial_torso_roll_rad: tuple[float, float]
+    initial_torso_pitch_rad: tuple[float, float]
+    backlash_rad: tuple[float, float]
+    max_speed_scale: tuple[float, float]
+    brake_torque_scale: tuple[float, float]
+    passive_active_ratio_scale: tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -73,7 +88,7 @@ class WalkingEnvConfig:
     swing_height_m: float
     feet_phase_tracking_sigma_m2: float
     min_feet_lateral_distance_m: float
-    max_feet_lateral_distance_m: float
+    contact_force_threshold_n: float
     target_torso_height_m: float
     terminate_height_m: float
     terminate_projected_gravity_z: float
@@ -245,9 +260,17 @@ def load_training_config(
             for name in random_fields - {"enabled"}
         },
     )
-    for name in random_fields - {"enabled", "target_bias_rad"}:
+    signed_or_zero_ranges = {
+        "target_bias_rad",
+        "initial_torso_roll_rad",
+        "initial_torso_pitch_rad",
+        "backlash_rad",
+    }
+    for name in random_fields - {"enabled"} - signed_or_zero_ranges:
         if getattr(randomization, name)[0] <= 0.0:
             raise ValueError(f"domain_randomization.{name} must stay positive")
+    if randomization.backlash_rad[0] < 0.0:
+        raise ValueError("domain_randomization.backlash_rad must be non-negative")
 
     env_raw = _mapping(root["environment"], "environment")
     nested_env_fields = {"observation_noise", "rewards", "randomization"}
@@ -299,6 +322,14 @@ def load_training_config(
     )
     if environment.action_delay_steps not in (0, 1):
         raise ValueError("environment.action_delay_steps must be 0 or 1")
+    noise = environment.observation_noise
+    for name in ("gyro_colored_alpha", "projected_gravity_colored_alpha"):
+        if not 0.0 <= getattr(noise, name) < 1.0:
+            raise ValueError(f"observation_noise.{name} must be in [0, 1)")
+    if not 0.0 <= noise.imu_one_step_delay_probability <= 1.0:
+        raise ValueError(
+            "observation_noise.imu_one_step_delay_probability must be in [0, 1]"
+        )
     if environment.action_scale_rad <= 0.0:
         raise ValueError("environment.action_scale_rad must be positive")
     if any(weight < 0.0 for weight in environment.pose_weights):
@@ -308,21 +339,19 @@ def load_training_config(
     if environment.torque_exposure_time_constant_s <= 0.0:
         raise ValueError("environment.torque_exposure_time_constant_s must be positive")
     if environment.command_active_threshold_m_s < 0.0:
-        raise ValueError("environment.command_active_threshold_m_s must be non-negative")
+        raise ValueError(
+            "environment.command_active_threshold_m_s must be non-negative"
+        )
     if environment.gait_cycle_s <= 0.0:
         raise ValueError("environment.gait_cycle_s must be positive")
     if environment.swing_height_m <= 0.0:
         raise ValueError("environment.swing_height_m must be positive")
+    if environment.contact_force_threshold_n <= 0.0:
+        raise ValueError("environment.contact_force_threshold_n must be positive")
     if environment.feet_phase_tracking_sigma_m2 <= 0.0:
         raise ValueError("environment.feet_phase_tracking_sigma_m2 must be positive")
-    if not (
-        0.0
-        < environment.min_feet_lateral_distance_m
-        < environment.max_feet_lateral_distance_m
-    ):
-        raise ValueError(
-            "environment foot lateral distances must satisfy 0 < min < max"
-        )
+    if environment.min_feet_lateral_distance_m <= 0.0:
+        raise ValueError("environment.min_feet_lateral_distance_m must be positive")
 
     ppo_raw = _mapping(root["ppo"], "ppo")
     ppo_fields = {field.name for field in fields(PPOConfig)}

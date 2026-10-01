@@ -330,29 +330,29 @@
     <material name="shoulder_pitch_left_link_material" rgba="0.972549 0.529412 0.00392157 1" />
   </asset>
   <actuator>
-    <position class="htd45hServo" name="waist_yaw_drive" joint="waist_yaw_drive" inheritrange="1" />
-    <position class="htd45hServo" name="left_shoulder_pitch" joint="left_shoulder_pitch" inheritrange="1" />
-    <position class="htd45hServo" name="left_shoulder_roll" joint="left_shoulder_roll" inheritrange="1" />
-    <position class="htd45hServo" name="left_elbow_pitch" joint="left_elbow_pitch" inheritrange="1" />
-    <position class="htd45hServo" name="left_hip_pitch" joint="left_hip_pitch" inheritrange="1" />
-    <position class="htd45hServo" name="left_hip_roll" joint="left_hip_roll" inheritrange="1" />
-    <position class="htd45hServo" name="left_knee_pitch" joint="left_knee_pitch" inheritrange="1" />
-    <position class="htd45hServo" name="left_ankle_pitch" joint="left_ankle_pitch" inheritrange="1" />
-    <position class="htd45hServo" name="left_ankle_roll" joint="left_ankle_roll" inheritrange="1" />
-    <position class="htd45hServo" name="right_shoulder_pitch" joint="right_shoulder_pitch" inheritrange="1" />
-    <position class="htd45hServo" name="right_shoulder_roll" joint="right_shoulder_roll" inheritrange="1" />
-    <position class="htd45hServo" name="right_elbow_pitch" joint="right_elbow_pitch" inheritrange="1" />
-    <position class="htd45hServo" name="right_hip_pitch" joint="right_hip_pitch" inheritrange="1" />
-    <position class="htd45hServo" name="right_hip_roll" joint="right_hip_roll" inheritrange="1" />
-    <position class="htd45hServo" name="right_knee_pitch" joint="right_knee_pitch" inheritrange="1" />
-    <position class="htd45hServo" name="right_ankle_pitch" joint="right_ankle_pitch" inheritrange="1" />
-    <position class="htd45hServo" name="right_ankle_roll" joint="right_ankle_roll" inheritrange="1" />
+    <motor name="waist_yaw_drive" joint="waist_yaw_drive" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="left_shoulder_pitch" joint="left_shoulder_pitch" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="left_shoulder_roll" joint="left_shoulder_roll" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="left_elbow_pitch" joint="left_elbow_pitch" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="left_hip_pitch" joint="left_hip_pitch" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="left_hip_roll" joint="left_hip_roll" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="left_knee_pitch" joint="left_knee_pitch" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="left_ankle_pitch" joint="left_ankle_pitch" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="left_ankle_roll" joint="left_ankle_roll" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="right_shoulder_pitch" joint="right_shoulder_pitch" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="right_shoulder_roll" joint="right_shoulder_roll" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="right_elbow_pitch" joint="right_elbow_pitch" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="right_hip_pitch" joint="right_hip_pitch" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="right_hip_roll" joint="right_hip_roll" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="right_knee_pitch" joint="right_knee_pitch" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="right_ankle_pitch" joint="right_ankle_pitch" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
+    <motor name="right_ankle_roll" joint="right_ankle_roll" ctrllimited="true" ctrlrange="-4 4" forcelimited="true" forcerange="-4 4" />
   </actuator>
   <equality>
     <joint joint1="waist_yaw_driven" joint2="waist_yaw_drive" polycoef="0 1.0 0 0 0" />
   </equality>
   <keyframe>
     <key name="home" qpos="0 0 0.305 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" ctrl="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" />
-    <key name="walk_home" qpos="0 0 0.304 1 0 0 0 0 0.12 0 0.24 0.12 0 -0.12 0 -0.24 -0.12 0 0 0 0 0 0 0 0" ctrl="0 0 0 0 -0.12 0 -0.24 -0.12 0 0 0 0 0.12 0 0.24 0.12 0" />
+    <key name="walk_home" qpos="0 0 0.304 1 0 0 0 0 0.12 0 0.24 0.12 0 -0.12 0 -0.24 -0.12 0 0 0 0 0 0 0 0" ctrl="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" />
   </keyframe>
 </mujoco>

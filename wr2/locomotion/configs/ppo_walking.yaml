@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy while preserving WR2's measured actuator envelope.
-version: "0.6.0"
-version_name: "WR2 ToddlerBot-aligned temporal phase-guided walking"
+version: "0.7.0"
+version_name: "WR2 ToddlerBot-parity asymmetric-critic walking"
 seed: 0
 
 environment:
@@ -28,7 +28,7 @@ environment:
   swing_height_m: 0.04
   feet_phase_tracking_sigma_m2: 0.0007
   min_feet_lateral_distance_m: 0.06
-  max_feet_lateral_distance_m: 0.12
+  contact_force_threshold_n: 1.0
   target_torso_height_m: 0.301
   terminate_height_m: 0.20
   terminate_projected_gravity_z: -0.50
@@ -44,30 +44,38 @@ environment:
 reward_weights:
   velocity_xy: 2.0
   yaw_rate: 1.5
+  angular_velocity_xy: -1.0
   upright: 2.5
-  torso_height: 0.25
+  torso_height: 0.0
   alive: 1.0
   pose: -0.5
   action_rate: -2.0
-  joint_velocity: -0.0005
-  foot_slip: -0.05
+  joint_velocity: 0.0
+  foot_slip: 0.0
   mechanical_power: -0.0002
   actuator_torque_squared: -0.005
   feet_phase: 7.5
-  contact_phase: 0.5
-  # The phase-height and contact-match terms already reward alternating support.
-  # Do not penalize transient double support: the first 100M-step cycle reduced
-  # it while an initially safe stance destabilized, unlike ToddlerBot's proven
-  # phase-guided reward which has no always-on double-support penalty.
+  # Contact match is a P0 metric, not an extra dense reward in ToddlerBot's
+  # current active phase-guided baseline.
+  contact_phase: 0.0
   both_feet_contact: 0.0
-  feet_distance: 0.25
-  feet_orientation: 0.25
+  close_feet: -10.0
+  feet_orientation: -5.0
 
 observation_noise:
   joint_position_std_rad: 0.003
   joint_velocity_std_rad_s: 0.05
   gyro_std_rad_s: 0.01
+  # Provisional BNO085-shaped temporal noise. Replace these ranges after a
+  # stationary and motion capture from the installed WR2 IMU.
+  gyro_colored_std_rad_s: 0.01
+  gyro_colored_alpha: 0.95
+  gyro_bias_walk_std_rad_s: 0.0002
   projected_gravity_std: 0.005
+  projected_gravity_colored_std: 0.005
+  projected_gravity_colored_alpha: 0.95
+  projected_gravity_bias_walk_std: 0.0001
+  imu_one_step_delay_probability: 0.5
 
 domain_randomization:
   enabled: true
@@ -80,7 +88,15 @@ domain_randomization:
   kv_scale: [0.8, 1.2]
   # Nominal peak cap is 4 N m, so this spans 1--4 N m.
   torque_limit_scale: [0.25, 1.0]
+  body_mass_scale: [0.8, 1.2]
   target_bias_rad: [-0.034906585, 0.034906585]
+  initial_torso_roll_rad: [-0.10, 0.10]
+  initial_torso_pitch_rad: [-0.10, 0.10]
+  # Provisional until bidirectional WR2 position sweeps identify backlash.
+  backlash_rad: [0.0, 0.034906585]
+  max_speed_scale: [0.9, 1.1]
+  brake_torque_scale: [0.5, 1.0]
+  passive_active_ratio_scale: [1.0, 1.0]
 
 ppo:
   num_timesteps: 1000000000
@@ -98,7 +114,9 @@ ppo:
   batch_size: 256
   num_minibatches: 8
   num_updates_per_batch: 4
-  normalize_observations: true
+  # Match ToddlerBot's active PPO configuration; all actor features already
+  # have explicit physical scaling.
+  normalize_observations: false
 
 network:
   policy_hidden_layer_sizes: [512, 256, 128]

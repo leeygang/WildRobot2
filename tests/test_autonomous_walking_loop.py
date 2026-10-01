@@ -106,9 +106,11 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
 
     def test_frozen_contract_includes_deployment_and_servo_fields(self):
         contract = _contract_snapshot(self.config.base_training_config)
-        self.assertEqual(contract["actor_observation"]["layout_id"], "wr2_proprio_v2")
+        self.assertEqual(contract["actor_observation"]["layout_id"], "wr2_proprio_v3")
         self.assertEqual(contract["actor_observation"]["history_frames"], 15)
-        self.assertEqual(contract["action"]["representation"], "joint_position_residual")
+        self.assertEqual(
+            contract["action"]["representation"], "joint_position_residual"
+        )
         self.assertEqual(contract["active_groups"], ["leg"])
         self.assertEqual(contract["servo_model"]["torque_limit_nm"], 4.0)
         self.assertEqual(
@@ -119,9 +121,7 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
     def test_acceptance_is_frozen_but_network_is_training_compatible(self):
         acceptance = _acceptance_contract(self.config)
         compatibility = _training_compatibility(self.config)
-        self.assertEqual(
-            acceptance["confirmation_commands_m_s"], [0.10, 0.15, 0.20]
-        )
+        self.assertEqual(acceptance["confirmation_commands_m_s"], [0.10, 0.15, 0.20])
         self.assertEqual(
             acceptance["stages"][-1]["required_gates"],
             [
@@ -133,9 +133,7 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
                 "action_saturation",
             ],
         )
-        self.assertEqual(
-            compatibility["network"]["distribution_type"], "tanh_normal"
-        )
+        self.assertEqual(compatibility["network"]["distribution_type"], "tanh_normal")
 
     def test_codex_change_allowlist_requires_training_change(self):
         _validate_changed_files(
@@ -226,9 +224,7 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             log = Path(temporary_directory) / "codex.log"
             log.write_text("# heading\nline one\nline two\n")
-            self.assertEqual(
-                _tail_progress(log), ["# heading", "line one", "line two"]
-            )
+            self.assertEqual(_tail_progress(log), ["# heading", "line one", "line two"])
 
     def test_structured_decision_is_strict_and_keeps_base_config(self):
         relative_config = self.config.base_training_config.relative_to(

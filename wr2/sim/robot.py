@@ -107,6 +107,20 @@ class RobotDescription:
             [motor.upper_limit_rad for motor in self.motors], dtype=np.float32
         )
 
+    def active_actuator_indices(
+        self, groups: tuple[str, ...] = ("leg",)
+    ) -> npt.NDArray[np.int32]:
+        """Return canonical actuator indices controlled by a policy group."""
+        selected = set(groups)
+        return np.asarray(
+            [
+                index
+                for index, motor in enumerate(self.motors)
+                if motor.group in selected
+            ],
+            dtype=np.int32,
+        )
+
     @classmethod
     def load(
         cls,
@@ -190,6 +204,19 @@ class RobotDescription:
             servo_config["vendor_no_load_speed_rad_s"]
         ):
             raise ValueError("Training target speed exceeds vendor no-load speed")
+        peak_torque_speed = float(servo_config["peak_torque_speed_rad_s"])
+        maximum_speed = float(servo_config["vendor_no_load_speed_rad_s"])
+        torque_at_max_speed = float(servo_config["torque_at_max_speed_nm"])
+        brake_torque = float(servo_config["brake_torque_limit_nm"])
+        passive_active_ratio = float(servo_config["passive_active_ratio"])
+        if not 0.0 <= peak_torque_speed < maximum_speed:
+            raise ValueError("Servo peak-torque speed must be below no-load speed")
+        if not 0.0 <= torque_at_max_speed <= torque_limit:
+            raise ValueError("Servo torque at maximum speed is out of range")
+        if not 0.0 < brake_torque <= vendor_stall_torque:
+            raise ValueError("Servo braking torque is out of range")
+        if passive_active_ratio <= 0.0:
+            raise ValueError("Servo passive/active ratio must be positive")
 
         actuator_elements = list(root.findall("actuator/*"))
         model_order = tuple(element.get("name", "") for element in actuator_elements)
