@@ -68,6 +68,7 @@ DECISION_FIELDS = frozenset(
         "intervention_family",
         "expected_outcome",
         "falsification_condition",
+        "toddlerbot_alignment",
         "config",
         "start_mode",
         "verification",

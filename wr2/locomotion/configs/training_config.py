@@ -21,7 +21,6 @@ class RewardWeights:
     alive: float
     pose: float
     action_rate: float
-    action_limit: float
     joint_velocity: float
     foot_slip: float
     mechanical_power: float
@@ -58,8 +57,8 @@ class DynamicsRandomization:
 class WalkingEnvConfig:
     episode_length: int
     action_scale_rad: float
-    action_soft_limit: float
     active_groups: tuple[str, ...]
+    pose_weights: tuple[float, ...]
     action_delay_steps: int
     reset_joint_noise_rad: float
     reset_velocity_noise_rad_s: float
@@ -188,6 +187,12 @@ def _float_range(value: Any, name: str) -> tuple[float, float]:
     return (low, high)
 
 
+def _float_tuple(value: Any, name: str) -> tuple[float, ...]:
+    if not isinstance(value, (list, tuple)) or not value:
+        raise ValueError(f"{name} must be a non-empty list")
+    return tuple(_float(item, f"{name}[{index}]") for index, item in enumerate(value))
+
+
 def _numeric_dataclass(cls, raw: dict[str, Any], section: str):
     expected = {field.name for field in fields(cls)}
     _expect_keys(raw, expected, section)
@@ -255,12 +260,14 @@ def load_training_config(
     }
     integer_fields = {"episode_length", "action_delay_steps", "command_resample_steps"}
     boolean_fields = {"randomize_gait_phase_on_reset"}
+    vector_fields = {"pose_weights"}
     float_fields = (
         env_fields
         - integer_fields
         - boolean_fields
         - {"active_groups"}
         - range_fields
+        - vector_fields
     )
     active_groups = env_raw["active_groups"]
     if not isinstance(active_groups, list) or not all(
@@ -280,6 +287,7 @@ def load_training_config(
             "environment.randomize_gait_phase_on_reset",
         ),
         active_groups=tuple(active_groups),
+        pose_weights=_float_tuple(env_raw["pose_weights"], "environment.pose_weights"),
         **{name: _float(env_raw[name], f"environment.{name}") for name in float_fields},
         **{
             name: _float_range(env_raw[name], f"environment.{name}")
@@ -293,8 +301,8 @@ def load_training_config(
         raise ValueError("environment.action_delay_steps must be 0 or 1")
     if environment.action_scale_rad <= 0.0:
         raise ValueError("environment.action_scale_rad must be positive")
-    if not 0.0 < environment.action_soft_limit < 1.0:
-        raise ValueError("environment.action_soft_limit must be in (0, 1)")
+    if any(weight < 0.0 for weight in environment.pose_weights):
+        raise ValueError("environment.pose_weights must be non-negative")
     if not 0.0 <= environment.zero_command_probability <= 1.0:
         raise ValueError("environment.zero_command_probability must be in [0, 1]")
     if environment.torque_exposure_time_constant_s <= 0.0:

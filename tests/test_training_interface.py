@@ -7,11 +7,15 @@ import numpy as np
 
 from wr2.locomotion.configs import load_training_config
 from wr2.locomotion.ppo import make_network_factory
-from wr2.locomotion.walking_env import soft_action_limit_cost
 from wr2.locomotion.train import _create_run_directory
 from wr2.locomotion.walking_metrics import walking_score
 from wr2.sensing.imu import canonicalize_sensor_sample
-from wr2.sim import RobotDescription, RobotObservation, build_wr2_proprio_v2
+from wr2.sim import (
+    RobotDescription,
+    RobotObservation,
+    build_wr2_proprio_v2,
+    update_wr2_observation_history,
+)
 
 
 class TrainingInterfaceTest(unittest.TestCase):
@@ -58,7 +62,9 @@ class TrainingInterfaceTest(unittest.TestCase):
     def test_robot_description_matches_canonical_model(self):
         self.assertEqual(self.robot.actuator_count, 17)
         self.assertEqual(self.robot.actuator_names[0], "waist_yaw_drive")
-        self.assertEqual(self.robot.observation_size, 62)
+        self.assertEqual(self.robot.single_observation_size, 62)
+        self.assertEqual(self.robot.observation_history_frames, 15)
+        self.assertEqual(self.robot.observation_size, 930)
         self.assertEqual(self.robot.config["observation"]["layout_id"], "wr2_proprio_v2")
         self.assertEqual(self.robot.control_period_s, 0.02)
         self.assertEqual(self.robot.simulation_timestep_s, 0.002)
@@ -142,15 +148,18 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(environment.command_forward_range_m_s, (0.1, 0.25))
         self.assertEqual(environment.command_resample_steps, 150)
         self.assertEqual(environment.gait_cycle_s, 0.72)
-        self.assertEqual(environment.swing_height_m, 0.03)
-        self.assertEqual(environment.action_soft_limit, 0.8)
-        self.assertLess(environment.velocity_tracking_sigma, 0.1)
-        self.assertGreater(environment.rewards.feet_phase, 0.0)
+        self.assertEqual(environment.swing_height_m, 0.04)
+        self.assertEqual(environment.feet_phase_tracking_sigma_m2, 0.0007)
+        self.assertAlmostEqual(environment.velocity_tracking_sigma**-2, 1000.0)
+        self.assertEqual(environment.rewards.velocity_xy, 2.0)
+        self.assertEqual(environment.rewards.feet_phase, 7.5)
+        self.assertEqual(environment.rewards.action_rate, -2.0)
+        self.assertEqual(environment.rewards.pose, -0.5)
+        self.assertEqual(len(environment.pose_weights), self.robot.actuator_count)
         # Alternating contact remains rewarded directly.  Double support is a
         # diagnostic, not a competing dense penalty that can reward falling.
         self.assertGreater(environment.rewards.contact_phase, 0.0)
         self.assertEqual(environment.rewards.both_feet_contact, 0.0)
-        self.assertLess(environment.rewards.action_limit, 0.0)
         self.assertEqual(self.training_config.ppo.num_timesteps, 1_000_000_000)
         self.assertEqual(
             self.training_config.ppo.evaluation_forward_command_m_s, 0.20
@@ -185,18 +194,6 @@ class TrainingInterfaceTest(unittest.TestCase):
         action = np.asarray(distribution.mode(logits))
         self.assertTrue(np.all(action >= -1.0))
         self.assertTrue(np.all(action <= 1.0))
-
-    def test_soft_action_limit_cost_preserves_interior_actions(self):
-        active_mask = jp.array([1.0, 1.0, 0.0])
-        interior = soft_action_limit_cost(
-            jp.array([-0.8, 0.5, 1.0]), active_mask, soft_limit=0.8
-        )
-        boundary = soft_action_limit_cost(
-            jp.array([-1.0, 0.9, 1.0]), active_mask, soft_limit=0.8
-        )
-
-        self.assertEqual(float(interior), 0.0)
-        self.assertAlmostEqual(float(boundary), 0.05, places=6)
 
     def test_zero_action_maps_to_home(self):
         targets = self.robot.action.targets(
@@ -236,6 +233,23 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(actor_observation.shape, (62,))
         np.testing.assert_allclose(actor_observation[:2], [1, 0], atol=1e-6)
         np.testing.assert_allclose(actor_observation[-3:], [0, 0, -1])
+
+        history = update_wr2_observation_history(
+            actor_observation,
+            history_frames=self.robot.observation_history_frames,
+        )
+        self.assertEqual(history.shape, (self.robot.observation_size,))
+        np.testing.assert_array_equal(history[:62], actor_observation)
+        np.testing.assert_array_equal(history[62:], np.zeros(62 * 14))
+
+        next_frame = actor_observation + 1.0
+        history = update_wr2_observation_history(
+            next_frame,
+            history_frames=self.robot.observation_history_frames,
+            previous_history=history,
+        )
+        np.testing.assert_array_equal(history[:62], next_frame)
+        np.testing.assert_array_equal(history[62:124], actor_observation)
 
     def test_imu_mounting_rotation_is_removed(self):
         mount = np.asarray(self.robot.imu_sensor_to_torso_quat_wxyz)

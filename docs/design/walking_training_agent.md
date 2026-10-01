@@ -8,11 +8,11 @@ confirmation or after exhausting the configured budget.
 ## Campaign
 
 The default campaign is defined in
-`wr2/locomotion/configs/walking_agent.yaml` and is capped at one billion
-environment steps:
+`wr2/locomotion/configs/walking_agent.yaml`. Success gates normally terminate it;
+each stage has a 2,000-cycle emergency ceiling:
 
-1. `gait_acquisition`: at most two 100M-step cycles under nominal dynamics;
-2. `robust_walking`: at most eight 100M-step cycles with the measured WR2
+1. `gait_acquisition`: up to 2,000 100M-step cycles under nominal dynamics;
+2. `robust_walking`: up to 2,000 100M-step cycles with the measured WR2
    actuator and contact randomization; and
 3. confirmation at 0.10, 0.15, and 0.20 m/s for three independent seeds and
    128 environments per seed/speed combination.
@@ -106,8 +106,9 @@ Keep this foreground Mac process running. For each bounded cycle it:
    checkpoint stays on the GPU;
 4. evaluates P0, P1, and hard safety locally and records `analysis.json`;
 5. when another experiment is needed, invokes non-interactive `codex exec` on
-   the Mac for one high-confidence, ToddlerBot-aligned experiment and one
-   commit;
+   the Mac for one high-confidence experiment and one commit; its structured
+   decision must identify the matching active ToddlerBot mechanism and justify
+   every WR2-specific divergence;
 6. allows coherent changes across the locomotion environment, metrics,
    evaluator, trainer, PPO code, typed config, and campaign YAML, then reruns
    all tests and pushes the validated commit; and
@@ -116,7 +117,7 @@ Keep this foreground Mac process running. For each bounded cycle it:
 
 The coding agent cannot push or select a checkpoint itself. The supervisor
 still freezes the hardware/deployment interface, final P0 definitions,
-confirmation matrix, hard servo limits, total campaign budget, and its own
+confirmation matrix, hard servo limits, emergency campaign ceilings, and its own
 control plane. A network/parameter-contract change must explicitly request a
 cold start; compatible changes retain the best hard-safe GPU checkpoint unless
 the accepted hypothesis explicitly requires retraining from scratch.

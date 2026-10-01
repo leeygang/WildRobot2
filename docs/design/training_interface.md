@@ -71,16 +71,19 @@ motion logs, then compare the BNO085 stream with MuJoCo-replayed kinematics.
 
 `wr2.locomotion.walking_env.WR2WalkingEnv` now provides the first flat-ground
 MJX environment. It starts from `walk_home`, runs at 50 Hz over a 500 Hz
-physics model, applies one control-step action delay, exposes only the 62-value
-deployable observation, and uses simulator-only state for rewards and
+physics model, applies one control-step action delay, and exposes a deployable
+15-frame history of 62-value observations (930 values, newest first), matching
+ToddlerBot's active walking setup. It uses simulator-only state for rewards and
 termination. It trains forward walking at 0.10--0.25 m/s and explicit standing
 episodes, resampling commands every three seconds. A smooth alternating-foot
 target provides dense swing-height and contact supervision. Additional terms
-discourage double support during walking, excessive/narrow foot spacing, and
-tilted feet. Lateral/yaw fields remain in the interface but their first-stage
-command ranges are zero. The environment currently adds provisional joint,
-gyro, and projected-gravity white noise. Episode bias, mounting-error, and
-IMU-delay models remain gated on WR2 sensor measurements.
+discourage excessive/narrow foot spacing and tilted feet. ToddlerBot's active
+velocity, foot-phase, action-rate, and weighted-pose shaping are retained;
+WR2 additionally keeps contact-phase and actuator-envelope terms. Lateral/yaw
+fields remain in the interface but their first-stage command ranges are zero.
+The environment currently adds provisional joint, gyro, and projected-gravity
+white noise. Episode bias, mounting-error, and IMU-delay models remain gated on
+WR2 sensor measurements.
 
 Actuator targets are quantized to HTD-45H command units (0.24 degrees) and
 slew-limited to 27 units per 20 ms control step, or 5.655 rad/s. This is below

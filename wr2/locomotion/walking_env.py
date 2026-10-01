@@ -50,14 +50,6 @@ def expected_foot_contacts(
     return jp.where(is_walking, contacts, jp.ones(2, dtype=jp.bool_))
 
 
-def soft_action_limit_cost(
-    action: jax.Array, active_mask: jax.Array, soft_limit: float
-) -> jax.Array:
-    """Return squared normalized-action excess above a symmetric soft limit."""
-    excess = jp.maximum(jp.abs(action) - soft_limit, 0.0)
-    return jp.sum(jp.square(excess) * active_mask)
-
-
 def _rotate_vector(quaternion: jax.Array, vector: jax.Array) -> jax.Array:
     """Rotate a vector using a normalized wxyz quaternion."""
     quaternion = quaternion / jp.linalg.norm(quaternion)
@@ -182,6 +174,14 @@ class WR2WalkingEnv(PipelineEnv):
             dtype=np.float32,
         )
         self._active_mask = jp.asarray(active_mask)
+        pose_weights = np.asarray(self.config.pose_weights, dtype=np.float32)
+        if pose_weights.shape != (self.robot.actuator_count,):
+            raise ValueError(
+                "environment.pose_weights must contain one value per WR2 actuator"
+            )
+        self._pose_weights = jp.asarray(pose_weights) * self._active_mask
+        self._single_observation_size = self.robot.single_observation_size
+        self._observation_history_frames = self.robot.observation_history_frames
         self._root_link_index = system.link_names.index("torso")
         self._foot_link_indices = jp.asarray(
             [
@@ -309,6 +309,14 @@ class WR2WalkingEnv(PipelineEnv):
             ]
         )
 
+    def _stack_observation(
+        self, observation: jax.Array, history: jax.Array
+    ) -> jax.Array:
+        """Insert the newest frame first, matching ToddlerBot's frame stack."""
+        return jp.roll(history, self._single_observation_size).at[
+            : self._single_observation_size
+        ].set(observation)
+
     def reset(self, rng: jax.Array) -> State:
         (
             rng,
@@ -359,12 +367,15 @@ class WR2WalkingEnv(PipelineEnv):
             0.0,
         )
         previous_action = jp.zeros(self.robot.actuator_count)
-        observation = self._observation(
+        observation_frame = self._observation(
             pipeline_state,
             previous_action,
             command,
             gait_phase,
             observation_rng,
+        )
+        observation = self._stack_observation(
+            observation_frame, jp.zeros(self.robot.observation_size)
         )
         zero = jp.zeros(())
         metrics = {
@@ -380,7 +391,6 @@ class WR2WalkingEnv(PipelineEnv):
             "height_tracking_per_step": zero,
             "pose": zero,
             "action_rate": zero,
-            "action_limit": zero,
             "joint_velocity": zero,
             "foot_slip": zero,
             "mechanical_power": zero,
@@ -485,11 +495,10 @@ class WR2WalkingEnv(PipelineEnv):
             )
             / self.config.height_tracking_sigma**2
         )
-        pose = jp.sum(jp.square(joint_position - self._home_ctrl))
-        action_rate = jp.sum(jp.square(action - state.info["previous_action"]))
-        action_limit = soft_action_limit_cost(
-            action, self._active_mask, self.config.action_soft_limit
+        pose = jp.sum(
+            jp.square(joint_position - self._home_ctrl) * self._pose_weights
         )
+        action_rate = jp.sum(jp.square(action - state.info["previous_action"]))
         joint_velocity_cost = jp.sum(jp.square(joint_velocity))
         foot_contact = self._foot_contact(pipeline_state)
         desired_foot_height = expected_foot_heights(
@@ -557,7 +566,7 @@ class WR2WalkingEnv(PipelineEnv):
         sustained_torque_exposure = jp.max(torque_exposure)
 
         weights = self.config.rewards
-        reward = (
+        reward_rate = (
             weights.velocity_xy * velocity_xy
             + weights.yaw_rate * yaw_rate
             + weights.upright * upright
@@ -565,7 +574,6 @@ class WR2WalkingEnv(PipelineEnv):
             + weights.alive
             + weights.pose * pose
             + weights.action_rate * action_rate
-            + weights.action_limit * action_limit
             + weights.joint_velocity * joint_velocity_cost
             + weights.foot_slip * foot_slip
             + weights.mechanical_power * mechanical_power
@@ -576,6 +584,9 @@ class WR2WalkingEnv(PipelineEnv):
             + weights.feet_distance * feet_distance
             + weights.feet_orientation * feet_orientation
         )
+        # ToddlerBot treats configured weights as reward rates and integrates
+        # them over the control period before passing the result to PPO.
+        reward = reward_rate * self.robot.control_period_s
 
         step_count = state.info["step_count"] + 1
         torso_z = pipeline_state.x.pos[self._root_link_index, 2]
@@ -605,13 +616,14 @@ class WR2WalkingEnv(PipelineEnv):
             0.0,
             next_gait_phase,
         )
-        observation = self._observation(
+        observation_frame = self._observation(
             pipeline_state,
             action,
             next_command,
             next_gait_phase,
             observation_rng,
         )
+        observation = self._stack_observation(observation_frame, state.obs)
         info = {
             **state.info,
             "rng": rng,
@@ -635,7 +647,6 @@ class WR2WalkingEnv(PipelineEnv):
             "height_tracking_per_step": torso_height,
             "pose": -pose,
             "action_rate": -action_rate,
-            "action_limit": -action_limit,
             "joint_velocity": -joint_velocity_cost,
             "foot_slip": -foot_slip,
             "mechanical_power": -mechanical_power,

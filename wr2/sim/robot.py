@@ -72,8 +72,16 @@ class RobotDescription:
         return len(self.actuator_names)
 
     @property
-    def observation_size(self) -> int:
+    def single_observation_size(self) -> int:
         return sum(int(field["size"]) for field in self.config["observation"]["fields"])
+
+    @property
+    def observation_history_frames(self) -> int:
+        return int(self.config["observation"]["history_frames"])
+
+    @property
+    def observation_size(self) -> int:
+        return self.single_observation_size * self.observation_history_frames
 
     @property
     def home_position_rad(self) -> npt.NDArray[np.float32]:
@@ -231,6 +239,9 @@ class RobotDescription:
         normalized_range = action_config["normalized_range"]
         if normalized_range != [-1.0, 1.0]:
             raise ValueError("WR2 v1 requires a normalized action range of [-1, 1]")
+        history_frames = int(config["observation"]["history_frames"])
+        if history_frames <= 0:
+            raise ValueError("observation.history_frames must be positive")
         reference_keyframe = str(action_config["reference_keyframe"])
         key = root.find(f"keyframe/key[@name='{reference_keyframe}']")
         if key is None or not key.get("ctrl"):

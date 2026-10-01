@@ -35,7 +35,9 @@ observation:
         previous_action: 1.0
         torso_angular_velocity: 1.0
         projected_gravity: 1.0
-    history_frames: 1
+    # Match ToddlerBot's active walking policy: newest frame first, followed by
+    # 14 prior 50 Hz observations (300 ms total temporal context).
+    history_frames: 15
 
 imu_randomization:
     # Values must be fitted from stationary and motion logs from the actual

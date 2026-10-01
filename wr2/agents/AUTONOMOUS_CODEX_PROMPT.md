@@ -13,17 +13,29 @@ coherent, falsifiable experiment for the next GPU cycle:
 1. Identify one dominant failure mode using concrete metrics and code evidence.
 2. State one causal hypothesis, expected metric outcome, and falsification
    condition.
-3. Select exactly one `intervention_family` from the schema.
-4. Implement the highest-confidence direction supported by the evidence. The
+3. Inspect ToddlerBot's current active walking configuration and implementation,
+   then state the corresponding mechanism and any necessary WR2 divergence in
+   the required `toddlerbot_alignment` field.
+4. Select exactly one `intervention_family` from the schema.
+5. Implement the highest-confidence direction supported by the evidence. The
    change may span multiple training files when that is necessary to implement
    the hypothesis coherently; do not optimize for the smallest diff.
-5. Run focused tests plus the full unit-test suite.
-6. Create exactly one local Git commit and leave the worktree clean.
-7. Return the required structured JSON with `decision=continue`.
+6. Run focused tests plus the full unit-test suite.
+7. Create exactly one local Git commit and leave the worktree clean.
+8. Return the required structured JSON with `decision=continue`.
 
 Prefer ToddlerBot's proven locomotion approach and defaults. Diverge only when
 the measured evidence or a documented WR2 hardware/model limitation requires
 it, and state that reason explicitly.
+
+Prefer durable causal alignment over symptom suppression. When WR2 is missing
+a ToddlerBot mechanism—such as observation history, reference handling,
+regularization, command curriculum, or reward scaling—port and adapt that
+mechanism before introducing a WR2-only penalty. Do not add a metric-specific
+penalty merely to force an acceptance number below its threshold. A WR2-only
+intervention must identify the concrete hardware/model difference, explain why
+the ToddlerBot mechanism is insufficient, and define evidence that would remove
+the divergence later.
 
 Use `start_mode=warm_start` when the checkpoint parameter contract remains
 compatible. Use `start_mode=cold_start` when a justified network change makes

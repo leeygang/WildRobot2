@@ -1,17 +1,16 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy while preserving WR2's measured actuator envelope.
-version: "0.5.0"
-version_name: "WR2 soft-limit phase-guided forward walking"
+version: "0.6.0"
+version_name: "WR2 ToddlerBot-aligned temporal phase-guided walking"
 seed: 0
 
 environment:
   episode_length: 1000
   action_scale_rad: 0.25
-  # Keep the interior 80% of the frozen residual-action range unpenalized.
-  # Cycle 1 drove mean action magnitude to 0.946 and saturation to 0.784,
-  # although its untrained policy completed all 1000 evaluation steps.
-  action_soft_limit: 0.80
   active_groups: [leg]
+  # ToddlerBot's active pose regularizer, mapped into WR2's canonical 17-motor
+  # order. Upper-body entries are zero because only legs are controlled.
+  pose_weights: [0.0, 0.0, 0.0, 0.0, 0.01, 1.0, 0.01, 5.0, 5.0, 0.0, 0.0, 0.0, 0.01, 1.0, 0.01, 5.0, 5.0]
   action_delay_steps: 1
   reset_joint_noise_rad: 0.02
   reset_velocity_noise_rad_s: 0.05
@@ -26,15 +25,17 @@ environment:
   gait_cycle_s: 0.72
   # Start each rollout from double support and phase zero, matching deployment.
   randomize_gait_phase_on_reset: false
-  swing_height_m: 0.03
-  feet_phase_tracking_sigma_m2: 0.0004
+  swing_height_m: 0.04
+  feet_phase_tracking_sigma_m2: 0.0007
   min_feet_lateral_distance_m: 0.06
   max_feet_lateral_distance_m: 0.12
   target_torso_height_m: 0.301
   terminate_height_m: 0.20
   terminate_projected_gravity_z: -0.50
-  velocity_tracking_sigma: 0.08
-  yaw_tracking_sigma: 0.40
+  # Equivalent to ToddlerBot's exp(-1000 * velocity_error^2).
+  velocity_tracking_sigma: 0.03162277660168379
+  # Equivalent to ToddlerBot's exp(-4 * yaw_rate_error^2).
+  yaw_tracking_sigma: 0.50
   height_tracking_sigma: 0.03
   # A policy-demand metric, not a fitted thermal time constant. C6 repeats show
   # that real temperature continues rising after 180 s, beyond a 20 s episode.
@@ -42,21 +43,17 @@ environment:
 
 reward_weights:
   velocity_xy: 2.0
-  yaw_rate: 0.5
-  upright: 0.5
+  yaw_rate: 1.5
+  upright: 2.5
   torso_height: 0.25
-  alive: 0.2
-  pose: -0.02
-  action_rate: -0.01
-  # ToddlerBot's phase-guided gait relies on substantially stronger action/pose
-  # regularization. WR2 additionally needs a persistent boundary cost because
-  # its frozen deployment contract clips normalized residual actions.
-  action_limit: -5.0
+  alive: 1.0
+  pose: -0.5
+  action_rate: -2.0
   joint_velocity: -0.0005
   foot_slip: -0.05
   mechanical_power: -0.0002
   actuator_torque_squared: -0.005
-  feet_phase: 2.0
+  feet_phase: 7.5
   contact_phase: 0.5
   # The phase-height and contact-match terms already reward alternating support.
   # Do not penalize transient double support: the first 100M-step cycle reduced

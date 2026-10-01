@@ -64,6 +64,9 @@ def _decision(config: str) -> dict:
         "intervention_family": "reward_shaping",
         "expected_outcome": "Contact match rises without increasing saturation.",
         "falsification_condition": "Contact match does not improve next cycle.",
+        "toddlerbot_alignment": (
+            "Matches ToddlerBot's active phase-guided contact mechanism."
+        ),
         "config": config,
         "start_mode": "warm_start",
         "verification": ["unit tests passed"],
@@ -104,6 +107,7 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
     def test_frozen_contract_includes_deployment_and_servo_fields(self):
         contract = _contract_snapshot(self.config.base_training_config)
         self.assertEqual(contract["actor_observation"]["layout_id"], "wr2_proprio_v2")
+        self.assertEqual(contract["actor_observation"]["history_frames"], 15)
         self.assertEqual(contract["action"]["representation"], "joint_position_residual")
         self.assertEqual(contract["active_groups"], ["leg"])
         self.assertEqual(contract["servo_model"]["torque_limit_nm"], 4.0)

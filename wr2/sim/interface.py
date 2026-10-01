@@ -133,7 +133,7 @@ def build_wr2_proprio_v2(
     previous_action: npt.ArrayLike,
     command_velocity: npt.ArrayLike,
 ) -> FloatArray:
-    """Build the 62-value walking observation, including a local gait clock."""
+    """Build one 62-value walking frame, including a local gait clock."""
     if not np.isfinite(gait_phase_rad):
         raise ValueError("gait_phase_rad must be finite")
     phase = np.asarray(
@@ -146,6 +146,28 @@ def build_wr2_proprio_v2(
         command_velocity=command_velocity,
     )
     return np.concatenate([phase, proprio], dtype=np.float32)
+
+
+def update_wr2_observation_history(
+    observation_frame: npt.ArrayLike,
+    *,
+    history_frames: int,
+    previous_history: npt.ArrayLike | None = None,
+) -> FloatArray:
+    """Insert one frame at the front of a deployment-compatible history."""
+    frame = np.asarray(observation_frame, dtype=np.float32)
+    if frame.ndim != 1:
+        raise ValueError("observation_frame must be one-dimensional")
+    if history_frames <= 0:
+        raise ValueError("history_frames must be positive")
+    history_size = history_frames * frame.size
+    if previous_history is None:
+        history = np.zeros(history_size, dtype=np.float32)
+    else:
+        history = _vector(previous_history, history_size, "previous_history").copy()
+    history = np.roll(history, frame.size)
+    history[: frame.size] = frame
+    return history
 
 
 class RobotBackend(Protocol):
