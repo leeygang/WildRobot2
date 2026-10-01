@@ -62,11 +62,48 @@ class RobotObservation:
 
 @dataclass(frozen=True)
 class PositionActionContract:
-    """Map normalized policy actions to bounded joint-position targets."""
+    """Map normalized policy actions over each joint's safe position range.
 
-    scale_rad: float = 0.25
+    ``-1`` and ``+1`` are the lower and upper command limits, respectively,
+    and ``0`` is their midpoint.  The walking keyframe is therefore generally
+    a nonzero action; callers can obtain it with :meth:`home_action`.
+    """
+
     normalized_limit: float = 1.0
     joint_limit_margin_rad: float = 0.0
+
+    def _safe_limits(
+        self,
+        lower_limit_rad: npt.ArrayLike,
+        upper_limit_rad: npt.ArrayLike,
+        size: int,
+    ) -> tuple[FloatArray, FloatArray]:
+        lower = _vector(lower_limit_rad, size, "lower_limit_rad")
+        upper = _vector(upper_limit_rad, size, "upper_limit_rad")
+        safe_lower = lower + self.joint_limit_margin_rad
+        safe_upper = upper - self.joint_limit_margin_rad
+        if np.any(safe_lower >= safe_upper):
+            raise ValueError("Joint-limit margin leaves an empty command range")
+        return safe_lower, safe_upper
+
+    def home_action(
+        self,
+        home_position_rad: npt.ArrayLike,
+        lower_limit_rad: npt.ArrayLike,
+        upper_limit_rad: npt.ArrayLike,
+    ) -> FloatArray:
+        """Return the normalized action corresponding to a reference pose."""
+        home = np.asarray(home_position_rad, dtype=np.float32)
+        if home.ndim != 1:
+            raise ValueError("home_position_rad must be one-dimensional")
+        safe_lower, safe_upper = self._safe_limits(
+            lower_limit_rad, upper_limit_rad, home.size
+        )
+        if np.any(home < safe_lower) or np.any(home > safe_upper):
+            raise ValueError("Home position lies outside the safe command range")
+        midpoint = 0.5 * (safe_lower + safe_upper)
+        half_range = 0.5 * (safe_upper - safe_lower)
+        return ((home - midpoint) / half_range).astype(np.float32)
 
     def targets(
         self,
@@ -80,20 +117,16 @@ class PositionActionContract:
             raise ValueError("home_position_rad must be one-dimensional")
         size = home.shape[0]
         action = _vector(normalized_action, size, "normalized_action")
-        lower = _vector(lower_limit_rad, size, "lower_limit_rad")
-        upper = _vector(upper_limit_rad, size, "upper_limit_rad")
-        if np.any(
-            lower + self.joint_limit_margin_rad >= upper - self.joint_limit_margin_rad
-        ):
-            raise ValueError("Joint-limit margin leaves an empty command range")
+        safe_lower, safe_upper = self._safe_limits(
+            lower_limit_rad, upper_limit_rad, size
+        )
 
         action = np.clip(action, -self.normalized_limit, self.normalized_limit)
-        target = home + self.scale_rad * action
-        return np.clip(
-            target,
-            lower + self.joint_limit_margin_rad,
-            upper - self.joint_limit_margin_rad,
-        ).astype(np.float32)
+        midpoint = 0.5 * (safe_lower + safe_upper)
+        half_range = 0.5 * (safe_upper - safe_lower)
+        return np.clip(midpoint + half_range * action, safe_lower, safe_upper).astype(
+            np.float32
+        )
 
     def active_targets(
         self,
@@ -104,19 +137,14 @@ class PositionActionContract:
         lower_limit_rad: npt.ArrayLike,
         upper_limit_rad: npt.ArrayLike,
     ) -> FloatArray:
-        """Expand active-joint actions with limit-aware residual scaling.
-
-        A policy value of ``+1`` or ``-1`` reaches the configured residual
-        scale unless the corresponding joint limit is closer.  This keeps all
-        policy dimensions useful without silently clipping asymmetric joints.
-        Inactive joints remain at their reference pose.
-        """
+        """Expand active-joint absolute actions; inactive joints stay at home."""
         home = np.asarray(home_position_rad, dtype=np.float32)
         if home.ndim != 1:
             raise ValueError("home_position_rad must be one-dimensional")
         size = home.shape[0]
-        lower = _vector(lower_limit_rad, size, "lower_limit_rad")
-        upper = _vector(upper_limit_rad, size, "upper_limit_rad")
+        safe_lower, safe_upper = self._safe_limits(
+            lower_limit_rad, upper_limit_rad, size
+        )
         indices = np.asarray(active_indices, dtype=np.int32)
         if indices.ndim != 1 or len(np.unique(indices)) != indices.size:
             raise ValueError("active_indices must be a unique one-dimensional array")
@@ -125,16 +153,14 @@ class PositionActionContract:
         action = _vector(normalized_action, indices.size, "normalized_action")
         action = np.clip(action, -self.normalized_limit, self.normalized_limit)
 
-        active_home = home[indices]
-        active_lower = lower[indices] + self.joint_limit_margin_rad
-        active_upper = upper[indices] - self.joint_limit_margin_rad
-        if np.any(active_lower >= active_upper):
-            raise ValueError("Joint-limit margin leaves an empty command range")
-        positive_scale = np.minimum(self.scale_rad, active_upper - active_home)
-        negative_scale = np.minimum(self.scale_rad, active_home - active_lower)
-        residual = np.where(action >= 0.0, positive_scale, negative_scale) * action
+        active_lower = safe_lower[indices]
+        active_upper = safe_upper[indices]
+        midpoint = 0.5 * (active_lower + active_upper)
+        half_range = 0.5 * (active_upper - active_lower)
         target = home.copy()
-        target[indices] = active_home + residual
+        target[indices] = np.clip(
+            midpoint + half_range * action, active_lower, active_upper
+        )
         return target.astype(np.float32)
 
 

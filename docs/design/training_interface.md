@@ -9,16 +9,25 @@ preprocessing.
 The policy action vector has ten values: only the leg entries selected from
 `actuator_order.txt`. The runtime expands these into the canonical 17-actuator
 order and holds the waist and arms at their reference targets. Each policy
-value is bounded to `[-1, 1]`; positive and negative residual scales are
-limited independently so an endpoint maps to the nearer of 0.25 rad or the
-actual joint limit. This avoids hidden target clipping on asymmetric joints.
+value is bounded to `[-1, 1]`. Each endpoint maps to that joint's configured
+lower or upper safe command limit, while zero maps to the range midpoint.
+This avoids hidden target clipping and gives asymmetric joints their complete
+usable range.
 
-This is a position-residual interface:
+This is an absolute normalized-position interface:
 
 ```text
-residual_scale = min(0.25 rad, available travel in the action direction)
-joint_target[active_leg] = walk_home + residual_scale * policy_action
+midpoint = (safe_lower + safe_upper) / 2
+half_range = (safe_upper - safe_lower) / 2
+joint_target[active_leg] = midpoint + half_range * policy_action
 ```
+
+`walk_home` is not generally the range midpoint, so its normalized action is
+nonzero. The policy mean, action-delay buffer, and previous-action observation
+are initialized to that exact home action. The initial policy therefore holds
+`walk_home` while retaining the full range. Action-rate cost is computed from
+the requested target change in radians and divided by a configurable 0.25 rad
+reference, preserving the scale of ToddlerBot's residual-action cost.
 
 PPO uses a tanh-transformed Normal distribution. This is an intentional WR2
 hardware adaptation: the deployed command contract is bounded, and an
@@ -94,8 +103,10 @@ torque is recomputed from the changing joint state on every substep. It applies
 one control-step action delay and exposes a deployable
 15-frame actor history (825 values) and privileged critic history (1440
 values), newest first. It uses simulator-only state for rewards and
-termination. It trains forward walking at 0.10--0.25 m/s and explicit standing
-episodes, resampling commands every three seconds. A smooth alternating-foot
+termination. The active acquisition config trains at 0.08--0.18 m/s under
+nominal dynamics; the robust stage expands this to 0.10--0.25 m/s and enables
+domain randomization. Both include explicit standing episodes and resample
+commands every three seconds. A smooth alternating-foot
 target provides dense swing-height guidance. Ground-only contacts above 1 N
 are used for gait metrics. ToddlerBot's active velocity, roll/pitch-rate, torso
 orientation, foot-phase, action-rate, weighted-pose, close-feet, and foot-tilt
@@ -126,7 +137,9 @@ exponential torque-exposure signal normalized to the measured 1.016 N m
 short-duration load envelope. This signal is not a thermal model; hardware
 temperature remains protected by an inclusive 80 C runtime shutdown. Each
 training output records the complete environment and actuator configuration in
-`run_config.json` and evaluation telemetry in `training_metrics.jsonl`.
+`run_config.json`, deterministic evaluation telemetry in
+`training_metrics.jsonl`, and stochastic-policy rollout summaries in
+`rollout_metrics.jsonl`.
 
 Run the JIT environment gate with:
 
@@ -153,12 +166,14 @@ The trainer generates a run ID such as
 directory or `--run-id` to supply an explicit ID. Each run also receives an
 effective `training_config.yaml` snapshot after CLI overrides. The full config
 uses 512/256/128 policy and value networks and one billion environment steps.
-Brax checkpoints are written after each evaluation, while `best_params` tracks
-the best survival/velocity/contact walking score at the fixed 0.20 m/s
-evaluation command and `params` stores the final policy. This fixed walking
-evaluation prevents standing episodes from making a non-walking policy look
-successful. An interrupted run can initialize a new run with
-`--restore-checkpoint PATH`.
+Brax checkpoints are written after each evaluation. During gait acquisition,
+`best_params` uses a hard-safe score dominated by survival, forward-speed
+ratio, contact-phase progress, and reduced double support; this prevents the
+strict final walking score from selecting a stationary policy. `params` stores
+the final policy. The active config evaluates at a fixed 0.10 m/s. An
+interrupted v0.9 run can initialize a new run with `--restore-checkpoint PATH`.
+Older residual-action checkpoints are incompatible with this action contract
+and must not be restored.
 
 Full PPO training fails fast unless JAX reports a GPU backend; `--allow-cpu`
 is reserved for intentional development checks. Console progress follows the

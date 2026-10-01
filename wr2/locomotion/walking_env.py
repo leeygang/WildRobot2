@@ -122,10 +122,6 @@ class WR2WalkingEnv(PipelineEnv):
         self.config = config or load_training_config().environment
         self.robot = RobotDescription.load(include_local_calibration=False)
         self.add_observation_noise = add_observation_noise
-        if not np.isclose(self.config.action_scale_rad, self.robot.action.scale_rad):
-            raise ValueError(
-                "Walking action scale must match the versioned robot contract"
-            )
         self._joint_velocity_observation_scale = float(
             self.robot.config["observation"]["scales"]["joint_velocity"]
         )
@@ -169,9 +165,7 @@ class WR2WalkingEnv(PipelineEnv):
         self._home_foot_site_z = jp.asarray(home_data.site_xpos[foot_site_ids, 2])
         foot_body_ids = np.asarray(
             [
-                mujoco.mj_name2id(
-                    mj_model, mujoco.mjtObj.mjOBJ_BODY, f"{side}_foot"
-                )
+                mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, f"{side}_foot")
                 for side in ("left", "right")
             ],
             dtype=np.int32,
@@ -256,6 +250,21 @@ class WR2WalkingEnv(PipelineEnv):
         self._active_mask = jp.asarray(active_mask)
         self._active_indices = jp.asarray(active_indices)
         self._action_size = int(active_indices.size)
+        margin = self.robot.action.joint_limit_margin_rad
+        safe_lower = self.robot.lower_limit_rad + margin
+        safe_upper = self.robot.upper_limit_rad - margin
+        if np.any(safe_lower >= safe_upper):
+            raise ValueError("Action margin leaves an empty joint range")
+        active_lower = safe_lower[active_indices]
+        active_upper = safe_upper[active_indices]
+        self._active_target_midpoint = jp.asarray(0.5 * (active_lower + active_upper))
+        self._active_target_half_range = jp.asarray(0.5 * (active_upper - active_lower))
+        full_home_action = self.robot.action.home_action(
+            self.robot.home_position_rad,
+            self.robot.lower_limit_rad,
+            self.robot.upper_limit_rad,
+        )
+        self._home_action = jp.asarray(full_home_action[active_indices])
         pose_weights = np.asarray(self.config.pose_weights, dtype=np.float32)
         if pose_weights.shape != (self.robot.actuator_count,):
             raise ValueError(
@@ -301,6 +310,11 @@ class WR2WalkingEnv(PipelineEnv):
     def action_size(self) -> int:
         """Policy controls only the configured active actuator groups."""
         return self._action_size
+
+    @property
+    def home_action(self) -> jax.Array:
+        """Normalized active-joint action that exactly reproduces walk_home."""
+        return self._home_action
 
     def _is_walking(self, command: jax.Array) -> jax.Array:
         return jp.linalg.norm(command) >= self.config.command_active_threshold_m_s
@@ -631,7 +645,7 @@ class WR2WalkingEnv(PipelineEnv):
             random_phase,
             0.0,
         )
-        previous_action = jp.zeros(self.action_size)
+        previous_action = self._home_action
         foot_contact = self._foot_contact(pipeline_state)
         desired_contact = expected_foot_contacts(gait_phase, is_walking)
         _, initial_gyro, _, initial_gravity = self._kinematic_observation(
@@ -718,6 +732,7 @@ class WR2WalkingEnv(PipelineEnv):
             "torso_height_m_per_step": zero,
             "torso_tilt_rad_per_step": zero,
             "action_abs_mean_per_step": zero,
+            "action_deviation_from_home_abs_mean_per_step": zero,
             "action_saturation_fraction_per_step": zero,
             "target_clipping_fraction_per_step": zero,
             "target_slew_limiting_fraction_per_step": zero,
@@ -825,24 +840,14 @@ class WR2WalkingEnv(PipelineEnv):
         else:
             raise ValueError("The initial environment supports only 0 or 1 delay steps")
 
-        base_target_unclipped = self._home_ctrl + state.info["actuator_target_bias"]
-        base_target = jp.clip(
-            base_target_unclipped, self._ctrl_lower, self._ctrl_upper
+        applied_active_target = (
+            self._active_target_midpoint
+            + self._active_target_half_range * applied_action
         )
-        active_base = base_target[self._active_indices]
-        positive_scale = jp.minimum(
-            self.config.action_scale_rad,
-            self._ctrl_upper[self._active_indices] - active_base,
+        policy_target = self._home_ctrl.at[self._active_indices].set(
+            applied_active_target
         )
-        negative_scale = jp.minimum(
-            self.config.action_scale_rad,
-            active_base - self._ctrl_lower[self._active_indices],
-        )
-        active_residual = (
-            jp.where(applied_action >= 0.0, positive_scale, negative_scale)
-            * applied_action
-        )
-        unconstrained_target = base_target.at[self._active_indices].add(active_residual)
+        unconstrained_target = policy_target + state.info["actuator_target_bias"]
         desired_target = jp.clip(
             unconstrained_target, self._ctrl_lower, self._ctrl_upper
         )
@@ -894,7 +899,19 @@ class WR2WalkingEnv(PipelineEnv):
             / self.config.height_tracking_sigma**2
         )
         pose = jp.sum(jp.square(joint_position - self._home_ctrl) * self._pose_weights)
-        action_rate = jp.sum(jp.square(action - state.info["previous_action"]))
+        requested_active_target = (
+            self._active_target_midpoint + self._active_target_half_range * action
+        )
+        previous_requested_active_target = (
+            self._active_target_midpoint
+            + self._active_target_half_range * state.info["previous_action"]
+        )
+        action_rate = jp.sum(
+            jp.square(
+                (requested_active_target - previous_requested_active_target)
+                / self.config.action_rate_reference_rad
+            )
+        )
         joint_velocity_cost = jp.sum(jp.square(joint_velocity))
         foot_contact = self._foot_contact(pipeline_state)
         desired_foot_height = expected_foot_heights(
@@ -986,11 +1003,14 @@ class WR2WalkingEnv(PipelineEnv):
         done = (unhealthy | nonfinite | timeout).astype(jp.float32)
         active_count = float(self.action_size)
         action_abs_mean = jp.mean(jp.abs(action))
+        action_deviation_from_home_abs_mean = jp.mean(
+            jp.abs(action - self._home_action)
+        )
         policy_saturation = jp.abs(action) >= 0.99
         target_clipping = (
             jp.abs(
-                base_target_unclipped[self._active_indices]
-                - base_target[self._active_indices]
+                unconstrained_target[self._active_indices]
+                - desired_target[self._active_indices]
             )
             > 1e-7
         ) | (
@@ -1095,6 +1115,9 @@ class WR2WalkingEnv(PipelineEnv):
             "torso_height_m_per_step": torso_z,
             "torso_tilt_rad_per_step": torso_tilt_rad,
             "action_abs_mean_per_step": action_abs_mean,
+            "action_deviation_from_home_abs_mean_per_step": (
+                action_deviation_from_home_abs_mean
+            ),
             "action_saturation_fraction_per_step": action_saturation_fraction,
             "target_clipping_fraction_per_step": target_clipping_fraction,
             "target_slew_limiting_fraction_per_step": target_slew_limiting_fraction,

@@ -71,7 +71,7 @@ class DynamicsRandomization:
 @dataclass(frozen=True)
 class WalkingEnvConfig:
     episode_length: int
-    action_scale_rad: float
+    action_rate_reference_rad: float
     active_groups: tuple[str, ...]
     pose_weights: tuple[float, ...]
     action_delay_steps: int
@@ -120,6 +120,7 @@ class PPOConfig:
     num_minibatches: int
     num_updates_per_batch: int
     normalize_observations: bool
+    training_metrics_steps: int
 
 
 @dataclass(frozen=True)
@@ -136,6 +137,7 @@ class NetworkConfig:
 class CheckpointConfig:
     save_every_evaluation: bool
     keep_best: bool
+    selection_metric: str
 
 
 @dataclass(frozen=True)
@@ -331,8 +333,8 @@ def load_training_config(
         raise ValueError(
             "observation_noise.imu_one_step_delay_probability must be in [0, 1]"
         )
-    if environment.action_scale_rad <= 0.0:
-        raise ValueError("environment.action_scale_rad must be positive")
+    if environment.action_rate_reference_rad <= 0.0:
+        raise ValueError("environment.action_rate_reference_rad must be positive")
     if any(weight < 0.0 for weight in environment.pose_weights):
         raise ValueError("environment.pose_weights must be non-negative")
     if not 0.0 <= environment.zero_command_probability <= 1.0:
@@ -370,6 +372,7 @@ def load_training_config(
         "batch_size",
         "num_minibatches",
         "num_updates_per_batch",
+        "training_metrics_steps",
     }
     ppo = PPOConfig(
         **{
@@ -446,7 +449,12 @@ def load_training_config(
             "checkpoints.save_every_evaluation",
         ),
         keep_best=_bool(checkpoints_raw["keep_best"], "checkpoints.keep_best"),
+        selection_metric=str(checkpoints_raw["selection_metric"]),
     )
+    if checkpoints.selection_metric not in {"acquisition", "walking_score"}:
+        raise ValueError(
+            "checkpoints.selection_metric must be acquisition or walking_score"
+        )
 
     output_raw = _mapping(root["output"], "output")
     _expect_keys(output_raw, {"root", "run_prefix"}, "output")

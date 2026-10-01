@@ -1,13 +1,18 @@
+import math
 import tempfile
 import unittest
 from pathlib import Path
 
+import jax
 import jax.numpy as jp
 import numpy as np
 
 from wr2.locomotion.configs import load_training_config
 from wr2.locomotion.ppo import make_network_factory
-from wr2.locomotion.train import _create_run_directory
+from wr2.locomotion.train import (
+    _acquisition_checkpoint_score,
+    _create_run_directory,
+)
 from wr2.locomotion.walking_env import WR2WalkingEnv, feet_orientation_error
 from wr2.locomotion.walking_metrics import walking_score
 from wr2.sensing.imu import canonicalize_sensor_sample
@@ -20,6 +25,37 @@ from wr2.sim import (
 
 
 class TrainingInterfaceTest(unittest.TestCase):
+    def test_acquisition_checkpoint_ranking_prefers_safe_motion_over_standing(self):
+        common = {
+            "episode_length": 1000.0,
+            "target_episode_length": 1000,
+            "fall_rate": 0.0,
+            "command_forward_m_s": 0.10,
+            "action_saturation": 0.0,
+            "nonfinite_state": 0.0,
+            "mean_step_peak_torque_nm": 1.0,
+        }
+        standing = _acquisition_checkpoint_score(
+            **common,
+            forward_velocity_m_s=0.0,
+            contact_match=0.5,
+            double_support=1.0,
+        )
+        walking = _acquisition_checkpoint_score(
+            **common,
+            forward_velocity_m_s=0.08,
+            contact_match=0.8,
+            double_support=0.3,
+        )
+        unsafe = _acquisition_checkpoint_score(
+            **{**common, "action_saturation": 0.16},
+            forward_velocity_m_s=0.10,
+            contact_match=0.9,
+            double_support=0.2,
+        )
+        self.assertGreater(walking, standing)
+        self.assertEqual(unsafe, -math.inf)
+
     def test_walking_score_rejects_stationary_double_support(self):
         walking = walking_score(
             episode_length=1000,
@@ -154,7 +190,8 @@ class TrainingInterfaceTest(unittest.TestCase):
             self.training_config.environment.torque_exposure_time_constant_s, 0.0
         )
         environment = self.training_config.environment
-        self.assertEqual(environment.command_forward_range_m_s, (0.1, 0.25))
+        self.assertEqual(environment.command_forward_range_m_s, (0.08, 0.18))
+        self.assertFalse(environment.randomization.enabled)
         self.assertEqual(environment.command_resample_steps, 150)
         self.assertEqual(environment.gait_cycle_s, 0.72)
         self.assertEqual(environment.swing_height_m, 0.04)
@@ -174,7 +211,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(environment.rewards.close_feet, -10.0)
         self.assertEqual(environment.rewards.feet_orientation, -5.0)
         self.assertEqual(self.training_config.ppo.num_timesteps, 1_000_000_000)
-        self.assertEqual(self.training_config.ppo.evaluation_forward_command_m_s, 0.20)
+        self.assertEqual(self.training_config.ppo.evaluation_forward_command_m_s, 0.10)
         self.assertEqual(self.training_config.ppo.learning_rate, 3e-5)
         self.assertEqual(self.training_config.ppo.clipping_epsilon, 0.2)
         self.assertEqual(
@@ -182,9 +219,14 @@ class TrainingInterfaceTest(unittest.TestCase):
             (512, 256, 128),
         )
         self.assertEqual(self.training_config.network.distribution_type, "tanh_normal")
+        self.assertEqual(self.training_config.network.init_noise_std, 0.13)
         self.assertFalse(self.training_config.ppo.normalize_observations)
+        self.assertEqual(self.training_config.ppo.training_metrics_steps, 2_000_000)
         self.assertTrue(self.training_config.checkpoints.save_every_evaluation)
         self.assertTrue(self.training_config.checkpoints.keep_best)
+        self.assertEqual(
+            self.training_config.checkpoints.selection_metric, "acquisition"
+        )
         self.assertEqual(self.training_config.output.root, "results/wr2_walking")
 
     def test_walk_home_foot_orientation_is_the_zero_tilt_reference(self):
@@ -194,9 +236,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
         home_gravity = environment._home_foot_projected_gravity
         home_cost = float(feet_orientation_error(home_gravity, home_gravity))
-        legacy_local_z_cost = float(
-            jp.sum(jp.linalg.norm(home_gravity[:, :2], axis=1))
-        )
+        legacy_local_z_cost = float(jp.sum(jp.linalg.norm(home_gravity[:, :2], axis=1)))
 
         self.assertLess(home_cost, 3e-6)
         self.assertGreater(legacy_local_z_cost, 1.9)
@@ -204,11 +244,11 @@ class TrainingInterfaceTest(unittest.TestCase):
     def test_acquisition_velocity_reward_has_signal_without_weakening_score(self):
         command_error_m_s = 0.20
         reward_at_rest = np.exp(
-            -command_error_m_s**2
+            -(command_error_m_s**2)
             / self.training_config.environment.velocity_reward_sigma**2
         )
         strict_score_at_rest = np.exp(
-            -command_error_m_s**2
+            -(command_error_m_s**2)
             / self.training_config.environment.velocity_tracking_sigma**2
         )
 
@@ -216,7 +256,17 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertLess(strict_score_at_rest, 1e-12)
 
     def test_policy_distribution_enforces_normalized_action_bounds(self):
-        networks = make_network_factory(self.training_config.network)(
+        active = self.robot.active_actuator_indices(("leg",))
+        full_home_action = self.robot.action.home_action(
+            self.robot.home_position_rad,
+            self.robot.lower_limit_rad,
+            self.robot.upper_limit_rad,
+        )
+        home_action = full_home_action[active]
+        networks = make_network_factory(
+            self.training_config.network,
+            home_action=home_action,
+        )(
             {"state": self.robot.observation_size, "privileged_state": 1440},
             10,
         )
@@ -233,14 +283,54 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertTrue(np.all(action >= -1.0))
         self.assertTrue(np.all(action <= 1.0))
 
-    def test_zero_action_maps_to_home(self):
+        parameters = networks.policy_network.init(jax.random.PRNGKey(0))
+        initial_logits = networks.policy_network.apply(
+            None,
+            parameters,
+            {
+                "state": jp.zeros((1, self.robot.observation_size)),
+                "privileged_state": jp.zeros((1, 1440)),
+            },
+        )
+        np.testing.assert_allclose(
+            np.asarray(distribution.mode(initial_logits))[0],
+            home_action,
+            atol=1e-6,
+        )
+        initial_distribution = distribution.create_dist(initial_logits)
+        np.testing.assert_allclose(
+            np.asarray(initial_distribution.scale)[0],
+            np.full(10, self.training_config.network.init_noise_std),
+            atol=1e-6,
+        )
+
+    def test_zero_action_maps_to_joint_range_midpoint(self):
         targets = self.robot.action.targets(
             np.zeros(17),
             self.robot.home_position_rad,
             self.robot.lower_limit_rad,
             self.robot.upper_limit_rad,
         )
-        np.testing.assert_array_equal(targets, self.robot.home_position_rad)
+        np.testing.assert_allclose(
+            targets,
+            0.5 * (self.robot.lower_limit_rad + self.robot.upper_limit_rad),
+            atol=1e-7,
+        )
+
+    def test_nonzero_home_action_maps_exactly_to_walk_home(self):
+        home_action = self.robot.action.home_action(
+            self.robot.home_position_rad,
+            self.robot.lower_limit_rad,
+            self.robot.upper_limit_rad,
+        )
+        targets = self.robot.action.targets(
+            home_action,
+            self.robot.home_position_rad,
+            self.robot.lower_limit_rad,
+            self.robot.upper_limit_rad,
+        )
+        self.assertGreater(np.max(np.abs(home_action)), 0.7)
+        np.testing.assert_allclose(targets, self.robot.home_position_rad, atol=1e-7)
 
     def test_action_is_clipped_and_respects_joint_limits(self):
         targets = self.robot.action.targets(
@@ -270,6 +360,34 @@ class TrainingInterfaceTest(unittest.TestCase):
             np.testing.assert_array_equal(
                 targets[inactive], self.robot.home_position_rad[inactive]
             )
+            expected = (
+                self.robot.lower_limit_rad[active]
+                if value < 0.0
+                else self.robot.upper_limit_rad[active]
+            )
+            np.testing.assert_allclose(targets[active], expected, atol=1e-7)
+
+    def test_action_contract_can_reach_a_four_centimeter_swing_pose(self):
+        active = self.robot.active_actuator_indices(("leg",))
+        target = self.robot.home_position_rad.copy()
+        target[self.robot.actuator_names.index("left_hip_pitch")] -= 0.787
+        target[self.robot.actuator_names.index("left_knee_pitch")] -= 0.811
+        midpoint = 0.5 * (
+            self.robot.lower_limit_rad[active] + self.robot.upper_limit_rad[active]
+        )
+        half_range = 0.5 * (
+            self.robot.upper_limit_rad[active] - self.robot.lower_limit_rad[active]
+        )
+        action = (target[active] - midpoint) / half_range
+        self.assertLess(np.max(np.abs(action)), 1.0)
+        mapped = self.robot.action.active_targets(
+            action,
+            active_indices=active,
+            home_position_rad=self.robot.home_position_rad,
+            lower_limit_rad=self.robot.lower_limit_rad,
+            upper_limit_rad=self.robot.upper_limit_rad,
+        )
+        np.testing.assert_allclose(mapped[active], target[active], atol=1e-6)
 
     def test_identity_pose_observation_layout(self):
         observation = RobotObservation(

@@ -73,11 +73,46 @@ def _format_duration(seconds: float | None) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
+def _acquisition_checkpoint_score(
+    *,
+    episode_length: float,
+    target_episode_length: int,
+    fall_rate: float,
+    command_forward_m_s: float,
+    forward_velocity_m_s: float,
+    contact_match: float,
+    double_support: float,
+    action_saturation: float,
+    nonfinite_state: float,
+    mean_step_peak_torque_nm: float,
+) -> float:
+    """Rank safe gait-acquisition checkpoints without rewarding standing."""
+    if (
+        nonfinite_state > 0.0
+        or action_saturation > 0.15
+        or mean_step_peak_torque_nm > 4.0
+    ):
+        return -math.inf
+    survival = min(max(episode_length / target_episode_length, 0.0), 1.0)
+    survival *= 1.0 - min(max(fall_rate, 0.0), 1.0)
+    velocity_ratio = min(
+        max(forward_velocity_m_s, 0.0) / max(command_forward_m_s, 1e-6),
+        1.0,
+    )
+    contact_progress = min(max((contact_match - 0.5) / 0.5, 0.0), 1.0)
+    single_support_progress = 1.0 - min(max(double_support, 0.0), 1.0)
+    return survival * (
+        0.15
+        + 0.55 * velocity_ratio
+        + 0.20 * contact_progress
+        + 0.10 * single_support_progress
+    )
+
+
 def smoke_test(steps: int, training_config: TrainingConfig | None = None) -> None:
     _configure_backend_logging()
     with _filter_optional_backend_import_messages():
         import jax
-        import jax.numpy as jp
 
         from wr2.locomotion.walking_env import WR2WalkingEnv
 
@@ -91,7 +126,7 @@ def smoke_test(steps: int, training_config: TrainingConfig | None = None) -> Non
     jax.block_until_ready(state.obs)
     started = time.monotonic()
     for _ in range(steps):
-        state = step(state, jp.zeros(environment.action_size))
+        state = step(state, environment.home_action)
     jax.block_until_ready(state.obs)
     elapsed = time.monotonic() - started
     print(
@@ -195,6 +230,11 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         f"critic={environment.observation_size['privileged_state']}"
     )
     print(f"  Actions:      {environment.action_size} (leg joints active)")
+    print(
+        "  Action map:   absolute joint range; "
+        f"max |walk_home|={float(np.max(np.abs(environment.home_action))):.3f}; "
+        f"initial latent std={training_config.network.init_noise_std:.3f}"
+    )
     print(f"  Environments: {training_config.ppo.num_envs:,}")
     print(f"  Target steps: {training_config.ppo.num_timesteps:,}")
     print(f"  Episode:      {training_config.environment.episode_length} steps")
@@ -234,24 +274,27 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         },
         "training_config": effective_config,
         "actuator_model": environment.robot.config["actuators"]["htd45hServo"],
+        "active_home_action": np.asarray(environment.home_action).tolist(),
     }
     (output / "run_config.json").write_text(
         json.dumps(run_config, indent=2, sort_keys=True) + "\n"
     )
     metrics_path = output / "training_metrics.jsonl"
     metrics_path.write_text("")
+    rollout_metrics_path = output / "rollout_metrics.jsonl"
+    rollout_metrics_path.write_text("")
 
     training_started = time.monotonic()
     progress_index = 0
     latest_params: dict[str, object] = {}
-    best_walking_score = -math.inf
+    best_selection_score = -math.inf
 
     def receive_policy_params(step: int, _make_policy, params) -> None:
         latest_params["step"] = int(step)
         latest_params["value"] = params
 
     def progress(step: int, metrics) -> None:
-        nonlocal best_walking_score, progress_index
+        nonlocal best_selection_score, progress_index
         elapsed_s = time.monotonic() - training_started
         step = int(step)
         target_steps = training_config.ppo.num_timesteps
@@ -263,6 +306,37 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 return None
             array = np.asarray(value)
             return float(array) if array.size == 1 else None
+
+        serializable_metrics = {
+            name: np.asarray(value).tolist() for name, value in metrics.items()
+        }
+        if "eval/avg_episode_length" not in metrics:
+            with rollout_metrics_path.open("a") as stream:
+                stream.write(
+                    json.dumps(
+                        {
+                            "step": step,
+                            "elapsed_s": elapsed_s,
+                            "metrics": serializable_metrics,
+                        }
+                    )
+                    + "\n"
+                )
+
+            def rollout_show(name: str, format_spec: str = ".3f") -> str:
+                value = metric(f"episode/{name}")
+                return "n/a" if value is None else format(value, format_spec)
+
+            print(
+                f"Rollout [{_format_duration(elapsed_s)}] steps={step:,} | "
+                f"ep_len={rollout_show('length', '.0f')} "
+                f"vx={rollout_show('forward_velocity_m_s_per_step')} "
+                f"contact={rollout_show('contact_phase_match_per_step', '.1%')} "
+                f"sat={rollout_show('action_saturation_fraction_per_step', '.1%')} "
+                f"|a-home|={rollout_show('action_deviation_from_home_abs_mean_per_step')}",
+                flush=True,
+            )
+            return
 
         steps_per_second = metric("training/sps")
         if steps_per_second is None and step > 0 and elapsed_s > 0.0:
@@ -293,9 +367,6 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 contact_match=contact_match,
                 double_support=double_support,
             )
-        serializable_metrics = {
-            name: np.asarray(value).tolist() for name, value in metrics.items()
-        }
         with metrics_path.open("a") as stream:
             stream.write(
                 json.dumps(
@@ -368,6 +439,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             f"mean_peak={show(metric('eval/episode_actuator_torque_peak_nm_per_step'))}Nm "
             f"exposure={show(metric('eval/episode_sustained_torque_exposure_per_step'))} "
             f"|action|={show(metric('eval/episode_action_abs_mean_per_step'))} "
+            f"|a-home|={show(metric('eval/episode_action_deviation_from_home_abs_mean_per_step'))} "
             f"sat={show(metric('eval/episode_action_saturation_fraction_per_step'), '.1%')}",
             flush=True,
         )
@@ -388,13 +460,51 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 f"kl={show(metric('training/kl_mean'), '.5f')}",
                 flush=True,
             )
+        command_forward = metric("eval/episode_command_forward_m_s_per_step")
+        forward_velocity = metric("eval/episode_forward_velocity_m_s_per_step")
+        fall_rate = metric("eval/episode_fall")
+        action_saturation = metric("eval/episode_action_saturation_fraction_per_step")
+        nonfinite_state = metric("eval/episode_nonfinite_state")
+        mean_step_peak_torque = metric("eval/episode_actuator_torque_peak_nm_per_step")
+        acquisition_score = None
+        if all(
+            value is not None
+            for value in (
+                episode_length,
+                fall_rate,
+                command_forward,
+                forward_velocity,
+                contact_match,
+                double_support,
+                action_saturation,
+                nonfinite_state,
+                mean_step_peak_torque,
+            )
+        ):
+            acquisition_score = _acquisition_checkpoint_score(
+                episode_length=episode_length,
+                target_episode_length=training_config.environment.episode_length,
+                fall_rate=fall_rate,
+                command_forward_m_s=command_forward,
+                forward_velocity_m_s=forward_velocity,
+                contact_match=contact_match,
+                double_support=double_support,
+                action_saturation=action_saturation,
+                nonfinite_state=nonfinite_state,
+                mean_step_peak_torque_nm=mean_step_peak_torque,
+            )
+        selection_score = (
+            acquisition_score
+            if training_config.checkpoints.selection_metric == "acquisition"
+            else walking_score
+        )
         if (
             training_config.checkpoints.keep_best
-            and walking_score is not None
-            and walking_score > best_walking_score
+            and selection_score is not None
+            and selection_score > best_selection_score
             and latest_params.get("step") == step
         ):
-            best_walking_score = walking_score
+            best_selection_score = selection_score
             model.save_params(output / "best_params", latest_params["value"])
             (output / "best_checkpoint.json").write_text(
                 json.dumps(
@@ -402,6 +512,11 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                         "step": step,
                         "eval_episode_reward": episode_return,
                         "walking_score": walking_score,
+                        "acquisition_score": acquisition_score,
+                        "selection_metric": (
+                            training_config.checkpoints.selection_metric
+                        ),
+                        "selection_score": selection_score,
                         "evaluation": progress_index,
                     },
                     indent=2,
@@ -410,7 +525,12 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 + "\n",
                 encoding="utf-8",
             )
-            print(f"  └─ saved : new best checkpoint at step {step:,}", flush=True)
+            print(
+                "  └─ saved : new best "
+                f"{training_config.checkpoints.selection_metric} checkpoint "
+                f"at step {step:,} (score={selection_score:.3f})",
+                flush=True,
+            )
         progress_index += 1
 
     randomization_fn = (
@@ -419,7 +539,10 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         else make_domain_randomizer(environment.config.randomization)
     )
     ppo_config = training_config.ppo
-    network_factory = make_network_factory(training_config.network)
+    network_factory = make_network_factory(
+        training_config.network,
+        home_action=environment.home_action,
+    )
     checkpoint_path = (
         str(output / "checkpoints")
         if training_config.checkpoints.save_every_evaluation
@@ -459,6 +582,8 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             else None
         ),
         deterministic_eval=True,
+        log_training_metrics=True,
+        training_metrics_steps=ppo_config.training_metrics_steps,
     )
     del make_inference_fn
     jax.block_until_ready(params)

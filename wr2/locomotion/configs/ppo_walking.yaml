@@ -1,12 +1,14 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy while preserving WR2's measured actuator envelope.
-version: "0.8.0"
-version_name: "WR2 phase-guided gait acquisition"
+version: "0.9.0"
+version_name: "WR2 absolute-range gait acquisition"
 seed: 0
 
 environment:
   episode_length: 1000
-  action_scale_rad: 0.25
+  # Action-rate costs remain comparable to ToddlerBot's 0.25 rad residual gain
+  # even though WR2 actions map over each joint's complete safe range.
+  action_rate_reference_rad: 0.25
   active_groups: [leg]
   # ToddlerBot's active pose regularizer, mapped into WR2's canonical 17-motor
   # order. Upper-body entries are zero because only legs are controlled.
@@ -16,10 +18,10 @@ environment:
   reset_velocity_noise_rad_s: 0.05
   # Walking commands exclude zero; zero_command_probability supplies explicit
   # standing episodes so a stationary policy cannot exploit weak tracking.
-  command_forward_range_m_s: [0.10, 0.25]
+  command_forward_range_m_s: [0.08, 0.18]
   command_lateral_range_m_s: [0.0, 0.0]
   command_yaw_range_rad_s: [0.0, 0.0]
-  zero_command_probability: 0.20
+  zero_command_probability: 0.10
   command_resample_steps: 150
   command_active_threshold_m_s: 0.05
   gait_cycle_s: 0.72
@@ -83,7 +85,8 @@ observation_noise:
   imu_one_step_delay_probability: 0.5
 
 domain_randomization:
-  enabled: true
+  # Acquire a nominal gait before enabling the robust-walking randomization.
+  enabled: false
   friction_scale: [0.7, 1.3]
   damping_scale: [0.8, 1.2]
   armature_scale: [0.8, 1.2]
@@ -108,7 +111,7 @@ ppo:
   num_envs: 2048
   num_evals: 50
   num_eval_envs: 128
-  evaluation_forward_command_m_s: 0.20
+  evaluation_forward_command_m_s: 0.10
   learning_rate: 0.00003
   entropy_cost: 0.0005
   discounting: 0.97
@@ -119,6 +122,9 @@ ppo:
   batch_size: 256
   num_minibatches: 8
   num_updates_per_batch: 4
+  # Stochastic rollout summaries expose exploration behavior between the
+  # deterministic checkpoint evaluations.
+  training_metrics_steps: 2000000
   # Match ToddlerBot's active PPO configuration; all actor features already
   # have explicit physical scaling.
   normalize_observations: false
@@ -127,16 +133,16 @@ network:
   policy_hidden_layer_sizes: [512, 256, 128]
   value_hidden_layer_sizes: [512, 256, 128]
   activation: elu
-  # Unlike ToddlerBot's unconstrained target path, WR2 clips normalized actions
-  # before applying its frozen residual-action contract.  Model that bound in
-  # PPO so distinct Gaussian samples do not alias to the same clipped action.
+  # WR2's hardware contract is bounded. The policy starts exactly at the
+  # normalized walk_home action and explores locally in pre-tanh space.
   distribution_type: tanh_normal
   noise_std_type: log
-  init_noise_std: 0.5
+  init_noise_std: 0.13
 
 checkpoints:
   save_every_evaluation: true
   keep_best: true
+  selection_metric: acquisition
 
 output:
   root: results/wr2_walking

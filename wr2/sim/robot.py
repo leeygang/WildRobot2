@@ -263,6 +263,10 @@ class RobotDescription:
             raise ValueError("control period must equal timestep times decimation")
 
         action_config = config["action"]
+        if action_config.get("representation") != "normalized_joint_position":
+            raise ValueError(
+                "WR2 requires the normalized_joint_position action contract"
+            )
         normalized_range = action_config["normalized_range"]
         if normalized_range != [-1.0, 1.0]:
             raise ValueError("WR2 v1 requires a normalized action range of [-1, 1]")
@@ -310,7 +314,6 @@ class RobotDescription:
             imu_sensor_to_torso_quat_wxyz=imu_quat,
             action_home_position_rad_values=action_home,
             action=PositionActionContract(
-                scale_rad=float(action_config["scale_rad"]),
                 normalized_limit=1.0,
                 joint_limit_margin_rad=float(action_config["joint_limit_margin_rad"]),
             ),

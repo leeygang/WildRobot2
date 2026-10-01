@@ -439,7 +439,7 @@ def _contract_snapshot(training_config: Path) -> dict[str, Any]:
         "actuator_order": list(robot.actuator_names),
         "servo_model": robot.config["actuators"]["htd45hServo"],
         "active_groups": list(training.environment.active_groups),
-        "action_scale_rad": training.environment.action_scale_rad,
+        "action_rate_reference_rad": training.environment.action_rate_reference_rad,
         "normalize_observations": training.ppo.normalize_observations,
         "output": asdict(training.output),
         "walking_env_source": _walking_env_contract_fingerprints(),

@@ -109,7 +109,7 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
         self.assertEqual(contract["actor_observation"]["layout_id"], "wr2_proprio_v3")
         self.assertEqual(contract["actor_observation"]["history_frames"], 15)
         self.assertEqual(
-            contract["action"]["representation"], "joint_position_residual"
+            contract["action"]["representation"], "normalized_joint_position"
         )
         self.assertEqual(contract["active_groups"], ["leg"])
         self.assertEqual(contract["servo_model"]["torque_limit_nm"], 4.0)

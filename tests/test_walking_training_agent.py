@@ -74,7 +74,7 @@ class WalkingTrainingAgentTest(unittest.TestCase):
             payload["network"]["policy_hidden_layer_sizes"],
             list(base.network.policy_hidden_layer_sizes),
         )
-        self.assertEqual(payload["environment"]["action_scale_rad"], 0.25)
+        self.assertEqual(payload["environment"]["action_rate_reference_rad"], 0.25)
 
     def test_robust_stage_rotates_requested_evaluation_commands(self):
         robust = self.agent_config.stages[-1]
