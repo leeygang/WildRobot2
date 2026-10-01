@@ -21,6 +21,12 @@ from wr2.actuation.htd45h import (
     parse_packets,
 )
 from wr2.tools.servo_sysid.analyze import analyze_campaigns
+from wr2.tools.servo_sysid.bam_suite import (
+    STAGES as BAM_STAGES,
+    main as bam_suite_main,
+    selected_stages as selected_bam_stages,
+    stage_command as bam_stage_command,
+)
 from wr2.tools.servo_sysid.campaign import CONDITIONS, main as campaign_main
 from wr2.tools.servo_sysid.campaign import selected_conditions
 from wr2.tools.servo_sysid.capture import (
@@ -216,6 +222,170 @@ class FixtureTest(unittest.TestCase):
 
 
 class CampaignAnalysisTest(unittest.TestCase):
+    def test_bam_suite_contains_only_low_load_conditions(self):
+        args = SimpleNamespace(
+            run_all_safe=True,
+            start_at=None,
+            stop_after=None,
+        )
+        self.assertEqual(selected_bam_stages(args), BAM_STAGES)
+        self.assertEqual(
+            [stage.name for stage in BAM_STAGES],
+            [
+                "commission_plus10",
+                "commission_minus10",
+                "e3_inertial_bandwidth",
+            ],
+        )
+
+    def test_bam_stage_commands_enforce_low_torque_caps(self):
+        args = SimpleNamespace(
+            servo_id=100,
+            servo_label="unit-a",
+            board_port="unused",
+            baudrate=115200,
+            fixture_mjcf=Path("fixture.xml"),
+            fixture_direction=1,
+            fixture_qpos_offset_deg=0.0,
+            fixture_label="bam",
+            measured_weight_kg=2.650,
+            measured_com_radius_m=0.1204,
+            repeats=5,
+            external_log_label_prefix="supply-run",
+            cooldown_target_c=35.0,
+            min_voltage_v=9.6,
+            max_temperature_c=55.0,
+            max_position_error_deg=5.0,
+            max_position_error_duration_s=0.15,
+            max_repeatability_std_deg=0.5,
+        )
+        suite = Path("results/suite")
+        plus = bam_stage_command(args, BAM_STAGES[0], suite, execute=True)
+        e3 = bam_stage_command(args, BAM_STAGES[2], suite, execute=True)
+        self.assertIn("wr2.tools.servo_sysid.commission", plus)
+        self.assertEqual(plus[plus.index("--max-static-torque-nm") + 1], "0.7")
+        self.assertIn("wr2.tools.servo_sysid.campaign", e3)
+        self.assertEqual(e3[e3.index("--max-static-torque-nm") + 1], "0.2")
+        self.assertEqual(e3[e3.index("--max-predicted-torque-nm") + 1], "0.6")
+        self.assertEqual(
+            e3[e3.index("--start-at") + 1], "E3_inertial_bandwidth"
+        )
+        self.assertEqual(e3[e3.index("--stop-after") + 1], "E3_inertial_bandwidth")
+        self.assertIn("--execute", plus)
+        self.assertIn("--confirm-fixture-safe", e3)
+
+    def test_bam_hardware_mode_requires_bounded_selection(self):
+        with self.assertRaisesRegex(SystemExit, "requires --stop-after"):
+            bam_suite_main(
+                [
+                    "--servo-id",
+                    "100",
+                    "--servo-label",
+                    "unit-a",
+                    "--board-port",
+                    "unused",
+                    "--measured-weight-kg",
+                    "2.650",
+                    "--measured-com-radius-m",
+                    "0.1204",
+                    "--external-log-label-prefix",
+                    "supply-run",
+                    "--execute",
+                    "--confirm-fixture-safe",
+                ]
+            )
+
+    def test_bam_preflight_runs_all_safe_stages_without_hardware(self):
+        with patch(
+            "wr2.tools.servo_sysid.bam_suite._run", return_value=0
+        ) as run:
+            result = bam_suite_main(
+                [
+                    "--servo-id",
+                    "100",
+                    "--servo-label",
+                    "unit-a",
+                    "--board-port",
+                    "unused",
+                ]
+            )
+        self.assertEqual(result, 0)
+        self.assertEqual(run.call_count, 3)
+        for call in run.call_args_list:
+            self.assertNotIn("--execute", call.args[0])
+
+    def test_bam_run_all_writes_completed_manifest(self):
+        with tempfile.TemporaryDirectory() as temp:
+            suite = Path(temp) / "bam-suite"
+
+            def fake_run(command):
+                if "--execute" not in command:
+                    return 0
+                if "wr2.tools.servo_sysid.commission" in command:
+                    output = Path(command[command.index("--series-dir") + 1])
+                    output.mkdir(parents=True)
+                    (output / "commission_summary.json").write_text(
+                        json.dumps(
+                            {
+                                "status": "stable",
+                                "aggregate": {"completed_repeats": 5},
+                            }
+                        )
+                    )
+                else:
+                    output = Path(command[command.index("--campaign-dir") + 1])
+                    output.mkdir(parents=True)
+                    (output / "03_E3_inertial_bandwidth.json").write_text(
+                        json.dumps(
+                            {
+                                "outcome": "completed",
+                                "trace_summary": {},
+                                "health_summary": {},
+                                "timing_summary": {},
+                                "predicted_envelope": {},
+                            }
+                        )
+                    )
+                return 0
+
+            with (
+                patch(
+                    "wr2.tools.servo_sysid.bam_suite._run", side_effect=fake_run
+                ) as run,
+                patch(
+                    "wr2.tools.servo_sysid.bam_suite._git_state",
+                    return_value={"revision": "abc123", "worktree_clean": True},
+                ),
+            ):
+                result = bam_suite_main(
+                    [
+                        "--servo-id",
+                        "100",
+                        "--servo-label",
+                        "unit-a",
+                        "--board-port",
+                        "unused",
+                        "--suite-dir",
+                        str(suite),
+                        "--measured-weight-kg",
+                        "2.650",
+                        "--measured-com-radius-m",
+                        "0.1204",
+                        "--external-log-label-prefix",
+                        "supply-run",
+                        "--run-all-safe",
+                        "--execute",
+                        "--confirm-fixture-safe",
+                    ]
+                )
+
+            manifest = json.loads((suite / "bam_suite_manifest.json").read_text())
+        self.assertEqual(result, 0)
+        self.assertEqual(run.call_count, 6)
+        self.assertEqual(manifest["status"], "completed")
+        self.assertEqual(len(manifest["stages"]), 3)
+        self.assertTrue(all(item["status"] == "completed" for item in manifest["stages"]))
+
     def test_commission_repeatability_summary(self):
         with tempfile.TemporaryDirectory() as temp:
             captures = []

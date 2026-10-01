@@ -53,6 +53,49 @@ the live supply is outside the EEPROM voltage range.
 
 ## Low-load repeatability commissioning
 
+### Automated bounded BAM suite
+
+The BAM suite automates the currently permitted low-load sequence: five
++10-degree commissioning repeats, five -10-degree commissioning repeats, and
+the gravity-neutral E3 inertial-bandwidth capture. It does not include E1, E2,
+or E4--E7. It runs every mathematical preflight without opening the serial port
+unless hardware execution is explicitly enabled.
+
+```bash
+uv run python -m wr2.tools.servo_sysid.bam_suite \
+  --servo-id 100 \
+  --servo-label htd45h-unit-a \
+  --board-port /dev/serial/by-id/YOUR_ADAPTER
+```
+
+For hardware execution, start the external voltage/current logger first. The
+suite records a distinct synchronization label for every stage, enforces a
+55 C initial test ceiling, independently cools and unloads around the child
+captures, stops on the first failed safety or repeatability gate, and writes a
+top-level manifest with the exact clean Git revision. `--run-all-safe` is an
+explicit request to continue between all three low-load stages without a human
+review pause:
+
+```bash
+uv run python -m wr2.tools.servo_sysid.bam_suite \
+  --servo-id 100 \
+  --servo-label htd45h-unit-a \
+  --board-port /dev/serial/by-id/YOUR_ADAPTER \
+  --suite-dir results/servo_sysid/bam-low-load-unit-a-run01 \
+  --measured-weight-kg 2.650 \
+  --measured-com-radius-m 0.1204 \
+  --external-log-label-prefix supply-unit-a-run01 \
+  --run-all-safe \
+  --execute --confirm-fixture-safe
+```
+
+For staged review, omit `--run-all-safe` and select one bounded range with
+`--start-at` and `--stop-after`. Reusing `--suite-dir` skips stages already
+recorded as complete. An interrupted stage is never silently adopted; inspect
+its artifacts and start a new suite directory. The software cannot start or
+verify an arbitrary external logger, so its raw clock-aligned file still needs
+to be archived alongside the suite.
+
 Before the 3 N m deployment campaign, run five independent +10-degree trials.
 Each repetition performs its own cooldown and safety checks, returns to zero,
 unloads the servo, and writes a separate JSON/NPZ pair. The runner then reports

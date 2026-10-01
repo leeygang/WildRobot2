@@ -37,6 +37,12 @@ condition at a time and inspect its JSON/NPZ artifacts before continuing.
 
 The following work can be completed with the current fixture:
 
+Use `python -m wr2.tools.servo_sysid.bam_suite` to automate the bounded
+`+10 degree -> -10 degree -> E3` sequence. It is preflight-only by default,
+requires explicit fixture confirmation for hardware execution, records the
+clean Git revision and per-stage artifacts, and stops on the first failed gate.
+The external supply logger must still be started and synchronized separately.
+
 - [ ] Repeat low-load commissioning in both directions and at several angles.
   Record zero and loaded position repeatability, direction-dependent position
   error, servo-reported voltage and temperature, and the gravity torque inferred
