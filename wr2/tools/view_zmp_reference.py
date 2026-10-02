@@ -72,6 +72,8 @@ def _draw_reference_overlay(viewer, context, sample, root_x: float) -> None:
         scene = viewer.user_scn
         scene.ngeom = 0
         actual_com = np.asarray(context.data.subtree_com[0])
+        viewer.cam.lookat[0] = actual_com[0]
+        viewer.cam.lookat[1] = actual_com[1]
         planned_com = np.asarray([root_x, sample.com_lateral_m, sample.root_height_m])
         planned_zmp = np.asarray([root_x, sample.zmp_lateral_m, 0.004])
         _add_sphere(scene, actual_com, 0.008, [1.0, 0.1, 0.1, 1.0])
