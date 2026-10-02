@@ -49,6 +49,22 @@ def expected_foot_contacts(gait_phase: jax.Array, is_walking: jax.Array) -> jax.
     return jp.where(is_walking, contacts, jp.ones(2, dtype=jp.bool_))
 
 
+def normalized_action_rate_cost(
+    action: jax.Array, previous_action: jax.Array
+) -> jax.Array:
+    """Return ToddlerBot's sum-squared consecutive policy-action change."""
+    return jp.sum(jp.square(action - previous_action))
+
+
+def support_contact_active(
+    contact_distance: jax.Array,
+    contact_force_world: jax.Array,
+    threshold_n: float,
+) -> jax.Array:
+    """Return ToddlerBot-style support contacts from upward world force."""
+    return (contact_distance < 0.0) & (contact_force_world[:, 2] > threshold_n)
+
+
 def _rotate_vector(quaternion: jax.Array, vector: jax.Array) -> jax.Array:
     """Rotate a vector using a normalized wxyz quaternion."""
     quaternion = quaternion / jp.linalg.norm(quaternion)
@@ -63,6 +79,16 @@ def _rotate_vector(quaternion: jax.Array, vector: jax.Array) -> jax.Array:
 
 def _inverse_rotate_vector(quaternion: jax.Array, vector: jax.Array) -> jax.Array:
     return _rotate_vector(quaternion * jp.array([1.0, -1.0, -1.0, -1.0]), vector)
+
+
+def feet_lateral_distance(
+    torso_quaternion: jax.Array, foot_delta_world: jax.Array
+) -> jax.Array:
+    """Return yaw-frame lateral foot separation, matching ToddlerBot."""
+    heading_xy = _rotate_vector(torso_quaternion, jp.asarray([1.0, 0.0, 0.0]))[:2]
+    heading_xy = heading_xy / jp.maximum(jp.linalg.norm(heading_xy), 1e-6)
+    lateral_xy = jp.stack([-heading_xy[1], heading_xy[0]])
+    return jp.abs(jp.dot(foot_delta_world[:2], lateral_xy))
 
 
 def feet_orientation_error(
@@ -124,6 +150,12 @@ class WR2WalkingEnv(PipelineEnv):
         self.add_observation_noise = add_observation_noise
         self._joint_velocity_observation_scale = float(
             self.robot.config["observation"]["scales"]["joint_velocity"]
+        )
+        self._privileged_linear_velocity_scale = float(
+            self.config.privileged_linear_velocity_scale
+        )
+        self._privileged_actuator_force_scale = float(
+            self.config.privileged_actuator_force_scale
         )
 
         scene_path = self.robot.directory / "scene_mjx.xml"
@@ -485,8 +517,8 @@ class WR2WalkingEnv(PipelineEnv):
                 true_angular_velocity,
                 true_projected_gravity,
                 true_joint_position - target,
-                linear_velocity,
-                pipeline_state.actuator_force,
+                self._privileged_linear_velocity_scale * linear_velocity,
+                self._privileged_actuator_force_scale * pipeline_state.actuator_force,
                 foot_contact.astype(jp.float32),
                 desired_contact.astype(jp.float32),
             ]
@@ -503,9 +535,10 @@ class WR2WalkingEnv(PipelineEnv):
                 for index in range(pipeline_state.contact.dist.shape[0])
             ]
         )
-        active = (pipeline_state.contact.dist < 0.0) & (
-            jp.linalg.norm(contact_force[:, :3], axis=1)
-            > self.config.contact_force_threshold_n
+        active = support_contact_active(
+            pipeline_state.contact.dist,
+            contact_force[:, :3],
+            self.config.contact_force_threshold_n,
         )
         return jp.stack(
             [
@@ -910,15 +943,9 @@ class WR2WalkingEnv(PipelineEnv):
         requested_active_target = (
             self._active_target_midpoint + self._active_target_half_range * action
         )
-        previous_requested_active_target = (
-            self._active_target_midpoint
-            + self._active_target_half_range * state.info["previous_action"]
-        )
-        action_rate = jp.sum(
-            jp.square(
-                (requested_active_target - previous_requested_active_target)
-                / self.config.action_rate_reference_rad
-            )
+        action_rate = normalized_action_rate_cost(
+            action,
+            state.info["previous_action"],
         )
         joint_velocity_cost = jp.sum(jp.square(joint_velocity))
         foot_contact = self._foot_contact(pipeline_state)
@@ -942,10 +969,9 @@ class WR2WalkingEnv(PipelineEnv):
             pipeline_state.site_xpos[self._foot_site_ids[1]]
             - pipeline_state.site_xpos[self._foot_site_ids[0]]
         )
-        foot_delta_torso = _inverse_rotate_vector(torso_quat, foot_delta_world)
-        feet_lateral_distance = jp.abs(foot_delta_torso[1])
+        feet_lateral_distance_m = feet_lateral_distance(torso_quat, foot_delta_world)
         close_feet = (
-            feet_lateral_distance < self.config.min_feet_lateral_distance_m
+            feet_lateral_distance_m < self.config.min_feet_lateral_distance_m
         ).astype(jp.float32)
         foot_projected_gravity = jax.vmap(_inverse_rotate_vector)(
             pipeline_state.x.rot[self._foot_link_indices],
@@ -1174,7 +1200,7 @@ class WR2WalkingEnv(PipelineEnv):
             "right_foot_height_m_per_step": foot_height[1],
             "left_foot_target_height_m_per_step": desired_foot_height[0],
             "right_foot_target_height_m_per_step": desired_foot_height[1],
-            "feet_lateral_distance_m_per_step": feet_lateral_distance,
+            "feet_lateral_distance_m_per_step": feet_lateral_distance_m,
             "fall": unhealthy.astype(jp.float32),
             "nonfinite_state": nonfinite.astype(jp.float32),
             "left_foot_contact": foot_contact[0].astype(jp.float32),

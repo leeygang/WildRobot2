@@ -22,8 +22,8 @@ checkpoints, approximately 20M environment steps apart. The agent reads the
 complete metric rows, rejects checkpoints that violate hard simulation
 invariants, and warm-starts the next cycle from the best walking checkpoint.
 
-The policy contract, reward weights, joint limits, action-rate reference, network shape,
-and servo model cannot be changed by stage overrides. The allowed curriculum
+The policy contract, reward equations, joint limits, network shape, and servo
+model cannot be changed by stage overrides. The allowed curriculum
 changes are limited to command sampling and enabling the already configured
 domain randomization.
 

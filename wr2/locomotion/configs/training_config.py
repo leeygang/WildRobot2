@@ -71,10 +71,11 @@ class DynamicsRandomization:
 @dataclass(frozen=True)
 class WalkingEnvConfig:
     episode_length: int
-    action_rate_reference_rad: float
     active_groups: tuple[str, ...]
     pose_weights: tuple[float, ...]
     action_delay_steps: int
+    privileged_linear_velocity_scale: float
+    privileged_actuator_force_scale: float
     reset_joint_noise_rad: float
     reset_velocity_noise_rad_s: float
     command_forward_range_m_s: tuple[float, float]
@@ -333,8 +334,12 @@ def load_training_config(
         raise ValueError(
             "observation_noise.imu_one_step_delay_probability must be in [0, 1]"
         )
-    if environment.action_rate_reference_rad <= 0.0:
-        raise ValueError("environment.action_rate_reference_rad must be positive")
+    if environment.privileged_linear_velocity_scale <= 0.0:
+        raise ValueError(
+            "environment.privileged_linear_velocity_scale must be positive"
+        )
+    if environment.privileged_actuator_force_scale <= 0.0:
+        raise ValueError("environment.privileged_actuator_force_scale must be positive")
     if any(weight < 0.0 for weight in environment.pose_weights):
         raise ValueError("environment.pose_weights must be non-negative")
     if not 0.0 <= environment.zero_command_probability <= 1.0:

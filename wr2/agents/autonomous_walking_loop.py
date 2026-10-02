@@ -365,6 +365,21 @@ def _walking_env_contract_fingerprints() -> dict[str, str]:
         for node in tree.body
         if isinstance(node, ast.ClassDef) and node.name == "WR2WalkingEnv"
     )
+    semantic_helpers = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name
+        in {
+            "normalized_action_rate_cost",
+            "support_contact_active",
+            "feet_lateral_distance",
+        }
+    }
+    if len(semantic_helpers) != 3:
+        raise AutonomousWalkingError(
+            "Could not locate the complete walking semantic helpers"
+        )
     methods = {
         node.name: node
         for node in environment.body
@@ -391,6 +406,15 @@ def _walking_env_contract_fingerprints() -> dict[str, str]:
 
     return {
         "observation_method_sha256": digest(observation),
+        "normalized_action_rate_cost_sha256": digest(
+            semantic_helpers["normalized_action_rate_cost"]
+        ),
+        "support_contact_active_sha256": digest(
+            semantic_helpers["support_contact_active"]
+        ),
+        "feet_lateral_distance_sha256": digest(
+            semantic_helpers["feet_lateral_distance"]
+        ),
         "action_pipeline_prefix_sha256": digest(
             ast.Module(body=action_prefix, type_ignores=[])
         ),
@@ -439,7 +463,13 @@ def _contract_snapshot(training_config: Path) -> dict[str, Any]:
         "actuator_order": list(robot.actuator_names),
         "servo_model": robot.config["actuators"]["htd45hServo"],
         "active_groups": list(training.environment.active_groups),
-        "action_rate_reference_rad": training.environment.action_rate_reference_rad,
+        "action_rate_semantics": "sum_squared_consecutive_normalized_policy_actions",
+        "privileged_linear_velocity_scale": (
+            training.environment.privileged_linear_velocity_scale
+        ),
+        "privileged_actuator_force_scale": (
+            training.environment.privileged_actuator_force_scale
+        ),
         "normalize_observations": training.ppo.normalize_observations,
         "output": asdict(training.output),
         "walking_env_source": _walking_env_contract_fingerprints(),

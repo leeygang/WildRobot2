@@ -15,7 +15,13 @@ from wr2.locomotion.train import (
     _acquisition_checkpoint_score,
     _create_run_directory,
 )
-from wr2.locomotion.walking_env import WR2WalkingEnv, feet_orientation_error
+from wr2.locomotion.walking_env import (
+    WR2WalkingEnv,
+    feet_lateral_distance,
+    feet_orientation_error,
+    normalized_action_rate_cost,
+    support_contact_active,
+)
 from wr2.locomotion.walking_metrics import walking_score
 from wr2.sensing.imu import canonicalize_sensor_sample
 from wr2.sim import (
@@ -196,6 +202,8 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertFalse(environment.randomization.enabled)
         self.assertEqual(environment.command_resample_steps, 150)
         self.assertEqual(environment.gait_cycle_s, 0.72)
+        self.assertEqual(environment.privileged_linear_velocity_scale, 2.0)
+        self.assertEqual(environment.privileged_actuator_force_scale, 0.1)
         self.assertEqual(environment.swing_height_m, 0.04)
         self.assertEqual(environment.feet_phase_tracking_sigma_m2, 0.0007)
         self.assertEqual(environment.velocity_reward_sigma, 0.15)
@@ -230,6 +238,91 @@ class TrainingInterfaceTest(unittest.TestCase):
             self.training_config.checkpoints.selection_metric, "acquisition"
         )
         self.assertEqual(self.training_config.output.root, "results/wr2_walking")
+
+    def test_action_rate_matches_tb_normalized_policy_action_semantics(self):
+        environment = WR2WalkingEnv(
+            replace(
+                self.training_config.environment,
+                reset_joint_noise_rad=0.0,
+                reset_velocity_noise_rad_s=0.0,
+            ),
+            add_observation_noise=False,
+        )
+        previous_action = environment.home_action
+        action_delta = jp.asarray(
+            [0.10, -0.05, 0.02, -0.03, 0.04, -0.08, 0.06, -0.01, 0.07, -0.02]
+        )
+        action = previous_action + action_delta
+        expected = float(jp.sum(jp.square(action_delta)))
+
+        self.assertAlmostEqual(
+            float(normalized_action_rate_cost(action, previous_action)),
+            expected,
+            places=7,
+        )
+        state = environment.reset(jax.random.PRNGKey(23))
+        next_state = jax.jit(environment.step)(state, action)
+        jax.block_until_ready(next_state.reward)
+        self.assertAlmostEqual(
+            -float(next_state.metrics["action_rate"]),
+            expected,
+            places=6,
+        )
+
+        legacy_radian_cost = float(
+            jp.sum(
+                jp.square(environment._active_target_half_range * action_delta / 0.25)
+            )
+        )
+        self.assertGreater(legacy_radian_cost, 5.0 * expected)
+
+    def test_privileged_critic_uses_tb_feature_scales(self):
+        environment = WR2WalkingEnv(
+            replace(
+                self.training_config.environment,
+                reset_joint_noise_rad=0.0,
+                reset_velocity_noise_rad_s=0.0,
+            ),
+            add_observation_noise=False,
+        )
+        state = environment.reset(jax.random.PRNGKey(29))
+        privileged_frame = np.asarray(state.obs["privileged_state"][:96])
+        _, _, linear_velocity, _ = environment._kinematic_observation(
+            state.pipeline_state
+        )
+
+        np.testing.assert_allclose(
+            privileged_frame[72:75],
+            2.0 * np.asarray(linear_velocity),
+            atol=1e-7,
+        )
+        np.testing.assert_allclose(
+            privileged_frame[75:92],
+            0.1 * np.asarray(state.pipeline_state.actuator_force),
+            atol=1e-7,
+        )
+
+    def test_contact_and_foot_width_match_tb_world_frame_semantics(self):
+        active = support_contact_active(
+            jp.asarray([-0.01, -0.01, 0.01]),
+            jp.asarray(
+                [
+                    [20.0, 0.0, 0.5],
+                    [0.0, 0.0, 2.0],
+                    [0.0, 0.0, 10.0],
+                ]
+            ),
+            1.0,
+        )
+        np.testing.assert_array_equal(np.asarray(active), [False, True, False])
+
+        yaw_90 = jp.asarray([np.sqrt(0.5), 0.0, 0.0, np.sqrt(0.5)])
+        delta_world = jp.asarray([0.10, 0.0, 0.20])
+        self.assertAlmostEqual(
+            float(feet_lateral_distance(yaw_90, delta_world)),
+            0.10,
+            places=6,
+        )
 
     def test_walk_home_foot_orientation_is_the_zero_tilt_reference(self):
         environment = WR2WalkingEnv(

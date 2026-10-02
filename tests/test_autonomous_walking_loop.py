@@ -112,9 +112,27 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
             contract["action"]["representation"], "normalized_joint_position"
         )
         self.assertEqual(contract["active_groups"], ["leg"])
+        self.assertEqual(
+            contract["action_rate_semantics"],
+            "sum_squared_consecutive_normalized_policy_actions",
+        )
+        self.assertEqual(contract["privileged_linear_velocity_scale"], 2.0)
+        self.assertEqual(contract["privileged_actuator_force_scale"], 0.1)
         self.assertEqual(contract["servo_model"]["torque_limit_nm"], 4.0)
         self.assertEqual(
             len(contract["walking_env_source"]["observation_method_sha256"]), 64
+        )
+        self.assertEqual(
+            len(contract["walking_env_source"]["normalized_action_rate_cost_sha256"]),
+            64,
+        )
+        self.assertEqual(
+            len(contract["walking_env_source"]["support_contact_active_sha256"]),
+            64,
+        )
+        self.assertEqual(
+            len(contract["walking_env_source"]["feet_lateral_distance_sha256"]),
+            64,
         )
         self.assertEqual(len(contract["walking_metric_acceptance_sha256"]), 64)
 
