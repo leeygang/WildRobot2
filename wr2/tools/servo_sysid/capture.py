@@ -112,6 +112,60 @@ class CaptureBuffer:
         }
 
 
+@dataclass
+class VoltageWarningMonitor:
+    """Report and retain transitions below the qualified voltage range."""
+
+    warning_voltage_v: float
+    events: list[dict[str, object]] = field(default_factory=list)
+    _active_event: dict[str, object] | None = field(default=None, init=False)
+
+    def observe(self, voltage_v: float) -> None:
+        voltage = float(voltage_v)
+        now = datetime.now(timezone.utc).isoformat()
+        if voltage < self.warning_voltage_v:
+            if self._active_event is None:
+                self._active_event = {
+                    "started_at": now,
+                    "first_voltage_v": voltage,
+                    "minimum_voltage_v": voltage,
+                    "recovered_at": None,
+                    "recovery_voltage_v": None,
+                }
+                self.events.append(self._active_event)
+                print(
+                    "\033[33mWARNING: servo-reported voltage "
+                    f"{voltage:.3f} V is below the qualified "
+                    f"{self.warning_voltage_v:.3f} V minimum; continuing. "
+                    "Torque-unload remains a separate stop condition; press "
+                    "Ctrl-C to stop manually.\033[0m",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            else:
+                self._active_event["minimum_voltage_v"] = min(
+                    float(self._active_event["minimum_voltage_v"]), voltage
+                )
+            return
+        if self._active_event is not None:
+            self._active_event["recovered_at"] = now
+            self._active_event["recovery_voltage_v"] = voltage
+            print(
+                f"\033[33mVOLTAGE RECOVERED: servo reports {voltage:.3f} V.\033[0m",
+                file=sys.stderr,
+                flush=True,
+            )
+            self._active_event = None
+
+    def summary(self) -> dict[str, object]:
+        return {
+            "warning_voltage_v": self.warning_voltage_v,
+            "event_count": len(self.events),
+            "active_at_end": self._active_event is not None,
+            "events": self.events,
+        }
+
+
 def _parse_float_list(value: str) -> tuple[float, ...]:
     try:
         values = tuple(
@@ -146,11 +200,20 @@ def _health(bus: ServoBus, servo_id: int) -> dict[str, float | bool]:
 
 
 def _check_health(
-    health: dict[str, float | bool], *, min_voltage_v: float, max_temperature_c: float
+    health: dict[str, float | bool],
+    *,
+    min_voltage_v: float,
+    max_temperature_c: float,
+    hard_min_voltage_v: float = 5.0,
+    voltage_warning_monitor: VoltageWarningMonitor | None = None,
 ) -> None:
-    if float(health["voltage_v"]) < min_voltage_v:
+    voltage = float(health["voltage_v"])
+    monitor = voltage_warning_monitor or VoltageWarningMonitor(min_voltage_v)
+    monitor.observe(voltage)
+    if voltage < hard_min_voltage_v:
         raise RuntimeError(
-            f"voltage {float(health['voltage_v']):.3f} V is below {min_voltage_v:.3f} V"
+            f"voltage {voltage:.3f} V is below the hard "
+            f"{hard_min_voltage_v:.3f} V abort floor"
         )
     if float(health["temperature_c"]) >= max_temperature_c:
         raise RuntimeError(
@@ -169,7 +232,10 @@ def _wait_for_cooldown(
     timeout_s: float,
     poll_s: float,
     min_voltage_v: float,
+    hard_min_voltage_v: float = 5.0,
+    voltage_warning_monitor: VoltageWarningMonitor | None = None,
 ) -> list[dict[str, float]]:
+    monitor = voltage_warning_monitor or VoltageWarningMonitor(min_voltage_v)
     started = time.monotonic()
     samples: list[dict[str, float]] = []
     next_progress_s = 0.0
@@ -194,8 +260,12 @@ def _wait_for_cooldown(
                 flush=True,
             )
             next_progress_s = elapsed + 30.0
-        if voltage < min_voltage_v:
-            raise RuntimeError(f"cooldown voltage {voltage:.3f} V is too low")
+        monitor.observe(voltage)
+        if voltage < hard_min_voltage_v:
+            raise RuntimeError(
+                f"cooldown voltage {voltage:.3f} V is below the hard "
+                f"{hard_min_voltage_v:.3f} V abort floor"
+            )
         if temperature <= target_c:
             print(
                 f"COOLDOWN COMPLETE: {temperature:.1f} C after {elapsed:.0f} s.",
@@ -218,7 +288,10 @@ def _move_and_monitor(
     min_voltage_v: float,
     max_temperature_c: float,
     max_position_error_deg: float,
+    hard_min_voltage_v: float = 5.0,
+    voltage_warning_monitor: VoltageWarningMonitor | None = None,
 ) -> list[dict[str, float | bool | str]]:
+    monitor = voltage_warning_monitor or VoltageWarningMonitor(min_voltage_v)
     start_units = int(_read_required(lambda: bus.read_position(servo_id), "position"))
     start_rad = units_to_radians(start_units)
     duration_s = abs(math.degrees(target_rad - start_rad)) / speed_deg_s
@@ -244,6 +317,8 @@ def _move_and_monitor(
             health,
             min_voltage_v=min_voltage_v,
             max_temperature_c=max_temperature_c,
+            hard_min_voltage_v=hard_min_voltage_v,
+            voltage_warning_monitor=monitor,
         )
         samples.append(
             {
@@ -282,9 +357,7 @@ def _monitored_samples_to_buffer(
         return buffer
     first_monotonic = float(samples[0]["monotonic_time_s"])
     for sample in samples:
-        buffer.timestamp_s.append(
-            float(sample["monotonic_time_s"]) - first_monotonic
-        )
+        buffer.timestamp_s.append(float(sample["monotonic_time_s"]) - first_monotonic)
         buffer.wall_time_s.append(float(sample["wall_time_s"]))
         buffer.scheduled_time_s.append(np.nan)
         buffer.loop_lateness_s.append(np.nan)
@@ -319,7 +392,10 @@ def capture_profile(
     max_position_error_deg: float,
     max_position_error_duration_s: float,
     buffer: CaptureBuffer | None = None,
+    hard_min_voltage_v: float = 5.0,
+    voltage_warning_monitor: VoltageWarningMonitor | None = None,
 ) -> CaptureBuffer:
+    monitor = voltage_warning_monitor or VoltageWarningMonitor(min_voltage_v)
     buffer = buffer or CaptureBuffer()
     period_s = 1.0 / sample_hz
     last_health = _health(bus, servo_id)
@@ -327,6 +403,8 @@ def capture_profile(
         last_health,
         min_voltage_v=min_voltage_v,
         max_temperature_c=max_temperature_c,
+        hard_min_voltage_v=hard_min_voltage_v,
+        voltage_warning_monitor=monitor,
     )
     health_fields = (
         ("voltage_v", lambda: bus.read_voltage_v(servo_id)),
@@ -374,6 +452,8 @@ def capture_profile(
                     last_health,
                     min_voltage_v=min_voltage_v,
                     max_temperature_c=max_temperature_c,
+                    hard_min_voltage_v=hard_min_voltage_v,
+                    voltage_warning_monitor=monitor,
                 )
                 next_health_s = elapsed + 1.0 / health_poll_hz
             buffer.timestamp_s.append(elapsed)
@@ -490,7 +570,18 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--cooldown-timeout-s", type=float, default=900.0)
     parser.add_argument("--cooldown-poll-s", type=float, default=5.0)
     parser.add_argument("--profile-health-poll-hz", type=float, default=6.0)
-    parser.add_argument("--min-voltage-v", type=float, default=9.6)
+    parser.add_argument(
+        "--min-voltage-v",
+        type=float,
+        default=9.6,
+        help="qualified minimum that emits a yellow warning without stopping",
+    )
+    parser.add_argument(
+        "--hard-min-voltage-v",
+        type=float,
+        default=5.0,
+        help="absolute voltage floor that still aborts capture",
+    )
     parser.add_argument("--max-temperature-c", type=float, default=80.0)
     parser.add_argument("--max-position-error-deg", type=float, default=5.0)
     parser.add_argument("--max-position-error-duration-s", type=float, default=0.15)
@@ -520,6 +611,7 @@ def _validate_args(args: argparse.Namespace) -> None:
         "cooldown_target_c": args.cooldown_target_c,
         "cooldown_poll_s": args.cooldown_poll_s,
         "min_voltage_v": args.min_voltage_v,
+        "hard_min_voltage_v": args.hard_min_voltage_v,
         "max_temperature_c": args.max_temperature_c,
         "max_position_error_deg": args.max_position_error_deg,
         "max_position_error_duration_s": args.max_position_error_duration_s,
@@ -556,6 +648,10 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--write-deadband-units must be non-negative")
     if args.cooldown_target_c > args.max_temperature_c:
         raise SystemExit("--cooldown-target-c must not exceed --max-temperature-c")
+    if args.hard_min_voltage_v > args.min_voltage_v:
+        raise SystemExit(
+            "--hard-min-voltage-v must not exceed the --min-voltage-v warning level"
+        )
     if args.constant_hold_s is not None and (
         not math.isfinite(args.constant_hold_s) or args.constant_hold_s <= 0.0
     ):
@@ -664,6 +760,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"combined={envelope['peak_total_torque_nm']:.3f} N m, "
         f"speed={envelope['peak_speed_rad_s']:.3f} rad/s"
     )
+    print(
+        f"voltage policy: warn below {args.min_voltage_v:.3f} V; "
+        f"abort below {args.hard_min_voltage_v:.3f} V"
+    )
     if not args.execute:
         print(
             "Preflight passed; no serial port was opened. Add --execute and --confirm-fixture-safe to move hardware."
@@ -684,6 +784,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     error: str | None = None
     cooldown: list[dict[str, float]] = []
     preparation: list[dict[str, float | bool | str]] = []
+    voltage_warning_monitor = VoltageWarningMonitor(args.min_voltage_v)
     started_at = datetime.now(timezone.utc).isoformat()
     servo_eeprom: dict[str, object] = {}
     try:
@@ -737,6 +838,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout_s=args.cooldown_timeout_s,
             poll_s=args.cooldown_poll_s,
             min_voltage_v=args.min_voltage_v,
+            hard_min_voltage_v=args.hard_min_voltage_v,
+            voltage_warning_monitor=voltage_warning_monitor,
         )
         cooldown_voltage = float(cooldown[-1]["voltage_v"])
         if not voltage_limits[0] <= cooldown_voltage <= voltage_limits[1]:
@@ -756,6 +859,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 min_voltage_v=args.min_voltage_v,
                 max_temperature_c=args.max_temperature_c,
                 max_position_error_deg=args.max_position_error_deg,
+                hard_min_voltage_v=args.hard_min_voltage_v,
+                voltage_warning_monitor=voltage_warning_monitor,
             )
         )
         if args.prepare_only:
@@ -782,6 +887,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 min_voltage_v=args.min_voltage_v,
                 max_temperature_c=args.max_temperature_c,
                 max_position_error_deg=args.max_position_error_deg,
+                hard_min_voltage_v=args.hard_min_voltage_v,
+                voltage_warning_monitor=voltage_warning_monitor,
             )
         )
         if args.prepare_only:
@@ -814,6 +921,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_position_error_deg=args.max_position_error_deg,
                 max_position_error_duration_s=args.max_position_error_duration_s,
                 buffer=buffer,
+                hard_min_voltage_v=args.hard_min_voltage_v,
+                voltage_warning_monitor=voltage_warning_monitor,
             )
         print("TEST COMPLETE: commanded test duration finished.", flush=True)
         outcome = "completed"
@@ -845,6 +954,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     min_voltage_v=args.min_voltage_v,
                     max_temperature_c=args.max_temperature_c,
                     max_position_error_deg=args.max_position_error_deg,
+                    hard_min_voltage_v=args.hard_min_voltage_v,
+                    voltage_warning_monitor=voltage_warning_monitor,
                 )
                 print("RETURN COMPLETE: neutral position reached.", flush=True)
             else:
@@ -910,12 +1021,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "health_summary": _health_summary(arrays),
         "limits": {
             "min_voltage_v": args.min_voltage_v,
+            "hard_min_voltage_v": args.hard_min_voltage_v,
             "max_temperature_c": args.max_temperature_c,
             "max_position_error_deg": args.max_position_error_deg,
             "max_position_error_duration_s": args.max_position_error_duration_s,
             "max_static_torque_nm": args.max_static_torque_nm,
             "max_predicted_torque_nm": args.max_predicted_torque_nm,
         },
+        "voltage_warnings": voltage_warning_monitor.summary(),
         "external_log_label": args.external_log_label,
         "measured_weight_kg": args.measured_weight_kg,
         "measured_com_radius_m": args.measured_com_radius_m,

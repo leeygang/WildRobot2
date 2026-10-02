@@ -30,7 +30,9 @@ CONDITIONS = DEPLOYMENT_PLAN.conditions
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--plan", choices=available_plans(), default="legacy_deployment")
+    parser.add_argument(
+        "--plan", choices=available_plans(), default="legacy_deployment"
+    )
     parser.add_argument("--servo-id", type=int, required=True)
     parser.add_argument("--board-port", required=True)
     parser.add_argument("--baudrate", type=int, default=115200)
@@ -61,7 +63,18 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--prepare-speed-deg-s", type=float)
     parser.add_argument("--settle-s", type=float)
     parser.add_argument("--cooldown-target-c", type=float, default=35.0)
-    parser.add_argument("--min-voltage-v", type=float, default=9.6)
+    parser.add_argument(
+        "--min-voltage-v",
+        type=float,
+        default=9.6,
+        help="qualified minimum that emits a yellow warning without stopping",
+    )
+    parser.add_argument(
+        "--hard-min-voltage-v",
+        type=float,
+        default=5.0,
+        help="absolute voltage floor that still aborts capture",
+    )
     parser.add_argument("--max-temperature-c", type=float, default=80.0)
     parser.add_argument("--max-position-error-deg", type=float, default=5.0)
     parser.add_argument("--max-position-error-duration-s", type=float, default=0.15)
@@ -196,6 +209,8 @@ def capture_command(
         str(args.cooldown_target_c),
         "--min-voltage-v",
         str(args.min_voltage_v),
+        "--hard-min-voltage-v",
+        str(args.hard_min_voltage_v),
         "--max-temperature-c",
         str(_bounded(args.max_temperature_c, condition.max_temperature_c)),
         "--max-position-error-deg",
@@ -205,11 +220,7 @@ def capture_command(
         "--max-static-torque-nm",
         str(_bounded(args.max_static_torque_nm, condition.max_static_torque_nm)),
         "--max-predicted-torque-nm",
-        str(
-            _bounded(
-                args.max_predicted_torque_nm, condition.max_predicted_torque_nm
-            )
-        ),
+        str(_bounded(args.max_predicted_torque_nm, condition.max_predicted_torque_nm)),
         "--output",
         str(output),
     ]
@@ -273,6 +284,7 @@ def _same_number(left: object, right: float) -> bool:
 def _safety_limits(args: argparse.Namespace) -> dict[str, float]:
     return {
         "min_voltage_v": args.min_voltage_v,
+        "hard_min_voltage_v": args.hard_min_voltage_v,
         "max_temperature_c": args.max_temperature_c,
         "max_position_error_deg": args.max_position_error_deg,
         "max_position_error_duration_s": args.max_position_error_duration_s,
@@ -362,7 +374,9 @@ def _validate_existing_manifest(
         raise SystemExit("existing campaign directory uses different safety limits")
 
 
-def _capture_record(output: Path, condition: CampaignCondition, returncode: int) -> dict[str, Any]:
+def _capture_record(
+    output: Path, condition: CampaignCondition, returncode: int
+) -> dict[str, Any]:
     metadata_path = output.with_suffix(".json")
     record: dict[str, Any] = {
         **asdict(condition),
@@ -381,6 +395,7 @@ def _capture_record(output: Path, condition: CampaignCondition, returncode: int)
                 "trace_summary": capture.get("trace_summary"),
                 "health_summary": capture.get("health_summary"),
                 "timing_summary": capture.get("timing_summary"),
+                "voltage_warnings": capture.get("voltage_warnings"),
             }
         )
     return record
@@ -443,11 +458,30 @@ def _run_repeatability_condition(
         max_temperature_c=effective_temperature_limit,
     )
     summary_path = directory / "repeatability_summary.json"
+    voltage_failure = "voltage is below limit"
+    blocking_failures = [
+        failure for failure in summary["failures"] if failure != voltage_failure
+    ]
+    capture_voltage_warnings = any(
+        int(record.get("voltage_warnings", {}).get("event_count", 0)) > 0
+        for record in records
+        if isinstance(record.get("voltage_warnings"), dict)
+    )
+    has_voltage_warning = (
+        voltage_failure in summary["failures"] or capture_voltage_warnings
+    )
+    completed = not blocking_failures
+    if not completed:
+        summary["execution_status"] = "failed"
+    elif has_voltage_warning:
+        summary["execution_status"] = "completed_with_warnings"
+    else:
+        summary["execution_status"] = "completed"
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    stable = summary["status"] == "stable"
-    return (0 if stable else 2), {
+    outcome = summary["execution_status"]
+    return (0 if completed else 2), {
         **asdict(condition),
-        "outcome": "completed" if stable else "unstable_or_incomplete",
+        "outcome": outcome,
         "summary_path": str(summary_path),
         "summary": summary,
         "captures": records,
@@ -481,11 +515,34 @@ def _validate_args(args: argparse.Namespace, plan: CampaignPlan) -> None:
     if args.execute and (
         args.measured_weight_kg is None or args.measured_com_radius_m is None
     ):
-        raise SystemExit("hardware mode requires measured fixture weight and COM radius")
+        raise SystemExit(
+            "hardware mode requires measured fixture weight and COM radius"
+        )
     if args.external_log_label and args.external_log_label_prefix:
         raise SystemExit(
             "use either --external-log-label or --external-log-label-prefix, not both"
         )
+    if args.hard_min_voltage_v > args.min_voltage_v:
+        raise SystemExit(
+            "--hard-min-voltage-v must not exceed the --min-voltage-v warning level"
+        )
+
+
+def _condition_completed(record: dict[str, Any]) -> bool:
+    return record.get("outcome") in {"completed", "completed_with_warnings"}
+
+
+def _condition_has_voltage_warning(record: dict[str, Any]) -> bool:
+    if record.get("outcome") == "completed_with_warnings":
+        return True
+    direct = record.get("voltage_warnings")
+    if isinstance(direct, dict) and int(direct.get("event_count", 0)) > 0:
+        return True
+    return any(
+        isinstance(capture.get("voltage_warnings"), dict)
+        and int(capture["voltage_warnings"].get("event_count", 0)) > 0
+        for capture in record.get("captures", [])
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -532,7 +589,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     completed = {
         item.get("condition_id")
         for item in manifest["conditions"]
-        if item.get("outcome") == "completed"
+        if _condition_completed(item)
     }
     for condition in selected:
         if condition.condition_id in completed:
@@ -548,9 +605,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         print(f"\nRUN {condition.condition_id}: {condition.description}", flush=True)
         if condition.kind == "repeatability":
-            returncode, record = _run_repeatability_condition(
-                args, condition, output
-            )
+            returncode, record = _run_repeatability_condition(args, condition, output)
         else:
             returncode, record = _run_capture_condition(args, condition, output)
         manifest["conditions"].append(record)
@@ -565,13 +620,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     completed = {
         item.get("condition_id")
         for item in manifest["conditions"]
-        if item.get("outcome") == "completed"
+        if _condition_completed(item)
     }
+    has_voltage_warnings = any(
+        _condition_has_voltage_warning(item) for item in manifest["conditions"]
+    )
     if completed == {item.condition_id for item in plan.conditions}:
-        manifest["status"] = "completed"
+        manifest["status"] = (
+            "completed_with_warnings" if has_voltage_warnings else "completed"
+        )
         manifest["completed_at"] = datetime.now(timezone.utc).isoformat()
     else:
-        manifest["status"] = "partial"
+        manifest["status"] = (
+            "partial_with_warnings" if has_voltage_warnings else "partial"
+        )
     _write_manifest(manifest_path, manifest)
     print(f"Campaign status={manifest['status']}: {campaign_dir}")
     return 0

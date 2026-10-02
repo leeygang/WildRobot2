@@ -13,6 +13,9 @@ randomization is defined in
 [`ppo_walking.yaml`](../../wr2/locomotion/configs/ppo_walking.yaml). The hardware
 procedure and safety rules are in
 [`htd45h_deployment_test.md`](../hardware/htd45h_deployment_test.md).
+Accepted preliminary observations are preserved separately in the
+[machine-readable unit-A evidence log](../hardware/evidence/htd45h_unit_a.json)
+so raw run directories can remain untracked.
 
 ## Status terms
 
@@ -33,9 +36,9 @@ procedure and safety rules are in
 | Specification | Used by | Definition | Current value | How to collect or verify | Required setup | Evidence status |
 |---|---|---|---:|---|---|---|
 | Rated voltage | Test setup; future voltage-dependent model | `rated_voltage_v` in `robot.yml` | 11.1 V | Set and independently log the supply during every campaign | Calibrated programmable supply or power analyzer | Vendor |
-| Operating voltage range | Capture aborts; deployment power design | `operating_voltage_range_v` in `robot.yml`; `--min-voltage-v` in `capture.py` | 9.6--12.6 V | `capture.py` reads servo voltage; an external logger must independently record bus voltage | BAM or dynamometer plus synchronized voltage logger | Vendor range; internal readings observed |
-| Servo-reported voltage | Capture health evidence | `voltage_v` in every capture NPZ/JSON | Latest +10-degree run: minimum 11.757 V | Any `capture.py`-based test; sampled through `Htd45hBus.read_voltage_v()` | Servo and serial adapter; external logger recommended | Observed on unit A |
-| Servo temperature | Capture aborts; thermal evidence; deployment shutdown | `temperature_c` capture field; `software_temperature_shutdown_c` in `robot.yml` | Latest +10-degree run: maximum 38 C; shutdown 80 C | Any `capture.py`-based test records temperature and final slope | Servo fixture with reachable power cutoff | Telemetry observed; 80 C is a software safety limit, not a rating |
+| Operating voltage range | Capture warnings, qualification, and deployment power design | `operating_voltage_range_v` in `robot.yml`; `--min-voltage-v` warning level and `--hard-min-voltage-v` abort floor in `capture.py` | Qualified range 9.6--12.6 V; hard abort below 5.0 V | `capture.py` emits a yellow warning and records each excursion below 9.6 V while continuing; an external logger must independently record bus voltage | BAM or dynamometer plus synchronized voltage logger | Vendor range; 5.0 V is only a software hard floor, not a qualified operating voltage |
+| Servo-reported voltage | Capture health evidence | `voltage_v` in every capture NPZ/JSON | Accepted +10-degree repeats: minimum 11.406 V; excluded position repeat aborted at 8.669 V | Any `capture.py`-based test; sampled through `Htd45hBus.read_voltage_v()` | Servo and serial adapter; external logger recommended | Observed on unit A; undervoltage source unresolved |
+| Servo temperature | Capture aborts; thermal evidence; deployment shutdown | `temperature_c` capture field; `software_temperature_shutdown_c` in `robot.yml` | Accepted +10-degree repeats: maximum 38 C; shutdown 80 C | Any `capture.py`-based test records temperature and final slope | Servo fixture with reachable power cutoff | Telemetry observed; 80 C is a software safety limit, not a rating |
 | Supply current | Thermal, continuous-torque, torque-speed, and power qualification | Not yet represented by a live collector; summary schema is `external_measurements.example.json` | No clock-aligned external artifact in the latest copied BAM run | Add a timestamped instrument adapter; do not substitute `--external-log-label` for data | Logging supply or inline power analyzer | Missing from latest run |
 | Stall current | Supply sizing only | `vendor_stall_current_a` in `robot.yml` | 3.0 A | Verify only on a current-limited guarded dynamometer; do not perform an uncontrolled stall | Programmable current-limited supply, torque sensor, guards | Vendor |
 | Command range | Training/action conversion and EEPROM preflight | `command_range_units`, `command_range_deg` in `robot.yml`; constants in `core.py` | 0--1000 units, 0--240 degrees; fixture coordinates are -120--+120 degrees | Read EEPROM angle limits before every powered capture | Servo and serial adapter | Protocol/vendor; EEPROM checked at runtime |
@@ -55,9 +58,9 @@ and EEPROM limits. It does **not** expose motor current or shaft torque.
 | Coulomb friction loss | Training joint dynamics | `frictionloss`; `frictionloss_scale` | 0.324094 N m; 0.7--1.3x | Slow signed sweeps plus dynamic fitting | Instrumented BAM, preferably with external encoder | Transferred WR1 fit |
 | Reflected armature | Training joint dynamics | `armature`; `armature_scale` | 0.024992 kg m^2; 0.8--1.2x | Gravity-neutral chirps with known fixture inertia and held-out replay | BAM with accurately modeled inertia | Held fixed in WR1 fit; provisional |
 | Whole-response delay | Training action delay and runtime timing budget | `environment.action_delay_steps` in `ppo_walking.yaml`; `fitted_extra_command_delay_steps` in `robot.yml` | Training: 1 x 20 ms step; existing fit field: 0 extra steps | E3 capture with host command/write/read timestamps, then `fit.py` | BAM at gravity-neutral position | Training allowance; WR2 E3 pending |
-| Zero offset and target bias | Training target-bias randomization; deployment calibration | `target_bias_rad` in `ppo_walking.yaml`; per-servo deployment calibration is not implemented | Training: +/-2 degrees; latest +10-degree run zero mean -0.1728 degree, std 0.1078 degree | Repeated bidirectional approaches with the `bam_position` or `bam_repeatability` plan | BAM; external encoder for absolute output zero | Unit-A observation; training range provisional |
-| Position repeatability | Deployment command confidence; training uncertainty selection | Capture result only; not a nominal model field | Latest +10-degree run loaded std 0.0780 degree and range 0.2133 degree | Five or more independent cooldown/approach repeats with the `bam_position` or `bam_repeatability` plan | Current BAM | Observed on unit A at one angle/direction |
-| Loaded position error/compliance | Training gain/bias envelope; deployment tracking gates | Capture results; provisional `kp_sim` range | Latest +10-degree command settled at 7.8453 degrees mean; max absolute error 2.2933 degrees | Repeat at signed angles and loads; retain full trajectories | Current BAM for preliminary evidence; torque sensor for separation | Observed on unit A; not a pure gain measurement |
+| Zero offset and target bias | Training target-bias randomization; deployment calibration | `target_bias_rad` in `ppo_walking.yaml`; per-servo deployment calibration is not implemented | Training: +/-2 degrees; accepted +10-degree subset zero mean -0.1680 degree, std 0.1247 degree | Repeated bidirectional approaches with the `bam_position` or `bam_repeatability` plan | BAM; external encoder for absolute output zero | Unit-A observation; training range provisional |
+| Position repeatability | Deployment command confidence; training uncertainty selection | Capture result only; not a nominal model field | Accepted +10-degree subset (`n=4`) loaded std 0.0327 degree and range 0.0800 degree | Five or more independent cooldown/approach repeats with the `bam_position` or `bam_repeatability` plan | Current BAM | Preliminary unit-A observation at one angle/direction; sub-resolution result |
+| Loaded position error/compliance | Training gain/bias envelope; deployment tracking gates | Capture results; provisional `kp_sim` range | +10.08-degree quantized command settled at 7.8667 degrees mean; mean error 2.2133 degrees and maximum 2.2667 degrees | Repeat at signed angles and loads; retain full trajectories | Current BAM for preliminary evidence; torque sensor for separation | Observed on unit A; not a pure gain measurement |
 | Backlash and hysteresis | Training `backlash_rad`; deployment positioning | `backlash_rad` in `ppo_walking.yaml` | 0--2 degrees training range | No dedicated script yet. Add slow unloaded and loaded forward/reverse approaches, fit direction-dependent lost motion, and validate on held-out sweeps | Instrumented BAM; external encoder required below the servo's 0.24-degree telemetry step | Missing; current range provisional |
 | Peak/stall torque | Training force-cap envelope; deployment transient limit | `vendor_stall_torque_nm`, `torque_limit_nm` | Vendor stall 4.413 N m; training cap 4.0 N m randomized 1--4 N m | Sweep guarded steady/short-duration points with measured shaft torque and current | Guarded dynamometer with inline torque sensor and encoder | Vendor upper bound; not WR2-qualified |
 | Maximum validated fixture load | Training torque-exposure normalization; test planning | `maximum_validated_load_nm` and duration in `robot.yml` | 1.0157 N m for 3 s | Existing signed BAM commissioning captures; repeat across units before adoption as a population limit | Current BAM | Observed short-duration unit-A value |
@@ -84,15 +87,17 @@ population specification:
   72 C with final slopes of 3.661--3.712 C/min. A longer test reached the
   inclusive 80 C cutoff after about 402 s. This is a thermal failure bound, not
   a continuous rating.
-- The copied `bam-low-load-unit-a-run03` suite is partial: only the five +10
-  degree repeats completed. It observed 7.8453 degree mean loaded position,
-  0.0780 degree standard deviation, -0.1728 degree mean zero, 11.757 V minimum
-  servo voltage, and 38 C maximum temperature. The measured-position fixture
-  geometry implies about 0.419 N m at the mean settled position, versus 0.538
-  N m inferred at the command target. The -10 degree and E3 stages remain
-  uncollected.
-- That suite contains no external supply log. Its external label is metadata,
-  not current or independently measured voltage evidence.
+- The accepted position subset from `unit-a-bam-position-run04` contains the
+  first four +10 degree repeats. At the quantized +10.08 degree command it
+  observed 7.8667 degree mean loaded position, 0.0327 degree standard
+  deviation, -0.1680 degree mean zero, 11.406 V minimum servo voltage, and 38 C
+  maximum temperature. Measured-position fixture geometry implies 0.420 N m
+  mean torque and an apparent static stiffness of 10.88 N m/rad.
+- Repeat 5 is excluded from position statistics because it never reached the
+  loaded hold. Its 8.669 V safety abort remains recorded as a power-integrity
+  event. The run contains no external supply log, so the event cannot be
+  classified as actual bus sag or telemetry error. The -10 degree and E3
+  conditions remain uncollected.
 - Earlier motion/hot-return tests reported intermittent internal voltage as low
   as 9.273 V while the external supply appeared stable. Without the raw,
   synchronized external log this does not identify whether the drop occurred
@@ -151,7 +156,8 @@ actuation package.
 
 `capture.py` owns the test-specific hardware behavior: EEPROM
 preflight, cooldown, torque enable/disable, motion, internal voltage and
-temperature polling, safety aborts, controlled return, and NPZ/JSON output.
+temperature polling, qualified-range voltage warnings, hard-floor and other
+safety aborts, controlled return, and NPZ/JSON output.
 `campaign.py` is the only orchestrator and invokes `capture.py` for each
 condition. `commission.py` and `bam_suite.py` remain only as deprecated argument
 translators for old commands; they contain no hardware runner or manifest

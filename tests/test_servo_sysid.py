@@ -1,4 +1,4 @@
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 import io
 import json
@@ -29,6 +29,7 @@ from wr2.tools.servo_sysid.campaign import (
     selected_conditions,
 )
 from wr2.tools.servo_sysid.capture import (
+    VoltageWarningMonitor,
     _check_health,
     _monitored_samples_to_buffer,
     _wait_for_cooldown,
@@ -74,6 +75,42 @@ class Htd45hProtocolTest(unittest.TestCase):
         at_limit = {"voltage_v": 11.8, "temperature_c": 55.0, "loaded": True}
         with self.assertRaisesRegex(RuntimeError, "reaches or exceeds"):
             _check_health(at_limit, min_voltage_v=9.6, max_temperature_c=55.0)
+
+    def test_low_voltage_warns_in_yellow_until_hard_floor(self):
+        monitor = VoltageWarningMonitor(9.6)
+        output = io.StringIO()
+        low = {"voltage_v": 8.574, "temperature_c": 35.0, "loaded": True}
+        recovered = {"voltage_v": 12.2, "temperature_c": 35.0, "loaded": True}
+        with redirect_stderr(output):
+            _check_health(
+                low,
+                min_voltage_v=9.6,
+                hard_min_voltage_v=5.0,
+                max_temperature_c=55.0,
+                voltage_warning_monitor=monitor,
+            )
+            _check_health(
+                recovered,
+                min_voltage_v=9.6,
+                hard_min_voltage_v=5.0,
+                max_temperature_c=55.0,
+                voltage_warning_monitor=monitor,
+            )
+
+        self.assertIn("\033[33mWARNING", output.getvalue())
+        self.assertIn("VOLTAGE RECOVERED", output.getvalue())
+        self.assertEqual(monitor.summary()["event_count"], 1)
+        self.assertAlmostEqual(
+            monitor.summary()["events"][0]["minimum_voltage_v"], 8.574
+        )
+        with self.assertRaisesRegex(RuntimeError, "hard 5.000 V abort floor"):
+            _check_health(
+                {"voltage_v": 4.9, "temperature_c": 35.0, "loaded": True},
+                min_voltage_v=9.6,
+                hard_min_voltage_v=5.0,
+                max_temperature_c=55.0,
+                voltage_warning_monitor=monitor,
+            )
 
     def test_packet_round_trip(self):
         packet = build_packet(100, 28, [0x34, 0x12])
@@ -187,7 +224,9 @@ class Htd45hProtocolTest(unittest.TestCase):
         np.testing.assert_allclose(arrays["command_rad"], [0.0, 0.1])
         np.testing.assert_allclose(arrays["measured_position_rad"], [0.0, 0.08])
         np.testing.assert_allclose(arrays["voltage_v"], [12.0, 11.9])
-        self.assertEqual(arrays["segment_name"].tolist(), ["prepare_neutral", "test_hold"])
+        self.assertEqual(
+            arrays["segment_name"].tolist(), ["prepare_neutral", "test_hold"]
+        )
 
 
 @unittest.skipUnless(importlib.util.find_spec("mujoco"), "MuJoCo is not installed")
@@ -290,6 +329,7 @@ class CampaignAnalysisTest(unittest.TestCase):
             external_log_label_prefix="supply-run",
             cooldown_target_c=35.0,
             min_voltage_v=9.6,
+            hard_min_voltage_v=5.0,
             max_temperature_c=80.0,
             max_position_error_deg=5.0,
             max_position_error_duration_s=0.15,
@@ -298,15 +338,15 @@ class CampaignAnalysisTest(unittest.TestCase):
             max_predicted_torque_nm=3.2,
         )
         plan = load_plan("bam_position")
-        plus = capture_command(
-            args, plan.conditions[0], Path("plus.npz"), execute=True
-        )
+        plus = capture_command(args, plan.conditions[0], Path("plus.npz"), execute=True)
         e3 = capture_command(args, plan.conditions[2], Path("e3.npz"), execute=True)
         self.assertIn("wr2.tools.servo_sysid.capture", plus)
         self.assertEqual(plus[plus.index("--max-static-torque-nm") + 1], "0.7")
         self.assertEqual(e3[e3.index("--max-static-torque-nm") + 1], "0.2")
         self.assertEqual(e3[e3.index("--max-predicted-torque-nm") + 1], "0.6")
         self.assertEqual(plus[plus.index("--max-temperature-c") + 1], "55.0")
+        self.assertEqual(plus[plus.index("--min-voltage-v") + 1], "9.6")
+        self.assertEqual(plus[plus.index("--hard-min-voltage-v") + 1], "5.0")
         self.assertIn("--execute", plus)
         self.assertIn("--confirm-fixture-safe", e3)
 
@@ -444,6 +484,95 @@ class CampaignAnalysisTest(unittest.TestCase):
         self.assertEqual(len(manifest["conditions"]), 3)
         self.assertTrue(
             all(item["outcome"] == "completed" for item in manifest["conditions"])
+        )
+
+    def test_voltage_warning_does_not_stop_repeatability_stage(self):
+        with tempfile.TemporaryDirectory() as temp:
+            suite = Path(temp) / "bam-suite"
+
+            def fake_run(command):
+                if "--execute" not in command:
+                    return 0
+                output = Path(command[command.index("--output") + 1])
+                center_deg = float(command[command.index("--center-deg") + 1])
+                output.with_suffix(".json").write_text(
+                    json.dumps(
+                        {
+                            "outcome": "completed",
+                            "center_deg": center_deg,
+                            "preparation": [
+                                {
+                                    "elapsed_s": 0.0,
+                                    "position_rad": 0.0,
+                                    "voltage_v": 8.574,
+                                    "temperature_c": 29.0,
+                                },
+                                {
+                                    "elapsed_s": 1.0,
+                                    "position_rad": 0.0,
+                                    "voltage_v": 11.8,
+                                    "temperature_c": 29.0,
+                                },
+                                {
+                                    "elapsed_s": 0.0,
+                                    "position_rad": math.radians(center_deg),
+                                    "voltage_v": 11.7,
+                                    "temperature_c": 30.0,
+                                },
+                                {
+                                    "elapsed_s": 1.0,
+                                    "position_rad": math.radians(center_deg),
+                                    "voltage_v": 11.7,
+                                    "temperature_c": 31.0,
+                                },
+                            ],
+                            "voltage_warnings": {"event_count": 1},
+                        }
+                    )
+                )
+                return 0
+
+            with (
+                patch("wr2.tools.servo_sysid.campaign._run", side_effect=fake_run),
+                patch(
+                    "wr2.tools.servo_sysid.campaign._git_state",
+                    return_value={"revision": "abc123", "worktree_clean": True},
+                ),
+            ):
+                result = campaign_main(
+                    [
+                        "--plan",
+                        "bam_position",
+                        "--servo-id",
+                        "100",
+                        "--servo-label",
+                        "unit-a",
+                        "--board-port",
+                        "unused",
+                        "--campaign-dir",
+                        str(suite),
+                        "--measured-weight-kg",
+                        "2.650",
+                        "--measured-com-radius-m",
+                        "0.1204",
+                        "--start-at",
+                        "commission_plus10",
+                        "--stop-after",
+                        "commission_plus10",
+                        "--execute",
+                        "--confirm-fixture-safe",
+                    ]
+                )
+
+            manifest = json.loads((suite / "campaign_manifest.json").read_text())
+        self.assertEqual(result, 0)
+        self.assertEqual(manifest["status"], "partial_with_warnings")
+        self.assertEqual(
+            manifest["conditions"][0]["outcome"], "completed_with_warnings"
+        )
+        self.assertEqual(
+            manifest["conditions"][0]["summary"]["failures"],
+            ["voltage is below limit"],
         )
 
     def test_campaign_plans_are_versioned_and_loadable(self):

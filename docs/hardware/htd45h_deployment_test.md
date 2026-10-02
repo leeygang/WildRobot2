@@ -26,7 +26,10 @@ reports position, voltage, temperature, and torque-enable state, but does not
 report current or output torque. Known-load torque is otherwise inferred from
 the fixture model.
 
-The software limits are safety aborts, not servo ratings. The dynamic preflight
+The software torque, temperature, position, and 5.0 V hard-floor limits are
+safety aborts, not servo ratings. Servo-reported voltage below the qualified
+9.6 V operating minimum produces a yellow warning and a recorded voltage event,
+but does not stop motion unless it crosses the hard floor. The dynamic preflight
 estimates gravity plus commanded-trajectory inertial torque. Step transients,
 fixture compliance, impacts, and controller overshoot remain unmodeled. The
 5-degree tracking limit must persist for 0.15 seconds before aborting, so an
@@ -77,7 +80,8 @@ uv run python -m wr2.tools.servo_sysid run \
 For hardware execution, start the external voltage/current logger first. The
 runner records a distinct synchronization label for every condition, enforces a
 55 C initial test ceiling, independently cools and unloads around the child
-captures, stops on the first failed safety or repeatability gate, and writes a
+captures, continues through qualified-range voltage warnings, stops on the
+first other failed safety or repeatability gate, and writes a
 top-level manifest with the plan hash and exact clean Git revision. `--run-all`
 is an explicit request to continue between all three low-load conditions
 without a human review pause:

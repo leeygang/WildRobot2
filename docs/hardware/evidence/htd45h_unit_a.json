@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "servo_model": "HTD-45H",
+  "servo_label": "htd45h-unit-a",
+  "records": [
+    {
+      "record_id": "unit-a-bam-position-run04-plus10-n4",
+      "evidence_status": "preliminary_observed_single_servo",
+      "source_run": "results/servo_sysid/unit-a-bam-position-run04",
+      "source_condition": "commission_plus10",
+      "software_revision": "edc9efa097baf9a9a49dbf50285d78f29b454b2e",
+      "plan": "bam_position",
+      "plan_sha256": "33de4abe39de44f4b20a41b1950d68565410afa50912e0bdf21ad182a609d498",
+      "fixture": {
+        "label": "wr2-htd45h-2650g",
+        "sha256": "47f9b07fc126f48a82a1786604723a0d8cff283fa74e3cfa014674193845ad23",
+        "measured_weight_kg": 2.65,
+        "measured_com_radius_m": 0.1204
+      },
+      "position_statistics": {
+        "accepted_repeat_indices": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "sample_count": 4,
+        "requested_center_deg": 10.0,
+        "quantized_command_deg": 10.08,
+        "zero_position_mean_deg": -0.168,
+        "zero_position_std_deg": 0.1247076581,
+        "loaded_position_mean_deg": 7.8666666667,
+        "loaded_position_std_deg": 0.0326598632,
+        "loaded_position_range_deg": 0.08,
+        "loaded_error_mean_deg": 2.2133333333,
+        "loaded_error_max_deg": 2.2666666667,
+        "inferred_fixture_torque_mean_nm": 0.4201401068,
+        "inferred_fixture_torque_range_nm": [
+          0.4171928781,
+          0.421613687
+        ],
+        "apparent_static_stiffness_nm_per_rad": 10.8760187902,
+        "minimum_servo_reported_voltage_v": 11.406,
+        "maximum_servo_reported_temperature_c": 38.0
+      },
+      "excluded_from_position_statistics": [
+        {
+          "repeat_index": 5,
+          "reason": "No loaded-position hold was reached; the safety monitor aborted on servo-reported undervoltage.",
+          "servo_reported_voltage_v": 8.669,
+          "retained_as": "power_integrity_safety_event"
+        }
+      ],
+      "limitations": [
+        "Single servo, one positive angle, one fixture load, and one temperature range.",
+        "Position telemetry is quantized to 0.24 degree; sub-resolution statistics result from averaging repeated samples.",
+        "Fixture torque is inferred from geometry and measured position, not measured at the shaft.",
+        "No external voltage or current log was archived, so the undervoltage source is unresolved.",
+        "The apparent static stiffness includes servo control, friction, compliance, and fixture effects and is not controller kp.",
+        "This record does not establish continuous torque, backlash, dynamics, torque-speed, braking, or a population specification."
+      ]
+    }
+  ]
+}
