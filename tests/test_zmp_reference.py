@@ -3,6 +3,8 @@ import unittest
 import jax.numpy as jp
 import numpy as np
 
+from wr2.locomotion.configs import load_training_config
+from wr2.locomotion.train import _validate_training_zmp_reference
 from wr2.locomotion.walking_env import expected_foot_contacts, expected_foot_heights
 from wr2.reference.walk_zmp import periodic_foot_reference
 from wr2.reference.zmp_validation import (
@@ -32,6 +34,16 @@ class ZMPReferenceValidationTest(unittest.TestCase):
                 self.assertGreaterEqual(result.minimum_zmp_support_margin_m, -0.0005)
                 self.assertLessEqual(result.maximum_lipm_residual_m, 1e-6)
 
+    def test_ppo_preflight_covers_training_lookup_and_exact_eval_command(self):
+        results = _validate_training_zmp_reference(load_training_config())
+        commands = tuple(result.command_forward_m_s for result in results)
+        np.testing.assert_allclose(
+            commands,
+            (0.08, 0.105, 0.13, 0.155, 0.18, 0.10),
+            atol=1e-9,
+        )
+        self.assertTrue(all(result.passed for result in results))
+
     def test_support_schedule_has_tb_style_double_support(self):
         expected = {
             0.0: (True, True),
@@ -60,27 +72,32 @@ class ZMPReferenceValidationTest(unittest.TestCase):
                     stance_expected,
                 )
 
-    def test_reward_height_target_uses_the_reference_foot_schedule(self):
-        for phase in np.linspace(0.0, 2.0 * np.pi, 17, endpoint=False):
+    def test_reward_height_target_matches_tb_half_cycle_semantics(self):
+        expected = {
+            0.0: (0.0, 0.0),
+            np.pi / 2.0: (0.04, 0.0),
+            np.pi: (0.0, 0.0),
+            3.0 * np.pi / 2.0: (0.0, 0.04),
+        }
+        for phase, height_expected in expected.items():
             with self.subTest(phase=phase):
-                _, foot_height, _ = periodic_foot_reference(
-                    jp.asarray(phase),
-                    0.15,
-                    0.72,
-                    0.04,
-                    2.0,
-                )
                 reward_height = expected_foot_heights(
                     jp.asarray(phase),
                     0.04,
                     jp.asarray(True),
-                    2.0,
                 )
                 np.testing.assert_allclose(
                     np.asarray(reward_height),
-                    np.asarray(foot_height),
+                    height_expected,
                     atol=1e-8,
                 )
+
+        standing = expected_foot_heights(
+            jp.asarray(np.pi / 2.0),
+            0.04,
+            jp.asarray(False),
+        )
+        np.testing.assert_array_equal(np.asarray(standing), (0.0, 0.0))
 
     def test_stance_foot_is_stationary_in_world_x(self):
         command = 0.20

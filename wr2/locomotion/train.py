@@ -11,7 +11,7 @@ import os
 import sys
 import time
 import warnings
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -109,6 +109,82 @@ def _acquisition_checkpoint_score(
     )
 
 
+def _validate_training_zmp_reference(
+    training_config: TrainingConfig,
+):
+    """Run the reference-only geometry gate for every PPO lookup command."""
+    from wr2.reference.zmp_validation import (
+        create_reference_context,
+        validate_zmp_reference,
+    )
+
+    environment = training_config.environment
+    zmp = environment.zmp_reference
+    low, high = environment.command_forward_range_m_s
+    if low <= 0.0 or high <= 0.0:
+        raise ValueError(
+            "WR2's current ZMP PPO reference requires a positive forward-command "
+            "range; standing is sampled through zero_command_probability"
+        )
+    if math.isclose(low, high):
+        training_commands = (float(low),)
+    else:
+        if zmp.command_samples < 2:
+            raise ValueError(
+                "environment.zmp_reference.command_samples must be at least two "
+                "when the forward-command range is not fixed"
+            )
+        training_commands = tuple(
+            float(low + index * (high - low) / (zmp.command_samples - 1))
+            for index in range(zmp.command_samples)
+        )
+
+    command_groups = [training_commands]
+    evaluation_command = training_config.ppo.evaluation_forward_command_m_s
+    if not any(
+        math.isclose(evaluation_command, command, abs_tol=1e-9)
+        for command in training_commands
+    ):
+        command_groups.append((float(evaluation_command),))
+
+    results = []
+    samples = 2 * zmp.phase_samples
+    for commands in command_groups:
+        context = create_reference_context(
+            commands,
+            training_config=training_config,
+        )
+        results.extend(
+            validate_zmp_reference(context, command, samples=samples)
+            for command in commands
+        )
+
+    failures = [
+        f"vx={result.command_forward_m_s:.3f}: {failure}"
+        for result in results
+        for failure in result.failures
+    ]
+    if failures:
+        preview = "; ".join(failures[:5])
+        remainder = "" if len(failures) <= 5 else f"; and {len(failures) - 5} more"
+        raise RuntimeError(f"ZMP PPO reference preflight failed: {preview}{remainder}")
+    return tuple(results)
+
+
+def _format_zmp_preflight(results) -> str:
+    commands = ",".join(f"{result.command_forward_m_s:.3f}" for result in results)
+    support_margin_mm = (
+        min(result.minimum_zmp_support_margin_m for result in results) * 1000.0
+    )
+    stance_height_mm = (
+        max(result.worst_stance_bottom_z_m for result in results) * 1000.0
+    )
+    return (
+        f"commands=[{commands}] support_margin>={support_margin_mm:.2f}mm "
+        f"stance_z<={stance_height_mm:.2f}mm"
+    )
+
+
 def smoke_test(steps: int, training_config: TrainingConfig | None = None) -> None:
     _configure_backend_logging()
     with _filter_optional_backend_import_messages():
@@ -117,6 +193,8 @@ def smoke_test(steps: int, training_config: TrainingConfig | None = None) -> Non
         from wr2.locomotion.walking_env import WR2WalkingEnv
 
     training_config = training_config or load_training_config()
+    zmp_preflight = _validate_training_zmp_reference(training_config)
+    print(f"ZMP PPO preflight passed: {_format_zmp_preflight(zmp_preflight)}")
     environment = WR2WalkingEnv(
         training_config.environment, add_observation_noise=False
     )
@@ -193,6 +271,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             f"Restore checkpoint does not exist: {args.restore_checkpoint}"
         )
 
+    zmp_preflight = _validate_training_zmp_reference(training_config)
     environment = WR2WalkingEnv(
         training_config.environment,
         add_observation_noise=True,
@@ -256,6 +335,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         f"{training_config.environment.zmp_reference.phase_samples} phase lookup; "
         f"IK residual={zmp.max_ik_position_residual_m * 1000.0:.2f}mm"
     )
+    print(f"  ZMP preflight: {_format_zmp_preflight(zmp_preflight)}")
     print(
         "  Network:      "
         f"policy={list(training_config.network.policy_hidden_layer_sizes)} "
@@ -282,6 +362,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         "training_config": effective_config,
         "actuator_model": environment.robot.config["actuators"]["htd45hServo"],
         "active_home_action": np.asarray(environment.home_action).tolist(),
+        "zmp_reference_validation": [asdict(result) for result in zmp_preflight],
     }
     (output / "run_config.json").write_text(
         json.dumps(run_config, indent=2, sort_keys=True) + "\n"

@@ -364,17 +364,30 @@ class TrainingInterfaceTest(unittest.TestCase):
         joint_position = np.asarray(
             state.pipeline_state.q[environment._joint_qpos_indices]
         )
-        reference = np.asarray(
-            environment._zmp_reference.joint_position(
-                state.info["gait_phase"],
-                state.info["command"],
-                environment._is_walking(state.info["command"]),
-            )
-        )
-        np.testing.assert_allclose(frame[55:72], joint_position - reference, atol=1e-7)
+        np.testing.assert_allclose(frame[55:72], joint_position - home, atol=1e-7)
         np.testing.assert_allclose(
             np.asarray(state.obs["state"][:55])[5:22],
             joint_position - home,
+            atol=1e-7,
+        )
+
+        next_state = jax.jit(environment.step)(state, environment.home_action)
+        jax.block_until_ready(next_state.obs)
+        next_frame = np.asarray(next_state.obs["privileged_state"][:96])
+        next_joint_position = np.asarray(
+            next_state.pipeline_state.q[environment._joint_qpos_indices]
+        )
+        next_reference = np.asarray(
+            environment._zmp_reference.joint_position(
+                next_state.info["gait_phase"],
+                next_state.info["command"],
+                environment._is_walking(next_state.info["command"]),
+            )
+        )
+        self.assertFalse(np.allclose(next_reference, home))
+        np.testing.assert_allclose(
+            next_frame[55:72],
+            next_joint_position - next_reference,
             atol=1e-7,
         )
         self.assertLess(
@@ -538,6 +551,56 @@ class TrainingInterfaceTest(unittest.TestCase):
             np.full(10, self.training_config.network.init_noise_std),
             atol=1e-6,
         )
+
+    def test_ppo_actor_is_deployable_and_critic_consumes_zmp_privileged_state(self):
+        from brax.training.acme import running_statistics, specs
+
+        active = self.robot.active_actuator_indices(("leg",))
+        full_home_action = self.robot.action.home_action(
+            self.robot.home_position_rad,
+            self.robot.lower_limit_rad,
+            self.robot.upper_limit_rad,
+        )
+        networks = make_network_factory(
+            self.training_config.network,
+            home_action=full_home_action[active],
+        )(
+            {"state": self.robot.observation_size, "privileged_state": 1440},
+            10,
+        )
+        normalizer = running_statistics.init_state(
+            {
+                "state": specs.Array((self.robot.observation_size,), jp.float32),
+                "privileged_state": specs.Array((1440,), jp.float32),
+            }
+        )
+        actor = jp.zeros((1, self.robot.observation_size))
+        observations = {
+            "state": actor,
+            "privileged_state": jp.zeros((1, 1440)),
+        }
+        changed_privileged = {
+            **observations,
+            "privileged_state": jp.ones((1, 1440)),
+        }
+
+        policy_parameters = networks.policy_network.init(jax.random.PRNGKey(43))
+        policy_first = networks.policy_network.apply(
+            normalizer, policy_parameters, observations
+        )
+        policy_second = networks.policy_network.apply(
+            normalizer, policy_parameters, changed_privileged
+        )
+        np.testing.assert_array_equal(policy_first, policy_second)
+
+        value_parameters = networks.value_network.init(jax.random.PRNGKey(47))
+        value_first = networks.value_network.apply(
+            normalizer, value_parameters, observations
+        )
+        value_second = networks.value_network.apply(
+            normalizer, value_parameters, changed_privileged
+        )
+        self.assertFalse(np.allclose(value_first, value_second))
 
     def test_zero_action_maps_to_joint_range_midpoint(self):
         targets = self.robot.action.targets(

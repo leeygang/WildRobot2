@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy while preserving WR2's measured actuator envelope.
-version: "0.10.0"
-version_name: "WR2 ZMP-critic gait acquisition"
+version: "0.10.1"
+version_name: "WR2 validated ZMP-critic gait acquisition"
 seed: 0
 
 environment:
@@ -47,9 +47,10 @@ environment:
   # A policy-demand metric, not a fitted thermal time constant. C6 repeats show
   # that real temperature continues rising after 180 s, beyond a 20 s episode.
   torque_exposure_time_constant_s: 10.0
-  # ToddlerBot-style phase/command gait lookup for the privileged critic only.
-  # The lateral CoM path satisfies the LIPM ZMP equation; WR2's five-DOF leg
-  # trajectories are solved against the canonical MuJoCo foot sites.
+  # ToddlerBot strategy: direct PPO from scratch. The phase/command gait lookup
+  # is privileged critic context, not an actor input, action baseline, or motor
+  # imitation reward. WR2's five-DOF trajectory is solved against its canonical
+  # MuJoCo foot sites and its lateral path satisfies the LIPM ZMP equation.
   zmp_reference:
     phase_samples: 36
     command_samples: 5

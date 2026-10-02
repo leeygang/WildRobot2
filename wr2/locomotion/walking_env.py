@@ -18,20 +18,28 @@ from wr2.sim.robot import RobotDescription
 _TWO_PI = 2.0 * np.pi
 
 
+def _smoothstep(value: jax.Array) -> jax.Array:
+    value = jp.clip(value, 0.0, 1.0)
+    return value * value * (3.0 - 2.0 * value)
+
+
 def expected_foot_heights(
     gait_phase: jax.Array,
     swing_height_m: float,
     is_walking: jax.Array,
-    single_double_support_ratio: float = 2.0,
 ) -> jax.Array:
-    """Return left/right ground-relative swing targets for one gait cycle."""
-    _, targets, _ = periodic_foot_reference(
-        gait_phase,
-        0.0,
-        1.0,
-        swing_height_m,
-        single_double_support_ratio,
-    )
+    """Return ToddlerBot's left/right half-cycle swing-height targets."""
+    phase = jp.mod(gait_phase, _TWO_PI)
+
+    def swing_profile(progress: jax.Array) -> jax.Array:
+        triangular = jp.where(progress < 0.5, 2.0 * progress, 2.0 * (1.0 - progress))
+        return swing_height_m * _smoothstep(triangular)
+
+    left_progress = phase / np.pi
+    right_progress = (phase - np.pi) / np.pi
+    left_height = jp.where(phase < np.pi, swing_profile(left_progress), 0.0)
+    right_height = jp.where(phase >= np.pi, swing_profile(right_progress), 0.0)
+    targets = jp.stack([left_height, right_height])
     return jp.where(is_walking, targets, jp.zeros(2))
 
 
@@ -424,6 +432,7 @@ class WR2WalkingEnv(PipelineEnv):
         backlash: jax.Array,
         foot_contact: jax.Array,
         desired_contact: jax.Array,
+        zmp_reference_active: jax.Array | None = None,
     ) -> tuple[dict[str, jax.Array], dict[str, jax.Array]]:
         joint_position = pipeline_state.q[self._joint_qpos_indices]
         joint_velocity = pipeline_state.qd[self._joint_qvel_indices]
@@ -531,10 +540,12 @@ class WR2WalkingEnv(PipelineEnv):
                 projected_gravity,
             ]
         )
+        if zmp_reference_active is None:
+            zmp_reference_active = self._is_walking(command)
         zmp_joint_position = self._zmp_reference.joint_position(
             gait_phase,
             command,
-            self._is_walking(command),
+            zmp_reference_active,
         )
         privileged = jp.concatenate(
             [
@@ -742,6 +753,7 @@ class WR2WalkingEnv(PipelineEnv):
             backlash,
             foot_contact,
             desired_contact,
+            zmp_reference_active=jp.asarray(False),
         )
         observation = {
             "state": self._stack_observation(
@@ -984,7 +996,6 @@ class WR2WalkingEnv(PipelineEnv):
             gait_phase,
             self.config.swing_height_m,
             is_walking,
-            self.config.zmp_reference.single_double_support_ratio,
         )
         foot_height = (
             pipeline_state.site_xpos[self._foot_site_ids, 2] - self._home_foot_site_z

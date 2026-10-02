@@ -36,6 +36,11 @@ The regression test is:
 uv run --extra training pytest -q tests/test_zmp_reference.py
 ```
 
+PPO training and `--smoke` invoke this gate automatically for every configured
+lookup command plus the exact deterministic-evaluation command. The manual
+command remains useful for inspecting additional speeds or obtaining a concise
+standalone report.
+
 ## Visual audit
 
 Replay one speed in MuJoCo Viewer:

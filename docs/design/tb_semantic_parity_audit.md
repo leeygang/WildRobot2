@@ -99,11 +99,12 @@ WR2's current acquisition command has zero lateral and yaw components.
 
 ## Commands, phase, and foot guidance
 
-The 0.72 s gait period, sine/cosine phase representation, alternating swing
-assignment, 2:1 single-support-to-double-support ratio, cubic smoothstep
+The 0.72 s gait period, sine/cosine phase representation, cubic smoothstep
 foot-height profile, 0.04 m swing height, and 0.0007 square-metre foot-height
-kernel are aligned. WR2 uses one periodic foot schedule for the IK lookup,
-foot-height reward, desired-contact metric, and critic contact reference.
+kernel are aligned. As in ToddlerBot's active code, the dense foot-height
+reward uses alternating half-cycle swings. The ZMP IK lookup and desired
+critic-contact feature separately use the planner's 2:1
+single-support-to-double-support design.
 
 ToddlerBot samples forward/backward, lateral, turning, and standing commands.
 WR2 gait acquisition intentionally samples 0.08--0.18 m/s forward commands and
@@ -160,6 +161,10 @@ generates a lookup for WR2's five-DOF legs. The critic's 17-value error slot is
 now measured against that trajectory, matching ToddlerBot's learning
 architecture without exposing simulator-only reference positions to the actor
 or enabling a joint-imitation reward.
+At environment reset, WR2 uses `walk_home` as the critic reference and enables
+the phase/command lookup on the first control transition. This reproduces
+ToddlerBot's special static `t=0` frame and avoids an artificial initial
+reference error.
 
 This is architecture parity, not reuse of ToddlerBot's numerical table. Its
 six-DOF leg IK and dimensions are incompatible with WR2. Every generated WR2
@@ -172,6 +177,8 @@ LIPM equation over a complete cycle at every target speed. A MuJoCo viewer
 provides the same kinematic visual audit used by ToddlerBot, with additional
 planned-ZMP and support-polygon overlays. These checks validate reference
 geometry and phase semantics, not closed-loop dynamic stability.
+PPO startup runs the same gate over every training lookup command and the exact
+evaluation command before any GPU compilation.
 
 ## Reset, termination, and contact
 

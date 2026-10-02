@@ -51,6 +51,8 @@ class ZMPGeometryResult:
 def create_reference_context(
     commands_m_s: tuple[float, ...],
     config_path: str | Path = DEFAULT_TRAINING_CONFIG_PATH,
+    *,
+    training_config: TrainingConfig | None = None,
 ) -> ZMPReferenceContext:
     """Load the canonical model and build an exact command lookup."""
     if not commands_m_s or any(command <= 0.0 for command in commands_m_s):
@@ -61,7 +63,8 @@ def create_reference_context(
         if not np.allclose(spacing, spacing[0], atol=1e-9):
             raise ValueError("three or more validation commands must be evenly spaced")
 
-    training_config = load_training_config(config_path)
+    if training_config is None:
+        training_config = load_training_config(config_path)
     robot = RobotDescription.load(include_local_calibration=False)
     model = mujoco.MjModel.from_xml_path(str(robot.directory / "scene_mjx.xml"))
     data = mujoco.MjData(model)

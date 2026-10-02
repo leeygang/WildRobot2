@@ -104,7 +104,9 @@ Linear Inverted Pendulum Model path chooses lateral CoM motion so
 command/phase lookup then solves the canonical WR2 MuJoCo model for bilateral
 five-DOF leg positions. The reference is privileged critic context only; the
 actor still learns absolute leg targets from deployable proprioception, and no
-ZMP checkpoint or imitation pretraining is a prerequisite.
+ZMP checkpoint or imitation pretraining is a prerequisite. At reset, the
+critic reference is the static `walk_home` pose; the periodic lookup becomes
+active on the first control transition, matching ToddlerBot's `t=0` boundary.
 
 The WR2 environment starts from `walk_home`, runs at 50 Hz over a 500 Hz
 physics model. One policy target is held for ten 2 ms physics substeps; servo
@@ -116,11 +118,11 @@ termination. The active acquisition config trains at 0.08--0.18 m/s under
 nominal dynamics; the robust stage expands this to 0.10--0.25 m/s and enables
 domain randomization. Both include explicit standing episodes and resample
 commands every three seconds. A smooth alternating-foot
-target provides dense swing-height guidance. The swing schedule uses
-ToddlerBot's 2:1 single-support-to-double-support ratio, and the same schedule
-drives the foot-height reward, desired-contact metric, and privileged ZMP
-reference. Ground-only contacts above 1 N
-of upward world force are used for gait metrics. ToddlerBot's active velocity,
+target provides dense swing-height guidance using ToddlerBot's active
+half-cycle reward equation. Separately, the ZMP trajectory and desired-contact
+critic feature use ToddlerBot's 2:1 single-support-to-double-support design.
+Ground-only contacts above 1 N of upward world force are used for gait metrics.
+ToddlerBot's active velocity,
 roll/pitch-rate, torso orientation, foot-phase, action-rate, weighted-pose,
 close-feet, and foot-tilt
 terms are retained. Contact-phase match remains a P0 metric rather than an
@@ -200,6 +202,10 @@ without changing the 825/1440 network shapes. Parameter shapes from v0.9.2 are
 technically compatible, but the value function semantics changed, so the first
 comparison run must be a cold start. Older residual-action checkpoints remain
 incompatible, and pre-v0.9.1 runs used the broken episode lifecycle.
+v0.10.1 completes the runtime contract with ToddlerBot's static `t=0`
+reference boundary, active half-cycle foot-height reward semantics, and the
+automatic geometry preflight. It keeps the same network shapes, but the first
+v0.10.1 comparison should also be a cold start.
 
 Validate the generated reference before training with:
 
@@ -216,6 +222,9 @@ reference audit, as in ToddlerBot's reference-motion viewer; it does not
 establish closed-loop dynamic stability. The complete gate and interpretation
 are documented in
 [`zmp_reference_validation.md`](zmp_reference_validation.md).
+The same geometry gate runs automatically at PPO startup for every training
+lookup command and the exact evaluation command. Training fails before GPU
+compilation if the model or configuration invalidates the reference.
 
 Full PPO training fails fast unless JAX reports a GPU backend; `--allow-cpu`
 is reserved for intentional development checks. Console progress follows the
