@@ -99,9 +99,11 @@ WR2's current acquisition command has zero lateral and yaw components.
 
 ## Commands, phase, and foot guidance
 
-The 0.72 s gait period, sine/cosine phase representation, alternating half-cycle
-swing assignment, cubic smoothstep foot-height profile, 0.04 m swing height,
-and 0.0007 square-metre foot-height kernel are aligned.
+The 0.72 s gait period, sine/cosine phase representation, alternating swing
+assignment, 2:1 single-support-to-double-support ratio, cubic smoothstep
+foot-height profile, 0.04 m swing height, and 0.0007 square-metre foot-height
+kernel are aligned. WR2 uses one periodic foot schedule for the IK lookup,
+foot-height reward, desired-contact metric, and critic contact reference.
 
 ToddlerBot samples forward/backward, lateral, turning, and standing commands.
 WR2 gait acquisition intentionally samples 0.08--0.18 m/s forward commands and
@@ -161,8 +163,15 @@ or enabling a joint-imitation reward.
 
 This is architecture parity, not reuse of ToddlerBot's numerical table. Its
 six-DOF leg IK and dimensions are incompatible with WR2. Every generated WR2
-lookup is checked against a configured maximum foot-position residual; the
-active 0.08--0.18 m/s table has a 2.1 mm worst residual under a 6 mm gate.
+lookup is checked against a configured maximum foot-position residual. WR2's
+0.294 m reference root height keeps the complete 0.10, 0.15, 0.20, and
+0.25 m/s validation set reachable by its five-DOF legs; the configured IK gate
+is 7 mm. A headless regression additionally checks stance-sole height, swing
+penetration, planned-ZMP containment in the active support polygon, and the
+LIPM equation over a complete cycle at every target speed. A MuJoCo viewer
+provides the same kinematic visual audit used by ToddlerBot, with additional
+planned-ZMP and support-polygon overlays. These checks validate reference
+geometry and phase semantics, not closed-loop dynamic stability.
 
 ## Reset, termination, and contact
 

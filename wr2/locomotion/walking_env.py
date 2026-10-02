@@ -11,42 +11,43 @@ from brax.io import mjcf
 from mujoco.mjx._src import support as mjx_support
 
 from wr2.locomotion.configs import WalkingEnvConfig, load_training_config
-from wr2.reference.walk_zmp import WR2ZMPReference
+from wr2.reference.walk_zmp import WR2ZMPReference, periodic_foot_reference
 from wr2.sim.robot import RobotDescription
 
 
 _TWO_PI = 2.0 * np.pi
 
 
-def _smoothstep(value: jax.Array) -> jax.Array:
-    value = jp.clip(value, 0.0, 1.0)
-    return value * value * (3.0 - 2.0 * value)
-
-
 def expected_foot_heights(
     gait_phase: jax.Array,
     swing_height_m: float,
     is_walking: jax.Array,
+    single_double_support_ratio: float = 2.0,
 ) -> jax.Array:
     """Return left/right ground-relative swing targets for one gait cycle."""
-    phase = jp.mod(gait_phase, _TWO_PI)
-
-    def swing_profile(progress: jax.Array) -> jax.Array:
-        triangular = jp.where(progress < 0.5, 2.0 * progress, 2.0 * (1.0 - progress))
-        return swing_height_m * _smoothstep(triangular)
-
-    left_progress = phase / np.pi
-    right_progress = (phase - np.pi) / np.pi
-    left_height = jp.where(phase < np.pi, swing_profile(left_progress), 0.0)
-    right_height = jp.where(phase >= np.pi, swing_profile(right_progress), 0.0)
-    targets = jp.stack([left_height, right_height])
+    _, targets, _ = periodic_foot_reference(
+        gait_phase,
+        0.0,
+        1.0,
+        swing_height_m,
+        single_double_support_ratio,
+    )
     return jp.where(is_walking, targets, jp.zeros(2))
 
 
-def expected_foot_contacts(gait_phase: jax.Array, is_walking: jax.Array) -> jax.Array:
+def expected_foot_contacts(
+    gait_phase: jax.Array,
+    is_walking: jax.Array,
+    single_double_support_ratio: float = 2.0,
+) -> jax.Array:
     """Return desired left/right stance contact for one gait cycle."""
-    left_stance = jp.mod(gait_phase, _TWO_PI) >= np.pi
-    contacts = jp.stack([left_stance, ~left_stance])
+    _, _, contacts = periodic_foot_reference(
+        gait_phase,
+        0.0,
+        1.0,
+        0.0,
+        single_double_support_ratio,
+    )
     return jp.where(is_walking, contacts, jp.ones(2, dtype=jp.bool_))
 
 
@@ -281,14 +282,13 @@ class WR2WalkingEnv(PipelineEnv):
             gait_cycle_s=self.config.gait_cycle_s,
             swing_height_m=self.config.swing_height_m,
             com_height_m=zmp_config.com_height_m,
+            single_double_support_ratio=zmp_config.single_double_support_ratio,
             phase_samples=zmp_config.phase_samples,
             command_samples=zmp_config.command_samples,
             ik_damping=zmp_config.ik_damping,
             ik_max_iterations=zmp_config.ik_max_iterations,
             max_position_residual_m=zmp_config.max_position_residual_m,
-            max_orientation_residual_rad=(
-                zmp_config.max_orientation_residual_rad
-            ),
+            max_orientation_residual_rad=(zmp_config.max_orientation_residual_rad),
         )
 
         active_mask = np.asarray(
@@ -708,7 +708,11 @@ class WR2WalkingEnv(PipelineEnv):
         )
         previous_action = self._home_action
         foot_contact = self._foot_contact(pipeline_state)
-        desired_contact = expected_foot_contacts(gait_phase, is_walking)
+        desired_contact = expected_foot_contacts(
+            gait_phase,
+            is_walking,
+            self.config.zmp_reference.single_double_support_ratio,
+        )
         _, initial_gyro, _, initial_gravity = self._kinematic_observation(
             pipeline_state
         )
@@ -977,7 +981,10 @@ class WR2WalkingEnv(PipelineEnv):
         joint_velocity_cost = jp.sum(jp.square(joint_velocity))
         foot_contact = self._foot_contact(pipeline_state)
         desired_foot_height = expected_foot_heights(
-            gait_phase, self.config.swing_height_m, is_walking
+            gait_phase,
+            self.config.swing_height_m,
+            is_walking,
+            self.config.zmp_reference.single_double_support_ratio,
         )
         foot_height = (
             pipeline_state.site_xpos[self._foot_site_ids, 2] - self._home_foot_site_z
@@ -986,7 +993,11 @@ class WR2WalkingEnv(PipelineEnv):
         feet_phase = jp.exp(
             -foot_height_error_squared / self.config.feet_phase_tracking_sigma_m2
         ) * (1.0 + jp.max(desired_foot_height) / self.config.swing_height_m)
-        desired_contact = expected_foot_contacts(gait_phase, is_walking)
+        desired_contact = expected_foot_contacts(
+            gait_phase,
+            is_walking,
+            self.config.zmp_reference.single_double_support_ratio,
+        )
         contact_phase = jp.mean((foot_contact == desired_contact).astype(jp.float32))
         both_feet_contact = is_walking.astype(jp.float32) * jp.all(foot_contact).astype(
             jp.float32
@@ -1116,7 +1127,11 @@ class WR2WalkingEnv(PipelineEnv):
             0.0,
             next_gait_phase,
         )
-        next_desired_contact = expected_foot_contacts(next_gait_phase, next_is_walking)
+        next_desired_contact = expected_foot_contacts(
+            next_gait_phase,
+            next_is_walking,
+            self.config.zmp_reference.single_double_support_ratio,
+        )
         observation_frames, imu_state = self._observation(
             pipeline_state,
             action,

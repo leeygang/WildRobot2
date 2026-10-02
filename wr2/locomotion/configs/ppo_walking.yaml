@@ -53,10 +53,15 @@ environment:
   zmp_reference:
     phase_samples: 36
     command_samples: 5
-    com_height_m: 0.301
+    # A slightly deeper reference crouch keeps 0.20--0.25 m/s stance geometry
+    # reachable by WR2's five-DOF legs. The torso-height reward remains off.
+    com_height_m: 0.294
+    # Match ToddlerBot: single support lasts twice as long as double support.
+    single_double_support_ratio: 2.0
     ik_damping: 0.0002
     ik_max_iterations: 120
-    max_position_residual_m: 0.006
+    # The 0.25 m/s diagnostic bin reaches 6.19 mm; keep a narrow 7 mm gate.
+    max_position_residual_m: 0.007
     max_orientation_residual_rad: 0.005
 
 reward_weights:

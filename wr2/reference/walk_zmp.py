@@ -36,10 +36,11 @@ def periodic_lipm_lateral_reference(
 ) -> jax.Array:
     """Return periodic lateral CoM and implied ZMP positions.
 
-    The CoM follows a sinusoid.  Its amplitude is selected so the Linear
-    Inverted Pendulum Model relation ``zmp = com - h/g * com_acceleration``
-    places the ZMP beneath the alternating support-foot centers.  Phase zero
-    starts the left-foot swing, so the ZMP is on the right at pi/2.
+    The reduced-order CoM follows a sinusoid.  Its amplitude is selected so the
+    Linear Inverted Pendulum Model relation
+    ``zmp = com - h/g * com_acceleration`` places the ZMP beneath the
+    alternating support-foot centers.  Phase zero is the middle of double
+    support before left-foot swing; the ZMP is on the right at pi/2.
     """
     angular_frequency = _TWO_PI / gait_cycle_s
     zmp_gain = 1.0 + com_height_m * angular_frequency**2 / _GRAVITY_M_S2
@@ -47,6 +48,76 @@ def periodic_lipm_lateral_reference(
     com_acceleration_y = -(angular_frequency**2) * com_y
     zmp_y = com_y - com_height_m / _GRAVITY_M_S2 * com_acceleration_y
     return jp.stack([com_y, zmp_y])
+
+
+def _periodic_foot_reference(
+    array_lib,
+    gait_phase,
+    forward_speed_m_s: float,
+    gait_cycle_s: float,
+    swing_height_m: float,
+    single_double_support_ratio: float,
+):
+    """Return left/right x, z, and stance states for one periodic step."""
+    phase = array_lib.mod(gait_phase, _TWO_PI)
+    local_phase = array_lib.stack([phase, array_lib.mod(phase + np.pi, _TWO_PI)])
+    transition_half_width = np.pi / (2.0 * (single_double_support_ratio + 1.0))
+    swing_start = transition_half_width
+    swing_end = np.pi - transition_half_width
+    swing_length = swing_end - swing_start
+    stance_length = _TWO_PI - swing_length
+    swing = (local_phase > swing_start) & (local_phase < swing_end)
+    swing_progress = array_lib.clip(
+        (local_phase - swing_start) / swing_length, 0.0, 1.0
+    )
+
+    # One foot advances by speed * cycle each cycle.  The amplitude below also
+    # makes the stance-foot world velocity zero when the torso moves at speed.
+    half_range = forward_speed_m_s * gait_cycle_s * stance_length / (2.0 * _TWO_PI)
+    stance_slope = -2.0 * half_range / stance_length
+    p2 = swing_progress * swing_progress
+    p3 = p2 * swing_progress
+    x_swing = (
+        (2.0 * p3 - 3.0 * p2 + 1.0) * -half_range
+        + (p3 - 2.0 * p2 + swing_progress) * swing_length * stance_slope
+        + (-2.0 * p3 + 3.0 * p2) * half_range
+        + (p3 - p2) * swing_length * stance_slope
+    )
+    stance_progress = array_lib.where(
+        local_phase >= swing_end,
+        (local_phase - swing_end) / stance_length,
+        (local_phase + _TWO_PI - swing_end) / stance_length,
+    )
+    x_stance = half_range * (1.0 - 2.0 * stance_progress)
+    foot_x = array_lib.where(swing, x_swing, x_stance)
+
+    triangular = array_lib.where(
+        swing_progress < 0.5,
+        2.0 * swing_progress,
+        2.0 * (1.0 - swing_progress),
+    )
+    triangular = array_lib.clip(triangular, 0.0, 1.0)
+    smooth_height = triangular * triangular * (3.0 - 2.0 * triangular)
+    foot_z = array_lib.where(swing, swing_height_m * smooth_height, 0.0)
+    return foot_x, foot_z, ~swing
+
+
+def periodic_foot_reference(
+    gait_phase: jax.Array,
+    forward_speed_m_s: float,
+    gait_cycle_s: float,
+    swing_height_m: float,
+    single_double_support_ratio: float,
+) -> tuple[jax.Array, jax.Array, jax.Array]:
+    """Return left/right foot x, height, and stance references."""
+    return _periodic_foot_reference(
+        jp,
+        gait_phase,
+        forward_speed_m_s,
+        gait_cycle_s,
+        swing_height_m,
+        single_double_support_ratio,
+    )
 
 
 @dataclass(frozen=True)
@@ -58,6 +129,21 @@ class ZMPReferenceDiagnostics:
     com_lateral_amplitude_m: float
     max_ik_position_residual_m: float
     max_ik_orientation_residual_rad: float
+
+
+@dataclass(frozen=True)
+class ZMPReferenceSample:
+    """One host-side frame for validation and visualization."""
+
+    phase_rad: float
+    command_forward_m_s: float
+    joint_position_rad: np.ndarray
+    com_lateral_m: float
+    zmp_lateral_m: float
+    root_height_m: float
+    foot_forward_m: np.ndarray
+    foot_height_m: np.ndarray
+    stance_mask: np.ndarray
 
 
 _TABLE_CACHE: dict[
@@ -79,6 +165,7 @@ class WR2ZMPReference:
         gait_cycle_s: float,
         swing_height_m: float,
         com_height_m: float,
+        single_double_support_ratio: float,
         phase_samples: int,
         command_samples: int,
         ik_damping: float,
@@ -87,7 +174,9 @@ class WR2ZMPReference:
         max_orientation_residual_rad: float,
     ) -> None:
         if phase_samples < 4 or phase_samples % 2:
-            raise ValueError("ZMP phase_samples must be an even integer of at least four")
+            raise ValueError(
+                "ZMP phase_samples must be an even integer of at least four"
+            )
         if command_samples < 1:
             raise ValueError("ZMP command_samples must be positive")
 
@@ -124,6 +213,7 @@ class WR2ZMPReference:
             float(gait_cycle_s),
             float(swing_height_m),
             float(com_height_m),
+            float(single_double_support_ratio),
             int(phase_samples),
             float(ik_damping),
             int(ik_max_iterations),
@@ -140,6 +230,7 @@ class WR2ZMPReference:
                 gait_cycle_s=gait_cycle_s,
                 swing_height_m=swing_height_m,
                 com_height_m=com_height_m,
+                single_double_support_ratio=single_double_support_ratio,
                 phase_samples=phase_samples,
                 ik_damping=ik_damping,
                 ik_max_iterations=ik_max_iterations,
@@ -164,6 +255,12 @@ class WR2ZMPReference:
         self._joint_lookup = jp.asarray(joint_lookup, dtype=jp.float32)
         self._home_joint_position = jp.asarray(home_joint_position, dtype=jp.float32)
         self._phase_samples = int(phase_samples)
+        self._command_grid_numpy = np.asarray(command_grid)
+        self._gait_cycle_s = float(gait_cycle_s)
+        self._swing_height_m = float(swing_height_m)
+        self._com_height_m = float(com_height_m)
+        self._single_double_support_ratio = float(single_double_support_ratio)
+        self._foot_half_width_m = diagnostics.foot_half_width_m
         self.diagnostics = diagnostics
 
     @staticmethod
@@ -220,13 +317,10 @@ class WR2ZMPReference:
                     jacobian_rotation[:2, dof_indices],
                 ]
             )
-            regularized = (
-                task_jacobian @ task_jacobian.T
-                + damping * np.eye(task_jacobian.shape[0])
+            regularized = task_jacobian @ task_jacobian.T + damping * np.eye(
+                task_jacobian.shape[0]
             )
-            joint_update = task_jacobian.T @ np.linalg.solve(
-                regularized, task_error
-            )
+            joint_update = task_jacobian.T @ np.linalg.solve(regularized, task_error)
             qpos[qpos_indices] = np.clip(
                 qpos[qpos_indices] + np.clip(joint_update, -0.08, 0.08),
                 lower,
@@ -258,6 +352,7 @@ class WR2ZMPReference:
         gait_cycle_s: float,
         swing_height_m: float,
         com_height_m: float,
+        single_double_support_ratio: float,
         phase_samples: int,
         ik_damping: float,
         ik_max_iterations: int,
@@ -324,35 +419,28 @@ class WR2ZMPReference:
         ).copy()
         max_position_residual = 0.0
         max_orientation_residual = 0.0
-
-        def smoothstep(value: float) -> float:
-            value = float(np.clip(value, 0.0, 1.0))
-            return value * value * (3.0 - 2.0 * value)
+        root_height_offset = float(home_qpos[2] - com_height_m)
 
         for command_index, forward_speed in enumerate(command_grid):
-            stride_half_range = forward_speed * gait_cycle_s / 4.0
             for phase_index, phase in enumerate(phase_grid):
                 com_y = -com_lateral_amplitude_m * np.sin(phase)
-                for side, phase_offset in (("left", 0.0), ("right", np.pi)):
-                    local_phase = float(np.mod(phase + phase_offset, _TWO_PI))
-                    if local_phase < np.pi:
-                        progress = local_phase / np.pi
-                        foot_x = stride_half_range * (
-                            -1.0 + 2.0 * smoothstep(progress)
-                        )
-                        triangular = (
-                            2.0 * progress
-                            if progress < 0.5
-                            else 2.0 * (1.0 - progress)
-                        )
-                        foot_z = swing_height_m * smoothstep(triangular)
-                    else:
-                        progress = (local_phase - np.pi) / np.pi
-                        foot_x = stride_half_range * (1.0 - 2.0 * progress)
-                        foot_z = 0.0
-
+                foot_x, foot_z, _ = _periodic_foot_reference(
+                    np,
+                    phase,
+                    float(forward_speed),
+                    gait_cycle_s,
+                    swing_height_m,
+                    single_double_support_ratio,
+                )
+                for side_index, side in enumerate(("left", "right")):
                     values = side_data[side]
-                    target_delta_torso = np.asarray([foot_x, -com_y, foot_z])
+                    target_delta_torso = np.asarray(
+                        [
+                            foot_x[side_index],
+                            -com_y,
+                            foot_z[side_index] + root_height_offset,
+                        ]
+                    )
                     target_position = np.asarray(values["site_position"]) + (
                         world_from_torso @ target_delta_torso
                     )
@@ -393,6 +481,50 @@ class WR2ZMPReference:
         )
         return command_grid, lookup, diagnostics
 
+    def sample(
+        self, gait_phase: float, command_forward_m_s: float
+    ) -> ZMPReferenceSample:
+        """Return a complete host-side reference frame for inspection."""
+        command_index = int(
+            np.argmin(np.abs(self._command_grid_numpy - command_forward_m_s))
+        )
+        matched_command = float(self._command_grid_numpy[command_index])
+        phase = float(np.mod(gait_phase, _TWO_PI))
+        joint_position = np.asarray(
+            self.joint_position(
+                jp.asarray(phase),
+                jp.asarray([matched_command, 0.0, 0.0]),
+                jp.asarray(True),
+            )
+        )
+        com_y, zmp_y = np.asarray(
+            periodic_lipm_lateral_reference(
+                jp.asarray(phase),
+                self._foot_half_width_m,
+                self._com_height_m,
+                self._gait_cycle_s,
+            )
+        )
+        foot_x, foot_z, stance = _periodic_foot_reference(
+            np,
+            phase,
+            matched_command,
+            self._gait_cycle_s,
+            self._swing_height_m,
+            self._single_double_support_ratio,
+        )
+        return ZMPReferenceSample(
+            phase_rad=phase,
+            command_forward_m_s=matched_command,
+            joint_position_rad=joint_position,
+            com_lateral_m=float(com_y),
+            zmp_lateral_m=float(zmp_y),
+            root_height_m=self._com_height_m,
+            foot_forward_m=np.asarray(foot_x, dtype=np.float64),
+            foot_height_m=np.asarray(foot_z, dtype=np.float64),
+            stance_mask=np.asarray(stance, dtype=np.bool_),
+        )
+
     def joint_position(
         self,
         gait_phase: jax.Array,
@@ -401,9 +533,7 @@ class WR2ZMPReference:
     ) -> jax.Array:
         """Interpolate the nearest-command joint reference at ``gait_phase``."""
         command_index = jp.argmin(jp.abs(self._command_grid - command[0]))
-        phase_position = (
-            jp.mod(gait_phase, _TWO_PI) * self._phase_samples / _TWO_PI
-        )
+        phase_position = jp.mod(gait_phase, _TWO_PI) * self._phase_samples / _TWO_PI
         phase_floor = jp.floor(phase_position).astype(jp.int32)
         lower_index = jp.mod(phase_floor, self._phase_samples)
         upper_index = jp.mod(lower_index + 1, self._phase_samples)

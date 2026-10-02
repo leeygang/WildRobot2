@@ -116,7 +116,10 @@ termination. The active acquisition config trains at 0.08--0.18 m/s under
 nominal dynamics; the robust stage expands this to 0.10--0.25 m/s and enables
 domain randomization. Both include explicit standing episodes and resample
 commands every three seconds. A smooth alternating-foot
-target provides dense swing-height guidance. Ground-only contacts above 1 N
+target provides dense swing-height guidance. The swing schedule uses
+ToddlerBot's 2:1 single-support-to-double-support ratio, and the same schedule
+drives the foot-height reward, desired-contact metric, and privileged ZMP
+reference. Ground-only contacts above 1 N
 of upward world force are used for gait metrics. ToddlerBot's active velocity,
 roll/pitch-rate, torso orientation, foot-phase, action-rate, weighted-pose,
 close-feet, and foot-tilt
@@ -197,6 +200,22 @@ without changing the 825/1440 network shapes. Parameter shapes from v0.9.2 are
 technically compatible, but the value function semantics changed, so the first
 comparison run must be a cold start. Older residual-action checkpoints remain
 incompatible, and pre-v0.9.1 runs used the broken episode lifecycle.
+
+Validate the generated reference before training with:
+
+```bash
+uv run --extra training python -m wr2.tools.view_zmp_reference \
+  --validate-only --commands 0.10,0.15,0.20,0.25
+```
+
+On a desktop, omit `--validate-only` to replay the first command in MuJoCo
+Viewer. Red is the model's full-body CoM, yellow is the planned reduced-order
+LIPM CoM/root proxy, green is the planned ZMP and active support polygon, blue
+outlines a stance foot, and gray outlines a swing foot. This is a kinematic
+reference audit, as in ToddlerBot's reference-motion viewer; it does not
+establish closed-loop dynamic stability. The complete gate and interpretation
+are documented in
+[`zmp_reference_validation.md`](zmp_reference_validation.md).
 
 Full PPO training fails fast unless JAX reports a GPU backend; `--allow-cpu`
 is reserved for intentional development checks. Console progress follows the

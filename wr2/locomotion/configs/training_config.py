@@ -73,6 +73,7 @@ class ZMPReferenceConfig:
     phase_samples: int
     command_samples: int
     com_height_m: float
+    single_double_support_ratio: float
     ik_damping: float
     ik_max_iterations: int
     max_position_residual_m: float
@@ -402,6 +403,10 @@ def load_training_config(
         )
     if zmp_reference.com_height_m <= 0.0:
         raise ValueError("environment.zmp_reference.com_height_m must be positive")
+    if zmp_reference.single_double_support_ratio <= 0.0:
+        raise ValueError(
+            "environment.zmp_reference.single_double_support_ratio must be positive"
+        )
     if zmp_reference.ik_damping <= 0.0:
         raise ValueError("environment.zmp_reference.ik_damping must be positive")
     if zmp_reference.max_position_residual_m <= 0.0:

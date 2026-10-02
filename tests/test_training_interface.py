@@ -207,7 +207,11 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(environment.privileged_actuator_force_scale, 0.1)
         self.assertEqual(environment.zmp_reference.phase_samples, 36)
         self.assertEqual(environment.zmp_reference.command_samples, 5)
-        self.assertEqual(environment.zmp_reference.com_height_m, 0.301)
+        self.assertEqual(environment.zmp_reference.com_height_m, 0.294)
+        self.assertEqual(
+            environment.zmp_reference.single_double_support_ratio,
+            2.0,
+        )
         self.assertEqual(environment.zmp_reference.max_orientation_residual_rad, 0.005)
         self.assertEqual(environment.swing_height_m, 0.04)
         self.assertEqual(environment.feet_phase_tracking_sigma_m2, 0.0007)
