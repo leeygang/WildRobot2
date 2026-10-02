@@ -404,6 +404,10 @@ def _walking_env_contract_fingerprints() -> dict[str, str]:
         normalized = ast.dump(node, annotate_fields=True, include_attributes=False)
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
+    zmp_path = REPO_ROOT / "wr2/reference/walk_zmp.py"
+    zmp_tree = ast.parse(
+        zmp_path.read_text(encoding="utf-8"), filename=str(zmp_path)
+    )
     return {
         "observation_method_sha256": digest(observation),
         "normalized_action_rate_cost_sha256": digest(
@@ -418,6 +422,7 @@ def _walking_env_contract_fingerprints() -> dict[str, str]:
         "action_pipeline_prefix_sha256": digest(
             ast.Module(body=action_prefix, type_ignores=[])
         ),
+        "zmp_reference_sha256": digest(zmp_tree),
     }
 
 
@@ -470,6 +475,7 @@ def _contract_snapshot(training_config: Path) -> dict[str, Any]:
         "privileged_actuator_force_scale": (
             training.environment.privileged_actuator_force_scale
         ),
+        "zmp_reference": asdict(training.environment.zmp_reference),
         "normalize_observations": training.ppo.normalize_observations,
         "output": asdict(training.output),
         "walking_env_source": _walking_env_contract_fingerprints(),

@@ -11,6 +11,7 @@ from wr2.locomotion.configs.training_config import (
     RewardWeights,
     TrainingConfig,
     WalkingEnvConfig,
+    ZMPReferenceConfig,
     load_training_config,
     training_config_to_dict,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "RewardWeights",
     "TrainingConfig",
     "WalkingEnvConfig",
+    "ZMPReferenceConfig",
     "load_training_config",
     "training_config_to_dict",
 ]

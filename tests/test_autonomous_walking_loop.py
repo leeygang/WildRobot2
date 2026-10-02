@@ -118,6 +118,8 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
         )
         self.assertEqual(contract["privileged_linear_velocity_scale"], 2.0)
         self.assertEqual(contract["privileged_actuator_force_scale"], 0.1)
+        self.assertEqual(contract["zmp_reference"]["phase_samples"], 36)
+        self.assertEqual(contract["zmp_reference"]["command_samples"], 5)
         self.assertEqual(contract["servo_model"]["torque_limit_nm"], 4.0)
         self.assertEqual(
             len(contract["walking_env_source"]["observation_method_sha256"]), 64
@@ -133,6 +135,9 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
         self.assertEqual(
             len(contract["walking_env_source"]["feet_lateral_distance_sha256"]),
             64,
+        )
+        self.assertEqual(
+            len(contract["walking_env_source"]["zmp_reference_sha256"]), 64
         )
         self.assertEqual(len(contract["walking_metric_acceptance_sha256"]), 64)
 

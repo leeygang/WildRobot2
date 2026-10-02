@@ -69,6 +69,17 @@ class DynamicsRandomization:
 
 
 @dataclass(frozen=True)
+class ZMPReferenceConfig:
+    phase_samples: int
+    command_samples: int
+    com_height_m: float
+    ik_damping: float
+    ik_max_iterations: int
+    max_position_residual_m: float
+    max_orientation_residual_rad: float
+
+
+@dataclass(frozen=True)
 class WalkingEnvConfig:
     episode_length: int
     active_groups: tuple[str, ...]
@@ -98,6 +109,7 @@ class WalkingEnvConfig:
     yaw_tracking_sigma: float
     height_tracking_sigma: float
     torque_exposure_time_constant_s: float
+    zmp_reference: ZMPReferenceConfig
     observation_noise: ObservationNoise
     rewards: RewardWeights
     randomization: DynamicsRandomization
@@ -277,9 +289,14 @@ def load_training_config(
         raise ValueError("domain_randomization.backlash_rad must be non-negative")
 
     env_raw = _mapping(root["environment"], "environment")
-    nested_env_fields = {"observation_noise", "rewards", "randomization"}
+    nested_env_fields = {
+        "observation_noise",
+        "rewards",
+        "randomization",
+        "zmp_reference",
+    }
     env_fields = {field.name for field in fields(WalkingEnvConfig)} - nested_env_fields
-    _expect_keys(env_raw, env_fields, "environment")
+    _expect_keys(env_raw, env_fields | {"zmp_reference"}, "environment")
     range_fields = {
         "command_forward_range_m_s",
         "command_lateral_range_m_s",
@@ -301,6 +318,20 @@ def load_training_config(
         isinstance(value, str) and value for value in active_groups
     ):
         raise ValueError("environment.active_groups must be a list of names")
+    zmp_raw = _mapping(env_raw["zmp_reference"], "environment.zmp_reference")
+    zmp_fields = {field.name for field in fields(ZMPReferenceConfig)}
+    _expect_keys(zmp_raw, zmp_fields, "environment.zmp_reference")
+    zmp_integer_fields = {"phase_samples", "command_samples", "ik_max_iterations"}
+    zmp_reference = ZMPReferenceConfig(
+        **{
+            name: _positive_int(zmp_raw[name], f"environment.zmp_reference.{name}")
+            for name in zmp_integer_fields
+        },
+        **{
+            name: _float(zmp_raw[name], f"environment.zmp_reference.{name}")
+            for name in zmp_fields - zmp_integer_fields
+        },
+    )
     environment = WalkingEnvConfig(
         episode_length=_positive_int(
             env_raw["episode_length"], "environment.episode_length"
@@ -315,6 +346,7 @@ def load_training_config(
         ),
         active_groups=tuple(active_groups),
         pose_weights=_float_tuple(env_raw["pose_weights"], "environment.pose_weights"),
+        zmp_reference=zmp_reference,
         **{name: _float(env_raw[name], f"environment.{name}") for name in float_fields},
         **{
             name: _float_range(env_raw[name], f"environment.{name}")
@@ -364,6 +396,32 @@ def load_training_config(
         raise ValueError("environment.feet_phase_tracking_sigma_m2 must be positive")
     if environment.min_feet_lateral_distance_m <= 0.0:
         raise ValueError("environment.min_feet_lateral_distance_m must be positive")
+    if zmp_reference.phase_samples < 4 or zmp_reference.phase_samples % 2:
+        raise ValueError(
+            "environment.zmp_reference.phase_samples must be even and at least four"
+        )
+    if zmp_reference.com_height_m <= 0.0:
+        raise ValueError("environment.zmp_reference.com_height_m must be positive")
+    if zmp_reference.ik_damping <= 0.0:
+        raise ValueError("environment.zmp_reference.ik_damping must be positive")
+    if zmp_reference.max_position_residual_m <= 0.0:
+        raise ValueError(
+            "environment.zmp_reference.max_position_residual_m must be positive"
+        )
+    if zmp_reference.max_orientation_residual_rad <= 0.0:
+        raise ValueError(
+            "environment.zmp_reference.max_orientation_residual_rad must be positive"
+        )
+    if environment.command_lateral_range_m_s != (0.0, 0.0):
+        raise ValueError(
+            "WR2's current ZMP lookup supports forward commands only; "
+            "environment.command_lateral_range_m_s must be [0, 0]"
+        )
+    if environment.command_yaw_range_rad_s != (0.0, 0.0):
+        raise ValueError(
+            "WR2's current ZMP lookup supports forward commands only; "
+            "environment.command_yaw_range_rad_s must be [0, 0]"
+        )
 
     ppo_raw = _mapping(root["ppo"], "ppo")
     ppo_fields = {field.name for field in fields(PPOConfig)}

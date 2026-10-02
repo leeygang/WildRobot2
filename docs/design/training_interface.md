@@ -53,8 +53,9 @@ high action saturation. Modeling the bound in the distribution removes it.
 
 Foot contacts, actuator force, base linear velocity, and exact simulator state
 are not policy inputs. Following ToddlerBot, PPO uses an asymmetric critic: its
-privileged 96-value frame appends target error, torso linear velocity, actuator
-force, measured contact, and desired contact to the noiseless actor fields.
+privileged 96-value frame appends joint-position error relative to the WR2 ZMP
+walking reference, torso linear velocity, actuator force, measured contact,
+and desired contact to the noiseless actor fields.
 Torso linear velocity is scaled by 2.0 and actuator force by 0.1, matching
 ToddlerBot's asymmetric critic while observation normalization is disabled.
 Only the 55-value actor frame is required on hardware.
@@ -97,8 +98,13 @@ MJX environment. ToddlerBot does not pretrain a ZMP policy and then fine-tune
 with PPO: it builds an analytic ZMP/phase reference inside each PPO environment
 and normally initializes PPO from scratch. Its active `walk.gin` disables ZMP
 joint-trajectory imitation, using the reference for phase, stance, commands,
-and privileged context. WR2 follows that direct-PPO strategy with an analytic
-phase, swing-height, and stance reference; no ZMP checkpoint is a prerequisite.
+and privileged context. WR2 follows that direct-PPO strategy. Its periodic
+Linear Inverted Pendulum Model path chooses lateral CoM motion so
+`zmp = com - h/g * com_acceleration` alternates beneath the support feet. A
+command/phase lookup then solves the canonical WR2 MuJoCo model for bilateral
+five-DOF leg positions. The reference is privileged critic context only; the
+actor still learns absolute leg targets from deployable proprioception, and no
+ZMP checkpoint or imitation pretraining is a prerequisite.
 
 The WR2 environment starts from `walk_home`, runs at 50 Hz over a 500 Hz
 physics model. One policy target is held for ten 2 ms physics substeps; servo
@@ -186,11 +192,10 @@ Brax checkpoints are written after each evaluation. During gait acquisition,
 ratio, contact-phase progress, and reduced double support; this prevents the
 strict final walking score from selecting a stationary policy. `params` stores
 the final policy. The active config evaluates at a fixed 0.10 m/s.
-v0.9.2 is the first baseline with reset-safe episodes and equation-level
-ToddlerBot action-rate/critic parity. Its checkpoints can initialize a new run
-with `--restore-checkpoint PATH`. The v0.9.1 parameter shape is technically
-compatible, but a cold start is required for a clean comparison because its
-reward and critic semantics differ. Older residual-action checkpoints are
+v0.10.0 adds ToddlerBot-style ZMP trajectory error to the asymmetric critic
+without changing the 825/1440 network shapes. Parameter shapes from v0.9.2 are
+technically compatible, but the value function semantics changed, so the first
+comparison run must be a cold start. Older residual-action checkpoints remain
 incompatible, and pre-v0.9.1 runs used the broken episode lifecycle.
 
 Full PPO training fails fast unless JAX reports a GPU backend; `--allow-cpu`

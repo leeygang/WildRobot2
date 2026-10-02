@@ -88,7 +88,7 @@ orientation signal.
 | Angular-velocity scale | 1.0 | 1.0 | Aligned |
 | Orientation | full quaternion | projected gravity | Intentional yaw-invariant deployment contract |
 | Actor linear velocity | absent | absent | Aligned |
-| Critic position error | motor minus ZMP reference | motor minus issued target | Structural difference; see ZMP section |
+| Critic position error | motor minus ZMP reference | motor minus WR2 ZMP reference | Aligned architecture; morphology-specific trajectory |
 | Critic linear velocity | local, x2.0 | local, x2.0 | Corrected/aligned |
 | Critic actuator force | x0.1 | x0.1 | Corrected/aligned |
 | Critic contact/reference contact | two plus two | two plus two | Aligned analytic meaning |
@@ -148,13 +148,21 @@ still constructs `WalkZMPReference`: phase and stance come from it, torso and
 velocity rewards use its path reference, and the privileged critic receives
 motor error relative to its ZMP joint trajectory.
 
-WR2 reproduces phase, stance, local velocity command, and upright-reference
-semantics analytically, but it has no WR2 ZMP joint trajectory. Its critic uses
-tracking error to the command actually sent to the actuator. This is an open
-structural difference, not a hidden claim of exact parity. Adding a ZMP joint
-reference should require evidence that the corrected direct-PPO critic still
-cannot acquire forward gait; it should not be introduced merely to match a
-privileged ToddlerBot implementation detail.
+The v0.9.2 comparison run remained stable but converged to a one-sided local
+optimum: the left foot stayed in support while only the right foot swung, and
+forward speed remained near zero. WR2 v0.10 therefore closes this evidenced
+structural gap. A periodic Linear Inverted Pendulum Model sets lateral CoM
+motion whose implied ZMP alternates at the WR2 foot centers. Forward footsteps
+and swing height are conditioned on command and phase, and damped numerical IK
+generates a lookup for WR2's five-DOF legs. The critic's 17-value error slot is
+now measured against that trajectory, matching ToddlerBot's learning
+architecture without exposing simulator-only reference positions to the actor
+or enabling a joint-imitation reward.
+
+This is architecture parity, not reuse of ToddlerBot's numerical table. Its
+six-DOF leg IK and dimensions are incompatible with WR2. Every generated WR2
+lookup is checked against a configured maximum foot-position residual; the
+active 0.08--0.18 m/s table has a 2.1 mm worst residual under a 6 mm gate.
 
 ## Reset, termination, and contact
 

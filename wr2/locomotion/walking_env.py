@@ -11,6 +11,7 @@ from brax.io import mjcf
 from mujoco.mjx._src import support as mjx_support
 
 from wr2.locomotion.configs import WalkingEnvConfig, load_training_config
+from wr2.reference.walk_zmp import WR2ZMPReference
 from wr2.sim.robot import RobotDescription
 
 
@@ -271,6 +272,24 @@ class WR2WalkingEnv(PipelineEnv):
         self._joint_qvel_indices = jp.asarray(
             [int(mj_model.jnt_dofadr[joint_id]) for joint_id in joint_ids]
         )
+        zmp_config = self.config.zmp_reference
+        self._zmp_reference = WR2ZMPReference(
+            mj_model,
+            keyframe_id=key_id,
+            actuator_names=self.robot.actuator_names,
+            command_forward_range_m_s=self.config.command_forward_range_m_s,
+            gait_cycle_s=self.config.gait_cycle_s,
+            swing_height_m=self.config.swing_height_m,
+            com_height_m=zmp_config.com_height_m,
+            phase_samples=zmp_config.phase_samples,
+            command_samples=zmp_config.command_samples,
+            ik_damping=zmp_config.ik_damping,
+            ik_max_iterations=zmp_config.ik_max_iterations,
+            max_position_residual_m=zmp_config.max_position_residual_m,
+            max_orientation_residual_rad=(
+                zmp_config.max_orientation_residual_rad
+            ),
+        )
 
         active_mask = np.asarray(
             [motor.group in self.config.active_groups for motor in self.robot.motors],
@@ -348,6 +367,11 @@ class WR2WalkingEnv(PipelineEnv):
         """Normalized active-joint action that exactly reproduces walk_home."""
         return self._home_action
 
+    @property
+    def zmp_reference_diagnostics(self):
+        """Host-side checks for the generated privileged gait lookup."""
+        return self._zmp_reference.diagnostics
+
     def _is_walking(self, command: jax.Array) -> jax.Array:
         return jp.linalg.norm(command) >= self.config.command_active_threshold_m_s
 
@@ -398,7 +422,6 @@ class WR2WalkingEnv(PipelineEnv):
         rng: jax.Array,
         imu_state: dict[str, jax.Array],
         backlash: jax.Array,
-        target: jax.Array,
         foot_contact: jax.Array,
         desired_contact: jax.Array,
     ) -> tuple[dict[str, jax.Array], dict[str, jax.Array]]:
@@ -508,6 +531,11 @@ class WR2WalkingEnv(PipelineEnv):
                 projected_gravity,
             ]
         )
+        zmp_joint_position = self._zmp_reference.joint_position(
+            gait_phase,
+            command,
+            self._is_walking(command),
+        )
         privileged = jp.concatenate(
             [
                 *phase_and_command,
@@ -516,7 +544,7 @@ class WR2WalkingEnv(PipelineEnv):
                 previous_action,
                 true_angular_velocity,
                 true_projected_gravity,
-                true_joint_position - target,
+                true_joint_position - zmp_joint_position,
                 self._privileged_linear_velocity_scale * linear_velocity,
                 self._privileged_actuator_force_scale * pipeline_state.actuator_force,
                 foot_contact.astype(jp.float32),
@@ -708,7 +736,6 @@ class WR2WalkingEnv(PipelineEnv):
             observation_rng,
             imu_state,
             backlash,
-            initial_target,
             foot_contact,
             desired_contact,
         )
@@ -1098,7 +1125,6 @@ class WR2WalkingEnv(PipelineEnv):
             observation_rng,
             state.info["imu_state"],
             state.info["backlash"],
-            target,
             foot_contact,
             next_desired_contact,
         )

@@ -8,8 +8,9 @@ completed before treating a policy as deployment-qualified.
 ## Walking training
 
 - [ ] Start a new cold PPO gait-acquisition campaign with training contract
-  v0.9. Existing checkpoints are incompatible with the new 10-action actor
-  and asymmetric 825/1440 actor/critic observations.
+  v0.10. The actor shape remains 825 values, but the critic's 17-value error
+  slot now uses the phase/command WR2 ZMP joint reference. Earlier critic
+  checkpoints therefore must not be used for the comparison campaign.
 - [ ] After gait acquisition, tighten `velocity_reward_sigma` from 0.15 m/s
   toward the unchanged 0.0316 m/s final tracking tolerance and confirm that
   the gait survives fine-tuning.

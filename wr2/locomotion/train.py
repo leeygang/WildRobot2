@@ -249,6 +249,13 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         f"{training_config.environment.gait_cycle_s:.2f}s cycle, "
         f"{training_config.environment.swing_height_m:.3f}m swing"
     )
+    zmp = environment.zmp_reference_diagnostics
+    print(
+        "  ZMP critic:   "
+        f"{len(zmp.command_samples_m_s)} command x "
+        f"{training_config.environment.zmp_reference.phase_samples} phase lookup; "
+        f"IK residual={zmp.max_ik_position_residual_m * 1000.0:.2f}mm"
+    )
     print(
         "  Network:      "
         f"policy={list(training_config.network.policy_hidden_layer_sizes)} "

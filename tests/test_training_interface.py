@@ -23,6 +23,7 @@ from wr2.locomotion.walking_env import (
     support_contact_active,
 )
 from wr2.locomotion.walking_metrics import walking_score
+from wr2.reference.walk_zmp import periodic_lipm_lateral_reference
 from wr2.sensing.imu import canonicalize_sensor_sample
 from wr2.sim import (
     RobotDescription,
@@ -204,6 +205,10 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(environment.gait_cycle_s, 0.72)
         self.assertEqual(environment.privileged_linear_velocity_scale, 2.0)
         self.assertEqual(environment.privileged_actuator_force_scale, 0.1)
+        self.assertEqual(environment.zmp_reference.phase_samples, 36)
+        self.assertEqual(environment.zmp_reference.command_samples, 5)
+        self.assertEqual(environment.zmp_reference.com_height_m, 0.301)
+        self.assertEqual(environment.zmp_reference.max_orientation_residual_rad, 0.005)
         self.assertEqual(environment.swing_height_m, 0.04)
         self.assertEqual(environment.feet_phase_tracking_sigma_m2, 0.0007)
         self.assertEqual(environment.velocity_reward_sigma, 0.15)
@@ -300,6 +305,81 @@ class TrainingInterfaceTest(unittest.TestCase):
             privileged_frame[75:92],
             0.1 * np.asarray(state.pipeline_state.actuator_force),
             atol=1e-7,
+        )
+
+    def test_periodic_lipm_reference_places_zmp_under_support_feet(self):
+        half_width = 0.04081
+        right_support = np.asarray(
+            periodic_lipm_lateral_reference(
+                jp.asarray(np.pi / 2), half_width, 0.301, 0.72
+            )
+        )
+        left_support = np.asarray(
+            periodic_lipm_lateral_reference(
+                jp.asarray(3 * np.pi / 2), half_width, 0.301, 0.72
+            )
+        )
+        self.assertAlmostEqual(right_support[1], -half_width, places=6)
+        self.assertAlmostEqual(left_support[1], half_width, places=6)
+        self.assertLess(abs(right_support[0]), half_width)
+
+    def test_zmp_lookup_guides_both_legs_and_only_privileged_error(self):
+        config = replace(
+            self.training_config.environment,
+            command_forward_range_m_s=(0.10, 0.10),
+            zero_command_probability=0.0,
+            reset_joint_noise_rad=0.0,
+            reset_velocity_noise_rad_s=0.0,
+        )
+        environment = WR2WalkingEnv(config, add_observation_noise=False)
+        command = jp.asarray([0.10, 0.0, 0.0])
+        home = np.asarray(self.robot.home_position_rad)
+        left_swing = np.asarray(
+            environment._zmp_reference.joint_position(
+                jp.asarray(np.pi / 2), command, jp.asarray(True)
+            )
+        )
+        right_swing = np.asarray(
+            environment._zmp_reference.joint_position(
+                jp.asarray(3 * np.pi / 2), command, jp.asarray(True)
+            )
+        )
+        left_knee = self.robot.actuator_names.index("left_knee_pitch")
+        right_knee = self.robot.actuator_names.index("right_knee_pitch")
+        self.assertGreater(
+            abs(left_swing[left_knee] - home[left_knee]),
+            abs(left_swing[right_knee] - home[right_knee]),
+        )
+        self.assertGreater(
+            abs(right_swing[right_knee] - home[right_knee]),
+            abs(right_swing[left_knee] - home[left_knee]),
+        )
+
+        state = environment.reset(jax.random.PRNGKey(41))
+        frame = np.asarray(state.obs["privileged_state"][:96])
+        joint_position = np.asarray(
+            state.pipeline_state.q[environment._joint_qpos_indices]
+        )
+        reference = np.asarray(
+            environment._zmp_reference.joint_position(
+                state.info["gait_phase"],
+                state.info["command"],
+                environment._is_walking(state.info["command"]),
+            )
+        )
+        np.testing.assert_allclose(frame[55:72], joint_position - reference, atol=1e-7)
+        np.testing.assert_allclose(
+            np.asarray(state.obs["state"][:55])[5:22],
+            joint_position - home,
+            atol=1e-7,
+        )
+        self.assertLess(
+            environment.zmp_reference_diagnostics.max_ik_position_residual_m,
+            config.zmp_reference.max_position_residual_m,
+        )
+        self.assertLess(
+            environment.zmp_reference_diagnostics.max_ik_orientation_residual_rad,
+            config.zmp_reference.max_orientation_residual_rad,
         )
 
     def test_contact_and_foot_width_match_tb_world_frame_semantics(self):
