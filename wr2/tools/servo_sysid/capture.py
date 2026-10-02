@@ -212,12 +212,13 @@ def _move_and_monitor(
     servo_id: int,
     target_rad: float,
     *,
+    segment_name: str = "preparation",
     speed_deg_s: float,
     settle_s: float,
     min_voltage_v: float,
     max_temperature_c: float,
     max_position_error_deg: float,
-) -> list[dict[str, float | bool]]:
+) -> list[dict[str, float | bool | str]]:
     start_units = int(_read_required(lambda: bus.read_position(servo_id), "position"))
     start_rad = units_to_radians(start_units)
     duration_s = abs(math.degrees(target_rad - start_rad)) / speed_deg_s
@@ -226,13 +227,18 @@ def _move_and_monitor(
     bus.set_loaded(servo_id, True)
     if not bool(_read_required(lambda: bus.read_loaded(servo_id), "load-state")):
         raise RuntimeError("servo failed to enable torque")
+    command_started = time.monotonic()
     bus.move(servo_id, radians_to_units(target_rad), duration_ms)
-    samples: list[dict[str, float | bool]] = []
-    deadline = time.monotonic() + duration_s + settle_s
+    command_completed = time.monotonic()
+    samples: list[dict[str, float | bool | str]] = []
+    started = command_completed
+    deadline = started + duration_s + settle_s
     while time.monotonic() < deadline:
+        read_started = time.monotonic()
         position = units_to_radians(
             int(_read_required(lambda: bus.read_position(servo_id), "position"))
         )
+        read_completed = time.monotonic()
         health = _health(bus, servo_id)
         _check_health(
             health,
@@ -241,8 +247,18 @@ def _move_and_monitor(
         )
         samples.append(
             {
-                "elapsed_s": time.monotonic() - (deadline - duration_s - settle_s),
+                "elapsed_s": read_completed - started,
+                "monotonic_time_s": read_completed,
+                "wall_time_s": time.time(),
+                "segment_name": segment_name,
+                "target_rad": target_rad,
                 "position_rad": position,
+                "command_written": not samples,
+                "command_write_duration_s": (
+                    command_completed - command_started if not samples else np.nan
+                ),
+                "position_read_duration_s": read_completed - read_started,
+                "command_age_at_read_s": read_completed - command_completed,
                 **health,
             }
         )
@@ -255,6 +271,38 @@ def _move_and_monitor(
             f"settled position error is {math.degrees(target_rad - final_rad):+.2f} deg"
         )
     return samples
+
+
+def _monitored_samples_to_buffer(
+    samples: Sequence[dict[str, float | bool | str]],
+) -> CaptureBuffer:
+    """Convert preparation telemetry into the canonical NPZ trace layout."""
+    buffer = CaptureBuffer()
+    if not samples:
+        return buffer
+    first_monotonic = float(samples[0]["monotonic_time_s"])
+    for sample in samples:
+        buffer.timestamp_s.append(
+            float(sample["monotonic_time_s"]) - first_monotonic
+        )
+        buffer.wall_time_s.append(float(sample["wall_time_s"]))
+        buffer.scheduled_time_s.append(np.nan)
+        buffer.loop_lateness_s.append(np.nan)
+        buffer.command_write_duration_s.append(
+            float(sample["command_write_duration_s"])
+        )
+        buffer.position_read_duration_s.append(
+            float(sample["position_read_duration_s"])
+        )
+        buffer.command_age_at_read_s.append(float(sample["command_age_at_read_s"]))
+        buffer.segment_name.append(str(sample["segment_name"]))
+        buffer.command_rad.append(float(sample["target_rad"]))
+        buffer.position_rad.append(float(sample["position_rad"]))
+        buffer.command_written.append(bool(sample["command_written"]))
+        buffer.voltage_v.append(float(sample["voltage_v"]))
+        buffer.temperature_c.append(float(sample["temperature_c"]))
+        buffer.loaded.append(float(sample["loaded"]))
+    return buffer
 
 
 def capture_profile(
@@ -635,7 +683,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     outcome = "failed"
     error: str | None = None
     cooldown: list[dict[str, float]] = []
-    preparation: list[dict[str, float | bool]] = []
+    preparation: list[dict[str, float | bool | str]] = []
     started_at = datetime.now(timezone.utc).isoformat()
     servo_eeprom: dict[str, object] = {}
     try:
@@ -702,6 +750,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 bus,
                 args.servo_id,
                 0.0,
+                segment_name="prepare_neutral",
                 speed_deg_s=5.0,
                 settle_s=1.0,
                 min_voltage_v=args.min_voltage_v,
@@ -727,6 +776,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 bus,
                 args.servo_id,
                 math.radians(args.center_deg),
+                segment_name=("test_hold" if args.prepare_only else "prepare_center"),
                 speed_deg_s=args.prepare_speed_deg_s,
                 settle_s=args.settle_s,
                 min_voltage_v=args.min_voltage_v,
@@ -734,6 +784,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_position_error_deg=args.max_position_error_deg,
             )
         )
+        if args.prepare_only:
+            buffer = _monitored_samples_to_buffer(preparation)
         if not args.prepare_only:
             profile_duration_s = (
                 sum(len(segment.targets_rad) for segment in segments) / args.sample_hz
@@ -787,6 +839,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     bus,
                     args.servo_id,
                     0.0,
+                    segment_name="return_neutral",
                     speed_deg_s=args.return_speed_deg_s,
                     settle_s=1.0,
                     min_voltage_v=args.min_voltage_v,

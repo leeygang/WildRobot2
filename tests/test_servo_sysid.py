@@ -8,7 +8,6 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
-import subprocess
 
 import numpy as np
 
@@ -20,27 +19,28 @@ from wr2.actuation.htd45h import (
     checksum,
     parse_packets,
 )
+from wr2.tools.servo_sysid.analysis.position import summarize_series
 from wr2.tools.servo_sysid.analyze import analyze_campaigns
-from wr2.tools.servo_sysid.bam_suite import (
-    STAGES as BAM_STAGES,
-    main as bam_suite_main,
-    selected_stages as selected_bam_stages,
-    stage_command as bam_stage_command,
+from wr2.tools.servo_sysid.campaign import (
+    CONDITIONS,
+    capture_command,
+    configured_plan,
+    main as campaign_main,
+    selected_conditions,
 )
-from wr2.tools.servo_sysid.campaign import CONDITIONS, main as campaign_main
-from wr2.tools.servo_sysid.campaign import selected_conditions
 from wr2.tools.servo_sysid.capture import (
     _check_health,
+    _monitored_samples_to_buffer,
     _wait_for_cooldown,
     capture_profile,
 )
-from wr2.tools.servo_sysid.commission import summarize_series
 from wr2.tools.servo_sysid.core import (
     ProfileSegment,
     build_profile,
     radians_to_units,
     units_to_radians,
 )
+from wr2.tools.servo_sysid.plan import available_plans, load_plan
 
 
 class Htd45hProtocolTest(unittest.TestCase):
@@ -149,6 +149,46 @@ class Htd45hProtocolTest(unittest.TestCase):
         self.assertTrue(np.all(result["loaded"] == 1.0))
         self.assertTrue(np.all(result["voltage_v"] == 11.8))
 
+    def test_preparation_samples_populate_canonical_trace(self):
+        samples = [
+            {
+                "monotonic_time_s": 100.0,
+                "wall_time_s": 1000.0,
+                "segment_name": "prepare_neutral",
+                "target_rad": 0.0,
+                "position_rad": 0.0,
+                "command_written": True,
+                "command_write_duration_s": 0.001,
+                "position_read_duration_s": 0.002,
+                "command_age_at_read_s": 0.003,
+                "voltage_v": 12.0,
+                "temperature_c": 30.0,
+                "loaded": True,
+            },
+            {
+                "monotonic_time_s": 100.1,
+                "wall_time_s": 1000.1,
+                "segment_name": "test_hold",
+                "target_rad": 0.1,
+                "position_rad": 0.08,
+                "command_written": True,
+                "command_write_duration_s": 0.001,
+                "position_read_duration_s": 0.002,
+                "command_age_at_read_s": 0.003,
+                "voltage_v": 11.9,
+                "temperature_c": 31.0,
+                "loaded": True,
+            },
+        ]
+
+        arrays = _monitored_samples_to_buffer(samples).arrays()
+
+        np.testing.assert_allclose(arrays["timestamps_s"], [0.0, 0.1])
+        np.testing.assert_allclose(arrays["command_rad"], [0.0, 0.1])
+        np.testing.assert_allclose(arrays["measured_position_rad"], [0.0, 0.08])
+        np.testing.assert_allclose(arrays["voltage_v"], [12.0, 11.9])
+        self.assertEqual(arrays["segment_name"].tolist(), ["prepare_neutral", "test_hold"])
+
 
 @unittest.skipUnless(importlib.util.find_spec("mujoco"), "MuJoCo is not installed")
 class FixtureTest(unittest.TestCase):
@@ -222,23 +262,18 @@ class FixtureTest(unittest.TestCase):
 
 
 class CampaignAnalysisTest(unittest.TestCase):
-    def test_bam_suite_contains_only_low_load_conditions(self):
-        args = SimpleNamespace(
-            run_all_safe=True,
-            start_at=None,
-            stop_after=None,
-        )
-        self.assertEqual(selected_bam_stages(args), BAM_STAGES)
+    def test_bam_plan_contains_only_low_load_conditions(self):
+        plan = load_plan("bam_position")
         self.assertEqual(
-            [stage.name for stage in BAM_STAGES],
+            [condition.condition_id for condition in plan.conditions],
             [
                 "commission_plus10",
                 "commission_minus10",
-                "e3_inertial_bandwidth",
+                "E3_inertial_bandwidth",
             ],
         )
 
-    def test_bam_stage_commands_enforce_low_torque_caps(self):
+    def test_bam_capture_commands_enforce_low_torque_caps(self):
         args = SimpleNamespace(
             servo_id=100,
             servo_label="unit-a",
@@ -251,33 +286,36 @@ class CampaignAnalysisTest(unittest.TestCase):
             measured_weight_kg=2.650,
             measured_com_radius_m=0.1204,
             repeats=5,
+            external_log_label=None,
             external_log_label_prefix="supply-run",
             cooldown_target_c=35.0,
             min_voltage_v=9.6,
-            max_temperature_c=55.0,
+            max_temperature_c=80.0,
             max_position_error_deg=5.0,
             max_position_error_duration_s=0.15,
             max_repeatability_std_deg=0.5,
+            max_static_torque_nm=3.2,
+            max_predicted_torque_nm=3.2,
         )
-        suite = Path("results/suite")
-        plus = bam_stage_command(args, BAM_STAGES[0], suite, execute=True)
-        e3 = bam_stage_command(args, BAM_STAGES[2], suite, execute=True)
-        self.assertIn("wr2.tools.servo_sysid.commission", plus)
+        plan = load_plan("bam_position")
+        plus = capture_command(
+            args, plan.conditions[0], Path("plus.npz"), execute=True
+        )
+        e3 = capture_command(args, plan.conditions[2], Path("e3.npz"), execute=True)
+        self.assertIn("wr2.tools.servo_sysid.capture", plus)
         self.assertEqual(plus[plus.index("--max-static-torque-nm") + 1], "0.7")
-        self.assertIn("wr2.tools.servo_sysid.campaign", e3)
         self.assertEqual(e3[e3.index("--max-static-torque-nm") + 1], "0.2")
         self.assertEqual(e3[e3.index("--max-predicted-torque-nm") + 1], "0.6")
-        self.assertEqual(
-            e3[e3.index("--start-at") + 1], "E3_inertial_bandwidth"
-        )
-        self.assertEqual(e3[e3.index("--stop-after") + 1], "E3_inertial_bandwidth")
+        self.assertEqual(plus[plus.index("--max-temperature-c") + 1], "55.0")
         self.assertIn("--execute", plus)
         self.assertIn("--confirm-fixture-safe", e3)
 
     def test_bam_hardware_mode_requires_bounded_selection(self):
         with self.assertRaisesRegex(SystemExit, "requires --stop-after"):
-            bam_suite_main(
+            campaign_main(
                 [
+                    "--plan",
+                    "bam_position",
                     "--servo-id",
                     "100",
                     "--servo-label",
@@ -288,19 +326,17 @@ class CampaignAnalysisTest(unittest.TestCase):
                     "2.650",
                     "--measured-com-radius-m",
                     "0.1204",
-                    "--external-log-label-prefix",
-                    "supply-run",
                     "--execute",
                     "--confirm-fixture-safe",
                 ]
             )
 
-    def test_bam_preflight_runs_all_safe_stages_without_hardware(self):
-        with patch(
-            "wr2.tools.servo_sysid.bam_suite._run", return_value=0
-        ) as run:
-            result = bam_suite_main(
+    def test_bam_preflight_runs_all_plan_conditions_without_hardware(self):
+        with patch("wr2.tools.servo_sysid.campaign._run", return_value=0) as run:
+            result = campaign_main(
                 [
+                    "--plan",
+                    "bam_position",
                     "--servo-id",
                     "100",
                     "--servo-label",
@@ -321,51 +357,73 @@ class CampaignAnalysisTest(unittest.TestCase):
             def fake_run(command):
                 if "--execute" not in command:
                     return 0
-                if "wr2.tools.servo_sysid.commission" in command:
-                    output = Path(command[command.index("--series-dir") + 1])
-                    output.mkdir(parents=True)
-                    (output / "commission_summary.json").write_text(
-                        json.dumps(
-                            {
-                                "status": "stable",
-                                "aggregate": {"completed_repeats": 5},
-                            }
-                        )
-                    )
+                output = Path(command[command.index("--output") + 1])
+                center_deg = float(command[command.index("--center-deg") + 1])
+                if "--prepare-only" in command:
+                    position_rad = math.radians(center_deg)
+                    preparation = [
+                        {
+                            "elapsed_s": 0.0,
+                            "position_rad": 0.0,
+                            "voltage_v": 11.8,
+                            "temperature_c": 29.0,
+                        },
+                        {
+                            "elapsed_s": 1.0,
+                            "position_rad": 0.0,
+                            "voltage_v": 11.8,
+                            "temperature_c": 29.0,
+                        },
+                        {
+                            "elapsed_s": 0.0,
+                            "position_rad": position_rad,
+                            "voltage_v": 11.7,
+                            "temperature_c": 30.0,
+                        },
+                        {
+                            "elapsed_s": 1.0,
+                            "position_rad": position_rad,
+                            "voltage_v": 11.7,
+                            "temperature_c": 31.0,
+                        },
+                    ]
                 else:
-                    output = Path(command[command.index("--campaign-dir") + 1])
-                    output.mkdir(parents=True)
-                    (output / "03_E3_inertial_bandwidth.json").write_text(
-                        json.dumps(
-                            {
-                                "outcome": "completed",
-                                "trace_summary": {},
-                                "health_summary": {},
-                                "timing_summary": {},
-                                "predicted_envelope": {},
-                            }
-                        )
+                    preparation = []
+                output.with_suffix(".json").write_text(
+                    json.dumps(
+                        {
+                            "outcome": "completed",
+                            "center_deg": center_deg,
+                            "preparation": preparation,
+                            "trace_summary": {},
+                            "health_summary": {},
+                            "timing_summary": {},
+                            "predicted_envelope": {},
+                        }
                     )
+                )
                 return 0
 
             with (
                 patch(
-                    "wr2.tools.servo_sysid.bam_suite._run", side_effect=fake_run
+                    "wr2.tools.servo_sysid.campaign._run", side_effect=fake_run
                 ) as run,
                 patch(
-                    "wr2.tools.servo_sysid.bam_suite._git_state",
+                    "wr2.tools.servo_sysid.campaign._git_state",
                     return_value={"revision": "abc123", "worktree_clean": True},
                 ),
             ):
-                result = bam_suite_main(
+                result = campaign_main(
                     [
+                        "--plan",
+                        "bam_position",
                         "--servo-id",
                         "100",
                         "--servo-label",
                         "unit-a",
                         "--board-port",
                         "unused",
-                        "--suite-dir",
+                        "--campaign-dir",
                         str(suite),
                         "--measured-weight-kg",
                         "2.650",
@@ -373,18 +431,36 @@ class CampaignAnalysisTest(unittest.TestCase):
                         "0.1204",
                         "--external-log-label-prefix",
                         "supply-run",
-                        "--run-all-safe",
+                        "--run-all",
                         "--execute",
                         "--confirm-fixture-safe",
                     ]
                 )
 
-            manifest = json.loads((suite / "bam_suite_manifest.json").read_text())
+            manifest = json.loads((suite / "campaign_manifest.json").read_text())
         self.assertEqual(result, 0)
-        self.assertEqual(run.call_count, 6)
+        self.assertEqual(run.call_count, 14)
         self.assertEqual(manifest["status"], "completed")
-        self.assertEqual(len(manifest["stages"]), 3)
-        self.assertTrue(all(item["status"] == "completed" for item in manifest["stages"]))
+        self.assertEqual(len(manifest["conditions"]), 3)
+        self.assertTrue(
+            all(item["outcome"] == "completed" for item in manifest["conditions"])
+        )
+
+    def test_campaign_plans_are_versioned_and_loadable(self):
+        self.assertEqual(
+            available_plans(),
+            ("bam_position", "bam_repeatability", "legacy_deployment"),
+        )
+        args = SimpleNamespace(
+            plan="bam_repeatability",
+            center_deg=-12.5,
+            repeats=3,
+            prepare_speed_deg_s=None,
+            settle_s=None,
+        )
+        plan = configured_plan(args)
+        self.assertEqual(plan.conditions[0].condition_id, "repeatability_minus12p5")
+        self.assertEqual(plan.conditions[0].repeats, 3)
 
     def test_commission_repeatability_summary(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -462,9 +538,12 @@ class CampaignAnalysisTest(unittest.TestCase):
     def test_staged_campaign_keeps_a_reusable_partial_manifest(self):
         with tempfile.TemporaryDirectory() as temp:
             campaign_dir = Path(temp) / "unit-a"
-            with patch(
-                "wr2.tools.servo_sysid.campaign.subprocess.run",
-                return_value=subprocess.CompletedProcess([], 0),
+            with (
+                patch("wr2.tools.servo_sysid.campaign._run", return_value=0),
+                patch(
+                    "wr2.tools.servo_sysid.campaign._git_state",
+                    return_value={"revision": "abc123", "worktree_clean": True},
+                ),
             ):
                 result = campaign_main(
                     [

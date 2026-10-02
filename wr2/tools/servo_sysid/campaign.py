@@ -1,94 +1,36 @@
-"""Run the staged WR2 HTD-45H deployment-envelope campaign."""
+"""Run one versioned HTD-45H characterization plan."""
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import subprocess
 import sys
-from typing import Sequence
+from typing import Any, Sequence
 
+from wr2.tools.servo_sysid.analysis.position import summarize_series
 from wr2.tools.servo_sysid.core import DEFAULT_FIXTURE, file_sha256
-
-
-@dataclass(frozen=True)
-class CampaignCondition:
-    condition_id: str
-    description: str
-    center_deg: float
-    amplitudes_deg: str = "2,5,8"
-    chirp_end_hz: float = 2.0
-    prepare_only: bool = False
-    prepare_speed_deg_s: float = 20.0
-    settle_s: float = 1.0
-    write_deadband_units: int = 0
-    constant_hold_s: float | None = None
-    required_static_torque_nm: float | None = None
-
-
-CONDITIONS = (
-    CampaignCondition(
-        "E1_static_plus72",
-        "slow positive ramp to the 3 N m deployment margin",
-        72.0,
-        amplitudes_deg="2",
-        prepare_only=True,
-        prepare_speed_deg_s=5.0,
-        settle_s=10.0,
-        required_static_torque_nm=3.0,
-    ),
-    CampaignCondition(
-        "E2_static_minus72",
-        "slow negative ramp to the 3 N m deployment margin",
-        -72.0,
-        amplitudes_deg="2",
-        prepare_only=True,
-        prepare_speed_deg_s=5.0,
-        settle_s=10.0,
-        required_static_torque_nm=3.0,
-    ),
-    CampaignCondition(
-        "E3_inertial_bandwidth",
-        "gravity-neutral 0.1-4 Hz inertial response",
-        0.0,
-        amplitudes_deg="2",
-        chirp_end_hz=4.0,
-    ),
-    CampaignCondition(
-        "E4_loaded_plus60",
-        "positive 2.75 N m loaded response",
-        60.0,
-        amplitudes_deg="2,5",
-    ),
-    CampaignCondition(
-        "E5_loaded_minus60",
-        "negative 2.75 N m loaded response",
-        -60.0,
-        amplitudes_deg="2,5",
-    ),
-    CampaignCondition(
-        "E6_deployment_deadband_plus60",
-        "loaded response with three-unit deployment deadband",
-        60.0,
-        amplitudes_deg="2,5",
-        write_deadband_units=3,
-    ),
-    CampaignCondition(
-        "E7_thermal_hold_plus60",
-        "bounded ten-minute hold at the deployment RMS target",
-        60.0,
-        amplitudes_deg="2",
-        prepare_speed_deg_s=5.0,
-        constant_hold_s=600.0,
-    ),
+from wr2.tools.servo_sysid.plan import (
+    CampaignCondition,
+    CampaignPlan,
+    available_plans,
+    load_plan,
 )
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+DEPLOYMENT_PLAN = load_plan("legacy_deployment")
+# Compatibility for the deployment analyzer and existing callers.
+CONDITIONS = DEPLOYMENT_PLAN.conditions
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--plan", choices=available_plans(), default="legacy_deployment")
     parser.add_argument("--servo-id", type=int, required=True)
     parser.add_argument("--board-port", required=True)
     parser.add_argument("--baudrate", type=int, default=115200)
@@ -98,55 +40,116 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--fixture-label", default="wr2-htd45h-2650g")
     parser.add_argument("--servo-label")
     parser.add_argument("--external-log-label")
+    parser.add_argument("--external-log-label-prefix")
     parser.add_argument("--measured-weight-kg", type=float)
     parser.add_argument("--measured-com-radius-m", type=float)
-    parser.add_argument(
-        "--start-at", choices=[item.condition_id for item in CONDITIONS]
-    )
-    parser.add_argument(
-        "--stop-after", choices=[item.condition_id for item in CONDITIONS]
-    )
+    parser.add_argument("--start-at")
+    parser.add_argument("--stop-after")
     parser.add_argument("--run-all", action="store_true")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--confirm-fixture-safe", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=Path("results/servo_sysid"))
     parser.add_argument(
         "--campaign-dir",
+        "--run-dir",
+        dest="campaign_dir",
         type=Path,
-        help="Reuse this directory across staged condition invocations.",
+        help="Stable directory used to resume a versioned plan.",
     )
+    parser.add_argument("--center-deg", type=float)
+    parser.add_argument("--repeats", type=int)
+    parser.add_argument("--prepare-speed-deg-s", type=float)
+    parser.add_argument("--settle-s", type=float)
     parser.add_argument("--cooldown-target-c", type=float, default=35.0)
     parser.add_argument("--min-voltage-v", type=float, default=9.6)
     parser.add_argument("--max-temperature-c", type=float, default=80.0)
     parser.add_argument("--max-position-error-deg", type=float, default=5.0)
     parser.add_argument("--max-position-error-duration-s", type=float, default=0.15)
+    parser.add_argument("--max-repeatability-std-deg", type=float, default=0.5)
     parser.add_argument("--max-static-torque-nm", type=float, default=3.2)
     parser.add_argument("--max-predicted-torque-nm", type=float, default=3.2)
     return parser
 
 
-def selected_conditions(args: argparse.Namespace) -> tuple[CampaignCondition, ...]:
-    first = (
-        0
-        if args.start_at is None
-        else next(
-            index
-            for index, item in enumerate(CONDITIONS)
-            if item.condition_id == args.start_at
+def _angle_label(value: float) -> str:
+    sign = "plus" if value >= 0.0 else "minus"
+    magnitude = f"{abs(value):g}".replace(".", "p")
+    return f"{sign}{magnitude}"
+
+
+def configured_plan(args: argparse.Namespace) -> CampaignPlan:
+    plan = load_plan(args.plan)
+    conditions = list(plan.conditions)
+    if args.center_deg is not None:
+        if plan.name != "bam_repeatability":
+            raise SystemExit("--center-deg is only valid with --plan bam_repeatability")
+        condition = conditions[0]
+        conditions[0] = replace(
+            condition,
+            condition_id=f"repeatability_{_angle_label(args.center_deg)}",
+            description=f"repeated low-load capture at {args.center_deg:+g} degrees",
+            center_deg=args.center_deg,
         )
-    )
-    last = (
-        len(CONDITIONS) - 1
-        if args.stop_after is None
-        else next(
-            index
-            for index, item in enumerate(CONDITIONS)
-            if item.condition_id == args.stop_after
+    if args.repeats is not None:
+        if not 1 <= args.repeats <= 20:
+            raise SystemExit("--repeats must be between 1 and 20")
+        conditions = [
+            replace(item, repeats=args.repeats)
+            if item.kind == "repeatability"
+            else item
+            for item in conditions
+        ]
+    if args.prepare_speed_deg_s is not None:
+        if not math.isfinite(args.prepare_speed_deg_s) or args.prepare_speed_deg_s <= 0:
+            raise SystemExit("--prepare-speed-deg-s must be finite and positive")
+        conditions = [
+            replace(item, prepare_speed_deg_s=args.prepare_speed_deg_s)
+            if item.kind == "repeatability"
+            else item
+            for item in conditions
+        ]
+    if args.settle_s is not None:
+        if not math.isfinite(args.settle_s) or args.settle_s < 0:
+            raise SystemExit("--settle-s must be finite and non-negative")
+        conditions = [
+            replace(item, settle_s=args.settle_s)
+            if item.kind == "repeatability"
+            else item
+            for item in conditions
+        ]
+    return replace(plan, conditions=tuple(conditions))
+
+
+def selected_conditions(
+    args: argparse.Namespace, plan: CampaignPlan | None = None
+) -> tuple[CampaignCondition, ...]:
+    active = plan or load_plan(getattr(args, "plan", "legacy_deployment"))
+    conditions = active.conditions
+    identifiers = [item.condition_id for item in conditions]
+    try:
+        first = 0 if args.start_at is None else identifiers.index(args.start_at)
+        last = (
+            len(conditions) - 1
+            if args.stop_after is None
+            else identifiers.index(args.stop_after)
         )
-    )
+    except ValueError as exc:
+        raise SystemExit(
+            f"condition is not in plan {active.name}; choose from {', '.join(identifiers)}"
+        ) from exc
     if last < first:
-        raise ValueError("--stop-after precedes --start-at")
-    return CONDITIONS[first : last + 1]
+        raise SystemExit("--stop-after precedes --start-at")
+    return conditions[first : last + 1]
+
+
+def _bounded(value: float, plan_limit: float | None) -> float:
+    return value if plan_limit is None else min(value, plan_limit)
+
+
+def _external_label(args: argparse.Namespace, condition_id: str) -> str | None:
+    if args.external_log_label_prefix:
+        return f"{args.external_log_label_prefix}-{condition_id}"
+    return args.external_log_label
 
 
 def capture_command(
@@ -155,13 +158,14 @@ def capture_command(
     output: Path,
     *,
     execute: bool,
+    condition_id: str | None = None,
 ) -> list[str]:
     command = [
         sys.executable,
         "-m",
         "wr2.tools.servo_sysid.capture",
         "--condition-id",
-        condition.condition_id,
+        condition_id or condition.condition_id,
         "--servo-id",
         str(args.servo_id),
         "--board-port",
@@ -193,19 +197,23 @@ def capture_command(
         "--min-voltage-v",
         str(args.min_voltage_v),
         "--max-temperature-c",
-        str(args.max_temperature_c),
+        str(_bounded(args.max_temperature_c, condition.max_temperature_c)),
         "--max-position-error-deg",
         str(args.max_position_error_deg),
         "--max-position-error-duration-s",
         str(args.max_position_error_duration_s),
         "--max-static-torque-nm",
-        str(args.max_static_torque_nm),
+        str(_bounded(args.max_static_torque_nm, condition.max_static_torque_nm)),
         "--max-predicted-torque-nm",
-        str(args.max_predicted_torque_nm),
+        str(
+            _bounded(
+                args.max_predicted_torque_nm, condition.max_predicted_torque_nm
+            )
+        ),
         "--output",
         str(output),
     ]
-    if condition.prepare_only:
+    if condition.prepare_only or condition.kind == "repeatability":
         command.append("--prepare-only")
     if condition.constant_hold_s is not None:
         command.extend(("--constant-hold-s", str(condition.constant_hold_s)))
@@ -215,8 +223,9 @@ def capture_command(
         )
     if args.servo_label:
         command.extend(("--servo-label", args.servo_label))
-    if args.external_log_label:
-        command.extend(("--external-log-label", args.external_log_label))
+    external_label = _external_label(args, condition.condition_id)
+    if external_label:
+        command.extend(("--external-log-label", external_label))
     if args.measured_weight_kg is not None:
         command.extend(("--measured-weight-kg", str(args.measured_weight_kg)))
     if args.measured_com_radius_m is not None:
@@ -226,8 +235,30 @@ def capture_command(
     return command
 
 
-def _write_manifest(path: Path, payload: dict[str, object]) -> None:
-    temporary = path.with_suffix(".tmp")
+def _run(command: Sequence[str]) -> int:
+    return int(subprocess.run(list(command), check=False).returncode)
+
+
+def _git_state() -> dict[str, Any]:
+    revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    status = subprocess.run(
+        ["git", "status", "--porcelain=v1"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return {"revision": revision, "worktree_clean": not bool(status.strip())}
+
+
+def _write_manifest(path: Path, payload: dict[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.tmp")
     temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     temporary.replace(path)
 
@@ -239,149 +270,304 @@ def _same_number(left: object, right: float) -> bool:
         return False
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
-    selected = selected_conditions(args)
-    if args.execute and not args.confirm_fixture_safe:
-        raise SystemExit("--execute requires --confirm-fixture-safe")
-    if args.execute and not args.run_all and args.stop_after is None:
-        raise SystemExit(
-            "Hardware mode requires --stop-after for staged review, or explicit --run-all"
-        )
-    if args.execute and (
-        args.measured_weight_kg is None or args.measured_com_radius_m is None
-    ):
-        raise SystemExit(
-            "hardware mode requires measured fixture weight and COM radius"
-        )
-
-    print("WR2 HTD-45H deployment-envelope campaign", flush=True)
-    print(f"mode={'HARDWARE' if args.execute else 'PREFLIGHT'}", flush=True)
-    for index, condition in enumerate(selected, start=1):
-        output = Path("/tmp") / f"wr2_preflight_{condition.condition_id}.npz"
-        print(
-            f"\n[{index}/{len(selected)}] {condition.condition_id}: "
-            f"{condition.description}",
-            flush=True,
-        )
-        result = subprocess.run(
-            capture_command(args, condition, output, execute=False), check=False
-        )
-        if result.returncode:
-            return int(result.returncode)
-    if not args.execute:
-        print("\nCampaign preflight passed; no hardware was opened.")
-        return 0
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    campaign_dir = (
-        args.campaign_dir.expanduser().resolve()
-        if args.campaign_dir is not None
-        else args.output_dir.expanduser().resolve()
-        / f"htd45h_{args.servo_id}_deployment_{timestamp}"
-    )
-    manifest_path = campaign_dir / "campaign_manifest.json"
-    fixture_path = args.fixture_mjcf.expanduser().resolve()
-    fixture_hash = file_sha256(fixture_path)
-    safety_limits = {
+def _safety_limits(args: argparse.Namespace) -> dict[str, float]:
+    return {
         "min_voltage_v": args.min_voltage_v,
         "max_temperature_c": args.max_temperature_c,
         "max_position_error_deg": args.max_position_error_deg,
         "max_position_error_duration_s": args.max_position_error_duration_s,
+        "max_repeatability_std_deg": args.max_repeatability_std_deg,
         "max_static_torque_nm": args.max_static_torque_nm,
         "max_predicted_torque_nm": args.max_predicted_torque_nm,
     }
+
+
+def _campaign_directory(args: argparse.Namespace, plan: CampaignPlan) -> Path:
+    if args.campaign_dir is not None:
+        return args.campaign_dir.expanduser().resolve()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    label = args.servo_label or f"servo-{args.servo_id}"
+    return args.output_dir.expanduser().resolve() / f"{plan.name}_{label}_{timestamp}"
+
+
+def _new_manifest(
+    args: argparse.Namespace,
+    plan: CampaignPlan,
+    fixture_path: Path,
+    git_state: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema_version": 2,
+        "status": "running",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "plan": {
+            "name": plan.name,
+            "path": str(plan.path.resolve()),
+            "sha256": file_sha256(plan.path),
+            "description": plan.description,
+            "setup": plan.setup,
+            "required_instruments": list(plan.required_instruments),
+            "data_goals": list(plan.data_goals),
+            "limitations": list(plan.limitations),
+        },
+        "git": git_state,
+        "servo_id": args.servo_id,
+        "servo_label": args.servo_label,
+        "fixture_mjcf": str(fixture_path),
+        "fixture_sha256": file_sha256(fixture_path),
+        "fixture_label": args.fixture_label,
+        "fixture_direction": args.fixture_direction,
+        "fixture_qpos_offset_deg": args.fixture_qpos_offset_deg,
+        "measured_weight_kg": args.measured_weight_kg,
+        "measured_com_radius_m": args.measured_com_radius_m,
+        "external_log_label": args.external_log_label,
+        "external_log_label_prefix": args.external_log_label_prefix,
+        "safety_limits": _safety_limits(args),
+        "conditions": [],
+    }
+
+
+def _validate_existing_manifest(
+    manifest: dict[str, Any],
+    args: argparse.Namespace,
+    plan: CampaignPlan,
+    fixture_path: Path,
+    git_state: dict[str, Any],
+) -> None:
+    if manifest.get("plan", {}).get("name") != plan.name:
+        raise SystemExit("existing campaign directory uses a different plan")
+    if manifest.get("plan", {}).get("sha256") != file_sha256(plan.path):
+        raise SystemExit("existing campaign directory uses a different plan revision")
+    if manifest.get("git", {}).get("revision") != git_state["revision"]:
+        raise SystemExit("existing campaign directory uses a different Git revision")
+    if int(manifest.get("servo_id", -1)) != args.servo_id:
+        raise SystemExit("existing campaign directory uses a different servo ID")
+    if manifest.get("servo_label") != args.servo_label:
+        raise SystemExit("existing campaign directory uses a different servo label")
+    if manifest.get("fixture_sha256") != file_sha256(fixture_path):
+        raise SystemExit("existing campaign directory uses a different fixture model")
+    expected_numbers = {
+        "fixture_direction": args.fixture_direction,
+        "fixture_qpos_offset_deg": args.fixture_qpos_offset_deg,
+        "measured_weight_kg": args.measured_weight_kg,
+        "measured_com_radius_m": args.measured_com_radius_m,
+    }
+    for name, value in expected_numbers.items():
+        assert value is not None
+        if not _same_number(manifest.get(name), float(value)):
+            raise SystemExit(f"existing campaign directory has a different {name}")
+    if manifest.get("fixture_label") != args.fixture_label:
+        raise SystemExit("existing campaign directory uses a different fixture label")
+    if manifest.get("safety_limits") != _safety_limits(args):
+        raise SystemExit("existing campaign directory uses different safety limits")
+
+
+def _capture_record(output: Path, condition: CampaignCondition, returncode: int) -> dict[str, Any]:
+    metadata_path = output.with_suffix(".json")
+    record: dict[str, Any] = {
+        **asdict(condition),
+        "returncode": returncode,
+        "npz_path": str(output),
+        "json_path": str(metadata_path),
+    }
+    if metadata_path.is_file():
+        capture = json.loads(metadata_path.read_text())
+        record.update(
+            {
+                "outcome": capture.get("outcome"),
+                "error": capture.get("error"),
+                "tested_static_torque_nm": capture.get("tested_static_torque_nm"),
+                "predicted_envelope": capture.get("predicted_envelope"),
+                "trace_summary": capture.get("trace_summary"),
+                "health_summary": capture.get("health_summary"),
+                "timing_summary": capture.get("timing_summary"),
+            }
+        )
+    return record
+
+
+def _run_capture_condition(
+    args: argparse.Namespace,
+    condition: CampaignCondition,
+    output: Path,
+) -> tuple[int, dict[str, Any]]:
+    returncode = _run(capture_command(args, condition, output, execute=True))
+    return returncode, _capture_record(output, condition, returncode)
+
+
+def _run_repeatability_condition(
+    args: argparse.Namespace,
+    condition: CampaignCondition,
+    directory: Path,
+) -> tuple[int, dict[str, Any]]:
+    directory.mkdir(parents=True, exist_ok=False)
+    captures: list[Path] = []
+    records: list[dict[str, Any]] = []
+    for repeat_index in range(1, condition.repeats + 1):
+        repeat_id = f"{condition.condition_id}_repeat{repeat_index:02d}"
+        output = directory / f"repeat_{repeat_index:02d}.npz"
+        print(f"  [{repeat_index}/{condition.repeats}] {repeat_id}", flush=True)
+        returncode = _run(
+            capture_command(
+                args,
+                condition,
+                output,
+                execute=True,
+                condition_id=repeat_id,
+            )
+        )
+        record = _capture_record(output, condition, returncode)
+        record["repeat_index"] = repeat_index
+        record["capture_condition_id"] = repeat_id
+        records.append(record)
+        metadata_path = output.with_suffix(".json")
+        if metadata_path.is_file():
+            captures.append(metadata_path)
+        if returncode:
+            return returncode, {
+                **asdict(condition),
+                "outcome": "failed",
+                "failed_repeat": repeat_index,
+                "captures": records,
+            }
+    effective_temperature_limit = _bounded(
+        args.max_temperature_c, condition.max_temperature_c
+    )
+    summary = summarize_series(
+        captures,
+        center_deg=condition.center_deg,
+        expected_repeats=condition.repeats,
+        max_repeatability_std_deg=args.max_repeatability_std_deg,
+        max_position_error_deg=args.max_position_error_deg,
+        min_voltage_v=args.min_voltage_v,
+        max_temperature_c=effective_temperature_limit,
+    )
+    summary_path = directory / "repeatability_summary.json"
+    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    stable = summary["status"] == "stable"
+    return (0 if stable else 2), {
+        **asdict(condition),
+        "outcome": "completed" if stable else "unstable_or_incomplete",
+        "summary_path": str(summary_path),
+        "summary": summary,
+        "captures": records,
+    }
+
+
+def _condition_output(
+    campaign_dir: Path, plan: CampaignPlan, condition: CampaignCondition
+) -> Path:
+    index = plan.conditions.index(condition) + 1
+    stem = campaign_dir / f"{index:02d}_{condition.condition_id}"
+    return stem if condition.kind == "repeatability" else stem.with_suffix(".npz")
+
+
+def _validate_args(args: argparse.Namespace, plan: CampaignPlan) -> None:
+    if not 0 <= args.servo_id <= 253:
+        raise SystemExit("--servo-id must be between 0 and 253")
+    unsupported = sorted(set(plan.required_instruments) - {"servo_bus"})
+    if unsupported:
+        raise SystemExit(
+            f"plan {plan.name} requires unavailable instruments: {unsupported}"
+        )
+    if args.execute and not args.confirm_fixture_safe:
+        raise SystemExit("--execute requires --confirm-fixture-safe")
+    if args.execute and not args.run_all and args.stop_after is None:
+        raise SystemExit(
+            "hardware mode requires --stop-after for staged review, or explicit --run-all"
+        )
+    if args.execute and not args.servo_label:
+        raise SystemExit("hardware mode requires --servo-label")
+    if args.execute and (
+        args.measured_weight_kg is None or args.measured_com_radius_m is None
+    ):
+        raise SystemExit("hardware mode requires measured fixture weight and COM radius")
+    if args.external_log_label and args.external_log_label_prefix:
+        raise SystemExit(
+            "use either --external-log-label or --external-log-label-prefix, not both"
+        )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    plan = configured_plan(args)
+    _validate_args(args, plan)
+    selected = selected_conditions(args, plan)
+
+    print(f"WR2 HTD-45H campaign plan={plan.name}", flush=True)
+    print(f"mode={'HARDWARE' if args.execute else 'PREFLIGHT'}", flush=True)
+    print(f"setup={plan.setup}", flush=True)
+    for index, condition in enumerate(selected, start=1):
+        output = Path("/tmp") / f"wr2_preflight_{condition.condition_id}.npz"
+        print(
+            f"\nPREFLIGHT [{index}/{len(selected)}] {condition.condition_id}: "
+            f"{condition.description}",
+            flush=True,
+        )
+        returncode = _run(capture_command(args, condition, output, execute=False))
+        if returncode:
+            return returncode
+    if not args.execute:
+        print("\nCampaign preflight passed; no hardware was opened.")
+        return 0
+
+    git_state = _git_state()
+    if not git_state["worktree_clean"]:
+        raise SystemExit("hardware capture requires a clean Git worktree")
+    campaign_dir = _campaign_directory(args, plan)
+    manifest_path = campaign_dir / "campaign_manifest.json"
+    fixture_path = args.fixture_mjcf.expanduser().resolve()
     if manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text())
-        if int(manifest.get("servo_id", -1)) != args.servo_id:
-            raise SystemExit("existing campaign directory uses a different servo ID")
-        if manifest.get("servo_label") != args.servo_label:
-            raise SystemExit("existing campaign directory uses a different servo label")
-        if manifest.get("fixture_sha256") != fixture_hash:
-            raise SystemExit(
-                "existing campaign directory uses a different fixture model"
-            )
-        expected_numbers = {
-            "fixture_direction": args.fixture_direction,
-            "fixture_qpos_offset_deg": args.fixture_qpos_offset_deg,
-            "measured_weight_kg": args.measured_weight_kg,
-            "measured_com_radius_m": args.measured_com_radius_m,
-        }
-        for name, value in expected_numbers.items():
-            assert value is not None
-            if not _same_number(manifest.get(name), float(value)):
-                raise SystemExit(f"existing campaign directory has a different {name}")
-        if manifest.get("fixture_label") != args.fixture_label:
-            raise SystemExit(
-                "existing campaign directory uses a different fixture label"
-            )
-        if manifest.get("safety_limits") != safety_limits:
-            raise SystemExit("existing campaign directory uses different safety limits")
+        _validate_existing_manifest(manifest, args, plan, fixture_path, git_state)
     else:
-        campaign_dir.mkdir(parents=True, exist_ok=False)
-        manifest = {
-            "schema_version": 1,
-            "status": "running",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "servo_id": args.servo_id,
-            "servo_label": args.servo_label,
-            "fixture_mjcf": str(fixture_path),
-            "fixture_sha256": fixture_hash,
-            "fixture_label": args.fixture_label,
-            "fixture_direction": args.fixture_direction,
-            "fixture_qpos_offset_deg": args.fixture_qpos_offset_deg,
-            "measured_weight_kg": args.measured_weight_kg,
-            "measured_com_radius_m": args.measured_com_radius_m,
-            "safety_limits": safety_limits,
-            "conditions": [],
-        }
-    for condition in selected:
-        index = CONDITIONS.index(condition) + 1
-        output = campaign_dir / f"{index:02d}_{condition.condition_id}.npz"
-        if output.exists() or output.with_suffix(".json").exists():
-            raise SystemExit(f"condition output already exists: {output}")
-    manifest["status"] = "running"
-    _write_manifest(manifest_path, manifest)
-    for condition in selected:
-        index = CONDITIONS.index(condition) + 1
-        output = campaign_dir / f"{index:02d}_{condition.condition_id}.npz"
-        result = subprocess.run(
-            capture_command(args, condition, output, execute=True), check=False
-        )
-        record: dict[str, object] = {
-            **asdict(condition),
-            "returncode": int(result.returncode),
-            "npz_path": str(output),
-            "json_path": str(output.with_suffix(".json")),
-        }
-        if output.with_suffix(".json").is_file():
-            capture = json.loads(output.with_suffix(".json").read_text())
-            record.update(
-                {
-                    "outcome": capture.get("outcome"),
-                    "error": capture.get("error"),
-                    "tested_static_torque_nm": capture.get("tested_static_torque_nm"),
-                    "predicted_envelope": capture.get("predicted_envelope"),
-                    "trace_summary": capture.get("trace_summary"),
-                    "health_summary": capture.get("health_summary"),
-                }
+        if campaign_dir.exists():
+            raise SystemExit(
+                f"campaign directory exists without a manifest: {campaign_dir}"
             )
-        conditions = manifest["conditions"]
-        assert isinstance(conditions, list)
-        conditions.append(record)
-        manifest["updated_at"] = datetime.now(timezone.utc).isoformat()
+        campaign_dir.mkdir(parents=True)
+        manifest = _new_manifest(args, plan, fixture_path, git_state)
         _write_manifest(manifest_path, manifest)
-        if result.returncode:
-            manifest["status"] = "failed"
-            manifest["failed_condition"] = condition.condition_id
-            _write_manifest(manifest_path, manifest)
-            return int(result.returncode)
+
     completed = {
         item.get("condition_id")
         for item in manifest["conditions"]
         if item.get("outcome") == "completed"
     }
-    if completed == {item.condition_id for item in CONDITIONS}:
+    for condition in selected:
+        if condition.condition_id in completed:
+            print(f"SKIP completed condition {condition.condition_id}", flush=True)
+            continue
+        output = _condition_output(campaign_dir, plan, condition)
+        if output.exists() or (
+            output.suffix == ".npz" and output.with_suffix(".json").exists()
+        ):
+            raise SystemExit(
+                f"incomplete condition output already exists: {output}; "
+                "inspect it before choosing a new campaign directory"
+            )
+        print(f"\nRUN {condition.condition_id}: {condition.description}", flush=True)
+        if condition.kind == "repeatability":
+            returncode, record = _run_repeatability_condition(
+                args, condition, output
+            )
+        else:
+            returncode, record = _run_capture_condition(args, condition, output)
+        manifest["conditions"].append(record)
+        manifest["updated_at"] = datetime.now(timezone.utc).isoformat()
+        if returncode:
+            manifest["status"] = "failed"
+            manifest["failed_condition"] = condition.condition_id
+            _write_manifest(manifest_path, manifest)
+            return returncode
+        _write_manifest(manifest_path, manifest)
+
+    completed = {
+        item.get("condition_id")
+        for item in manifest["conditions"]
+        if item.get("outcome") == "completed"
+    }
+    if completed == {item.condition_id for item in plan.conditions}:
         manifest["status"] = "completed"
         manifest["completed_at"] = datetime.now(timezone.utc).isoformat()
     else:

@@ -1,0 +1,48 @@
+schema_version: 1
+name: bam_position
+description: Bounded BAM position repeatability and gravity-neutral dynamics
+setup: wr2-htd45h-2650g
+required_instruments: [servo_bus]
+data_goals:
+  - signed zero and loaded position repeatability
+  - direction-dependent low-load position error
+  - gravity-neutral position-loop response and whole-response delay
+  - servo-reported voltage and temperature
+limitations:
+  - fixture torque is inferred from geometry, not measured shaft torque
+  - this plan does not identify backlash, continuous torque, torque-speed, or braking
+  - external supply current is unavailable unless a synchronized logger is archived
+conditions:
+  - condition_id: commission_plus10
+    description: five low-load repeatability captures at +10 degrees
+    kind: repeatability
+    center_deg: 10.0
+    repeats: 5
+    prepare_only: true
+    prepare_speed_deg_s: 5.0
+    settle_s: 3.0
+    amplitudes_deg: "2"
+    max_static_torque_nm: 0.7
+    max_predicted_torque_nm: 0.7
+    max_temperature_c: 55.0
+  - condition_id: commission_minus10
+    description: five low-load repeatability captures at -10 degrees
+    kind: repeatability
+    center_deg: -10.0
+    repeats: 5
+    prepare_only: true
+    prepare_speed_deg_s: 5.0
+    settle_s: 3.0
+    amplitudes_deg: "2"
+    max_static_torque_nm: 0.7
+    max_predicted_torque_nm: 0.7
+    max_temperature_c: 55.0
+  - condition_id: E3_inertial_bandwidth
+    description: gravity-neutral 2-degree, 0.1-4 Hz inertial response
+    kind: capture
+    center_deg: 0.0
+    amplitudes_deg: "2"
+    chirp_end_hz: 4.0
+    max_static_torque_nm: 0.2
+    max_predicted_torque_nm: 0.6
+    max_temperature_c: 55.0

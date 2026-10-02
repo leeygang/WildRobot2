@@ -1,0 +1,52 @@
+schema_version: 1
+name: legacy_deployment
+description: Legacy E1-E7 deployment-envelope campaign
+setup: wr2-htd45h-2650g
+required_instruments: [servo_bus]
+data_goals:
+  - legacy signed static and loaded-dynamic deployment envelope
+limitations:
+  - E1, E2, and E4-E7 are not safe for unit A with current evidence
+  - E6 tests command-write suppression, not mechanical backlash
+  - E7 is not a continuous rating unless thermal equilibrium is demonstrated
+conditions:
+  - condition_id: E1_static_plus72
+    description: slow positive ramp to the 3 N m deployment margin
+    center_deg: 72.0
+    amplitudes_deg: "2"
+    prepare_only: true
+    prepare_speed_deg_s: 5.0
+    settle_s: 10.0
+    required_static_torque_nm: 3.0
+  - condition_id: E2_static_minus72
+    description: slow negative ramp to the 3 N m deployment margin
+    center_deg: -72.0
+    amplitudes_deg: "2"
+    prepare_only: true
+    prepare_speed_deg_s: 5.0
+    settle_s: 10.0
+    required_static_torque_nm: 3.0
+  - condition_id: E3_inertial_bandwidth
+    description: gravity-neutral 0.1-4 Hz inertial response
+    center_deg: 0.0
+    amplitudes_deg: "2"
+    chirp_end_hz: 4.0
+  - condition_id: E4_loaded_plus60
+    description: positive 2.75 N m loaded response
+    center_deg: 60.0
+    amplitudes_deg: "2,5"
+  - condition_id: E5_loaded_minus60
+    description: negative 2.75 N m loaded response
+    center_deg: -60.0
+    amplitudes_deg: "2,5"
+  - condition_id: E6_deployment_deadband_plus60
+    description: loaded response with three-unit deployment deadband
+    center_deg: 60.0
+    amplitudes_deg: "2,5"
+    write_deadband_units: 3
+  - condition_id: E7_thermal_hold_plus60
+    description: bounded ten-minute hold at the deployment RMS target
+    center_deg: 60.0
+    amplitudes_deg: "2"
+    prepare_speed_deg_s: 5.0
+    constant_hold_s: 600.0

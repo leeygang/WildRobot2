@@ -1,0 +1,23 @@
+schema_version: 1
+name: bam_repeatability
+description: One bounded repeated BAM position condition
+setup: wr2-htd45h-2650g
+required_instruments: [servo_bus]
+data_goals:
+  - zero and loaded position repeatability at one selected angle
+  - servo-reported voltage and temperature
+limitations:
+  - the command-line center override is retained for commission.py compatibility
+  - fixture torque is inferred from geometry, not measured shaft torque
+conditions:
+  - condition_id: repeatability
+    description: repeated low-load position capture
+    kind: repeatability
+    center_deg: 10.0
+    repeats: 5
+    prepare_only: true
+    prepare_speed_deg_s: 5.0
+    settle_s: 3.0
+    amplitudes_deg: "2"
+    max_static_torque_nm: 0.7
+    max_predicted_torque_nm: 0.7

@@ -4,6 +4,10 @@ This workflow ports the WildRobot 2.650 kg BAM fixture campaign into WR2 and
 adds dynamic-torque preflight, staged execution, multi-servo qualification,
 and generation of a machine-readable deployment specification.
 
+See the [servo specification and evidence index](../design/servo_model.md) for
+the value consumed by training or deployment, its canonical definition,
+collection status, required fixture, and implemented script structure.
+
 The replacement weight is 2.650 kg. With the arm and mounting hardware, the
 modeled moving mass is 2.722761 kg and the load inertia is approximately
 0.0430185 kg m^2. The physical weight's center of mass must remain at the
@@ -39,7 +43,8 @@ uv sync --extra sysid --extra dev
 Run the complete no-I/O preflight:
 
 ```bash
-uv run python -m wr2.tools.servo_sysid.campaign \
+uv run python -m wr2.tools.servo_sysid run \
+  --plan legacy_deployment \
   --servo-id 100 \
   --board-port /dev/serial/by-id/YOUR_ADAPTER
 ```
@@ -53,48 +58,56 @@ the live supply is outside the EEPROM voltage range.
 
 ## Low-load repeatability commissioning
 
-### Automated bounded BAM suite
+### Automated bounded BAM plan
 
-The BAM suite automates the currently permitted low-load sequence: five
+The `bam_position` plan automates the currently permitted low-load sequence: five
 +10-degree commissioning repeats, five -10-degree commissioning repeats, and
 the gravity-neutral E3 inertial-bandwidth capture. It does not include E1, E2,
 or E4--E7. It runs every mathematical preflight without opening the serial port
 unless hardware execution is explicitly enabled.
 
 ```bash
-uv run python -m wr2.tools.servo_sysid.bam_suite \
+uv run python -m wr2.tools.servo_sysid run \
+  --plan bam_position \
   --servo-id 100 \
   --servo-label htd45h-unit-a \
   --board-port /dev/serial/by-id/YOUR_ADAPTER
 ```
 
 For hardware execution, start the external voltage/current logger first. The
-suite records a distinct synchronization label for every stage, enforces a
+runner records a distinct synchronization label for every condition, enforces a
 55 C initial test ceiling, independently cools and unloads around the child
 captures, stops on the first failed safety or repeatability gate, and writes a
-top-level manifest with the exact clean Git revision. `--run-all-safe` is an
-explicit request to continue between all three low-load stages without a human
-review pause:
+top-level manifest with the plan hash and exact clean Git revision. `--run-all`
+is an explicit request to continue between all three low-load conditions
+without a human review pause:
 
 ```bash
-uv run python -m wr2.tools.servo_sysid.bam_suite \
+uv run python -m wr2.tools.servo_sysid run \
+  --plan bam_position \
   --servo-id 100 \
   --servo-label htd45h-unit-a \
   --board-port /dev/serial/by-id/YOUR_ADAPTER \
-  --suite-dir results/servo_sysid/bam-low-load-unit-a-run01 \
+  --run-dir results/servo_sysid/bam-low-load-unit-a-run01 \
   --measured-weight-kg 2.650 \
   --measured-com-radius-m 0.1204 \
   --external-log-label-prefix supply-unit-a-run01 \
-  --run-all-safe \
+  --run-all \
   --execute --confirm-fixture-safe
 ```
 
-For staged review, omit `--run-all-safe` and select one bounded range with
-`--start-at` and `--stop-after`. Reusing `--suite-dir` skips stages already
-recorded as complete. An interrupted stage is never silently adopted; inspect
-its artifacts and start a new suite directory. The software cannot start or
-verify an arbitrary external logger, so its raw clock-aligned file still needs
-to be archived alongside the suite.
+For staged review, omit `--run-all` and select one bounded range with
+`--start-at` and `--stop-after`. Reusing `--run-dir` skips conditions already
+recorded as complete. An interrupted condition is never silently adopted;
+inspect its artifacts and start a new run directory. The software cannot start
+or verify an arbitrary external logger, so its raw clock-aligned file still
+needs to be archived alongside the run.
+
+Directories created by the former `bam_suite.py` implementation contain a
+different manifest schema and are evidence archives only; do not resume them
+with the plan runner. The deprecated `bam_suite` and `commission` module names
+translate old command-line arguments into new campaigns, but new procedures
+should use the unified command above.
 
 Before the 3 N m deployment campaign, run five independent +10-degree trials.
 Each repetition performs its own cooldown and safety checks, returns to zero,
@@ -102,7 +115,8 @@ unloads the servo, and writes a separate JSON/NPZ pair. The runner then reports
 zero-position and loaded-position repeatability across all five trials.
 
 ```bash
-uv run python -m wr2.tools.servo_sysid.commission \
+uv run python -m wr2.tools.servo_sysid run \
+  --plan bam_repeatability \
   --servo-id 100 \
   --servo-label htd45h-unit-a \
   --board-port /dev/serial/by-id/YOUR_ADAPTER \
@@ -111,6 +125,7 @@ uv run python -m wr2.tools.servo_sysid.commission \
   --measured-weight-kg 2.650 \
   --measured-com-radius-m 0.1204 \
   --external-log-label supply-unit-a-commission-plus10 \
+  --run-all \
   --execute --confirm-fixture-safe
 ```
 
@@ -132,7 +147,8 @@ Run and inspect one condition at a time. Hardware motion requires both safety
 flags and an explicit stopping condition:
 
 ```bash
-uv run python -m wr2.tools.servo_sysid.campaign \
+uv run python -m wr2.tools.servo_sysid run \
+  --plan legacy_deployment \
   --servo-id 100 \
   --servo-label htd45h-unit-a \
   --board-port /dev/serial/by-id/YOUR_ADAPTER \
@@ -181,7 +197,7 @@ engineering report that must not be treated as deployment-qualified.
 Pass all completed campaign directories to the analyzer:
 
 ```bash
-uv run python -m wr2.tools.servo_sysid.analyze \
+uv run python -m wr2.tools.servo_sysid report \
   results/servo_sysid/htd45h-unit-a \
   results/servo_sysid/htd45h-unit-b \
   results/servo_sysid/htd45h-unit-c \
@@ -205,7 +221,7 @@ Fit the identifiable position-loop dynamics from zero, positive-load, and
 negative-load captures. Keep separate repeated captures for validation:
 
 ```bash
-uv run python -m wr2.tools.servo_sysid.fit \
+uv run python -m wr2.tools.servo_sysid fit \
   CAMPAIGN_A/03_E3_inertial_bandwidth.npz \
   CAMPAIGN_A/04_E4_loaded_plus60.npz \
   CAMPAIGN_A/05_E5_loaded_minus60.npz \

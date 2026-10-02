@@ -21,6 +21,12 @@ completed before treating a policy as deployment-qualified.
 
 ## Hardware calibration required before deployment
 
+The [HTD-45H servo specification and evidence
+index](design/servo_model.md) maps every training and deployment parameter to
+its definition, collection script, required setup, evidence status, and current
+value. Use it as the traceability record; this section tracks the remaining
+work.
+
 ### Tests possible with the current 2.650 kg BAM fixture
 
 The current fixture has a 2.650 kg removable weight, approximately 2.722761 kg
@@ -38,11 +44,12 @@ condition at a time and inspect its JSON/NPZ artifacts before continuing.
 
 The following work can be completed with the current fixture:
 
-Use `python -m wr2.tools.servo_sysid.bam_suite` to automate the bounded
-`+10 degree -> -10 degree -> E3` sequence. It is preflight-only by default,
-requires explicit fixture confirmation for hardware execution, records the
-clean Git revision and per-stage artifacts, and stops on the first failed gate.
-The external supply logger must still be started and synchronized separately.
+Use `python -m wr2.tools.servo_sysid run --plan bam_position` to automate the
+bounded `+10 degree -> -10 degree -> E3` sequence. It is preflight-only by
+default, requires explicit fixture confirmation for hardware execution, records
+the plan and fixture hashes, clean Git revision, and per-condition artifacts,
+and stops on the first failed gate. The external supply logger must still be
+started and synchronized separately.
 
 - [ ] Repeat low-load commissioning in both directions and at several angles.
   Record zero and loaded position repeatability, direction-dependent position

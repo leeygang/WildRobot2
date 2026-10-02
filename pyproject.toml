@@ -53,6 +53,7 @@ wr2 = [
     "descriptions/**/*.stl",
     "locomotion/configs/*.yaml",
     "tools/servo_sysid/fixtures/*.xml",
+    "tools/servo_sysid/plans/*.yaml",
     "tools/servo_sysid/*.json",
 ]
 
