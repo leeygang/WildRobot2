@@ -31,6 +31,8 @@ def _good_metrics(**updates):
         "eval/episode_lateral_velocity_m_s_per_step": 0.005,
         "eval/episode_yaw_rate_error_rad_s_per_step": 0.01,
         "eval/episode_contact_phase_match_per_step": 0.90,
+        "eval/episode_left_foot_contact_per_step": 0.65,
+        "eval/episode_right_foot_contact_per_step": 0.65,
         "eval/episode_double_support_per_step": 0.10,
         "eval/episode_feet_phase_tracking_per_step": 1.40,
         "eval/episode_actuator_torque_rms_nm_per_step": 0.80,
@@ -131,6 +133,22 @@ class WalkingTrainingAgentTest(unittest.TestCase):
         self.assertFalse(result.gates["walking_score"])
         self.assertFalse(result.gates["forward_velocity_ratio"])
         self.assertFalse(result.gates["double_support"])
+
+    def test_final_goal_rejects_one_planted_foot(self):
+        training = load_training_config(self.agent_config.base_training_config)
+        result = evaluate_walking_goal(
+            _good_metrics(
+                **{
+                    "eval/episode_left_foot_contact_per_step": 0.40,
+                    "eval/episode_right_foot_contact_per_step": 0.999,
+                }
+            ),
+            self.agent_config.stages[-1].goal,
+            target_episode_length=training.environment.episode_length,
+            velocity_sigma_m_s=training.environment.velocity_tracking_sigma,
+        )
+        self.assertFalse(result.gates["bilateral_foot_use"])
+        self.assertAlmostEqual(result.values["minimum_foot_swing_fraction"], 0.001)
 
     def test_p1_diagnostics_do_not_block_required_stability_gates(self):
         training = load_training_config(self.agent_config.base_training_config)

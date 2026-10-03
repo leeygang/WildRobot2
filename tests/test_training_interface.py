@@ -215,7 +215,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(environment.zmp_reference.max_orientation_residual_rad, 0.005)
         self.assertEqual(environment.swing_height_m, 0.04)
         self.assertEqual(environment.feet_phase_tracking_sigma_m2, 0.0007)
-        self.assertEqual(environment.velocity_reward_sigma, 0.15)
+        self.assertAlmostEqual(environment.velocity_reward_sigma**-2, 1000.0)
         self.assertAlmostEqual(environment.velocity_tracking_sigma**-2, 1000.0)
         self.assertEqual(environment.rewards.velocity_xy, 2.0)
         self.assertEqual(environment.rewards.feet_phase, 7.5)
@@ -489,8 +489,8 @@ class TrainingInterfaceTest(unittest.TestCase):
             atol=1e-7,
         )
 
-    def test_acquisition_velocity_reward_has_signal_without_weakening_score(self):
-        command_error_m_s = 0.20
+    def test_velocity_reward_matches_tb_strict_tracking_score(self):
+        command_error_m_s = 0.10
         reward_at_rest = np.exp(
             -(command_error_m_s**2)
             / self.training_config.environment.velocity_reward_sigma**2
@@ -500,8 +500,8 @@ class TrainingInterfaceTest(unittest.TestCase):
             / self.training_config.environment.velocity_tracking_sigma**2
         )
 
-        self.assertGreater(reward_at_rest, 0.1)
-        self.assertLess(strict_score_at_rest, 1e-12)
+        self.assertAlmostEqual(reward_at_rest, strict_score_at_rest)
+        self.assertLess(reward_at_rest, 5e-5)
 
     def test_policy_distribution_enforces_normalized_action_bounds(self):
         active = self.robot.active_actuator_indices(("leg",))

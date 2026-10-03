@@ -43,6 +43,8 @@ def _metrics(**updates):
         "eval/episode_lateral_velocity_m_s_per_step": 0.005,
         "eval/episode_yaw_rate_error_rad_s_per_step": 0.01,
         "eval/episode_contact_phase_match_per_step": 0.90,
+        "eval/episode_left_foot_contact_per_step": 0.65,
+        "eval/episode_right_foot_contact_per_step": 0.65,
         "eval/episode_double_support_per_step": 0.10,
         "eval/episode_feet_phase_tracking_per_step": 1.40,
         "eval/episode_actuator_torque_rms_nm_per_step": 0.80,
@@ -153,6 +155,7 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
                 "forward_velocity_ratio",
                 "forward_velocity_error",
                 "contact_phase",
+                "bilateral_foot_use",
                 "action_saturation",
             ],
         )

@@ -28,9 +28,7 @@ from wr2.locomotion.walking_metrics import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_AGENT_CONFIG = (
-    REPO_ROOT / "wr2/locomotion/configs/walking_agent.yaml"
-)
+DEFAULT_AGENT_CONFIG = REPO_ROOT / "wr2/locomotion/configs/walking_agent.yaml"
 _SAFE_OVERRIDES = {
     "domain_randomization.enabled",
     "environment.command_forward_range_m_s",
@@ -92,7 +90,9 @@ class Candidate:
         return self.goal_result.passes(self.required_gates)
 
     @property
-    def rank(self) -> tuple[bool, int, float, float, float, float, float, float, float]:
+    def rank(
+        self,
+    ) -> tuple[bool, int, float, float, float, float, float, float, float, float]:
         values = self.goal_result.values
         return (
             self.required_passed,
@@ -102,6 +102,7 @@ class Candidate:
             -values["forward_velocity_error_m_s"],
             values["forward_velocity_ratio"],
             values["contact_phase_match"],
+            values["minimum_foot_swing_fraction"],
             -values["action_saturation_fraction"],
             self.goal_result.score,
         )
@@ -207,9 +208,7 @@ def load_agent_config(path: str | Path = DEFAULT_AGENT_CONFIG) -> WalkingAgentCo
     if hard_safety.max_mean_step_peak_torque_nm <= 0.0:
         raise ValueError("hard_safety.max_mean_step_peak_torque_nm must be positive")
     if not 0.0 <= hard_safety.max_action_saturation_fraction <= 1.0:
-        raise ValueError(
-            "hard_safety.max_action_saturation_fraction must be in [0, 1]"
-        )
+        raise ValueError("hard_safety.max_action_saturation_fraction must be in [0, 1]")
     if hard_safety.max_nonfinite_state < 0.0:
         raise ValueError("hard_safety.max_nonfinite_state must be non-negative")
 
@@ -275,9 +274,7 @@ def load_agent_config(path: str | Path = DEFAULT_AGENT_CONFIG) -> WalkingAgentCo
             list(training.environment.command_forward_range_m_s),
         )
         if not all(
-            float(stage_training_range[0])
-            <= command
-            <= float(stage_training_range[1])
+            float(stage_training_range[0]) <= command <= float(stage_training_range[1])
             for command in evaluation_commands
         ):
             raise ValueError(
@@ -289,7 +286,9 @@ def load_agent_config(path: str | Path = DEFAULT_AGENT_CONFIG) -> WalkingAgentCo
         stages.append(
             StageConfig(
                 name=name,
-                max_cycles=_positive_int(stage_raw["max_cycles"], f"{label}.max_cycles"),
+                max_cycles=_positive_int(
+                    stage_raw["max_cycles"], f"{label}.max_cycles"
+                ),
                 evaluation_commands_m_s=evaluation_commands,
                 required_gates=required_gates,
                 overrides=copy.deepcopy(overrides),
@@ -301,7 +300,10 @@ def load_agent_config(path: str | Path = DEFAULT_AGENT_CONFIG) -> WalkingAgentCo
         "environment.command_forward_range_m_s",
         list(training.environment.command_forward_range_m_s),
     )
-    if not all(float(final_range[0]) <= command <= float(final_range[1]) for command in commands):
+    if not all(
+        float(final_range[0]) <= command <= float(final_range[1])
+        for command in commands
+    ):
         raise ValueError(
             "cycle.confirmation_commands_m_s must stay inside the final training range"
         )
@@ -372,16 +374,13 @@ def _cycle_payload(
         raise ValueError("base training config must be a mapping")
     payload["seed"] = seed
     payload["version_name"] = (
-        f"{payload['version_name']} | agent_stage={stage.name} "
-        f"cycle={stage_cycle}"
+        f"{payload['version_name']} | agent_stage={stage.name} cycle={stage_cycle}"
     )
     payload["ppo"]["num_timesteps"] = config.cycle.num_timesteps
     payload["ppo"]["num_evals"] = config.cycle.num_evals
-    payload["ppo"]["evaluation_forward_command_m_s"] = (
-        stage.evaluation_commands_m_s[
-            (stage_cycle - 1) % len(stage.evaluation_commands_m_s)
-        ]
-    )
+    payload["ppo"]["evaluation_forward_command_m_s"] = stage.evaluation_commands_m_s[
+        (stage_cycle - 1) % len(stage.evaluation_commands_m_s)
+    ]
     for name, value in stage.overrides.items():
         _set_nested(payload, name, value)
     return payload
@@ -390,17 +389,17 @@ def _cycle_payload(
 def _hard_safe(result: WalkingGoalResult, hard: HardSafetyConfig) -> bool:
     values = result.values
     return bool(
-        values["mean_step_peak_torque_nm"]
-        <= hard.max_mean_step_peak_torque_nm
-        and values["action_saturation_fraction"]
-        <= hard.max_action_saturation_fraction
+        values["mean_step_peak_torque_nm"] <= hard.max_mean_step_peak_torque_nm
+        and values["action_saturation_fraction"] <= hard.max_action_saturation_fraction
         and values["nonfinite_state"] <= hard.max_nonfinite_state
     )
 
 
 def _read_metric_rows(path: Path) -> list[dict[str, Any]]:
     rows = []
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for line_number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), 1
+    ):
         if not line.strip():
             continue
         try:
@@ -461,13 +460,13 @@ def select_cycle_candidate(
         )
     if not candidates:
         details = "; ".join(rejected[-5:]) or "no post-training evaluations"
-        raise WalkingAgentError(f"No promotable checkpoint in {run_directory}: {details}")
+        raise WalkingAgentError(
+            f"No promotable checkpoint in {run_directory}: {details}"
+        )
     return max(candidates, key=lambda candidate: candidate.rank)
 
 
-def _failed_gates(
-    result: WalkingGoalResult, gates: Sequence[str]
-) -> list[str]:
+def _failed_gates(result: WalkingGoalResult, gates: Sequence[str]) -> list[str]:
     return [name for name in gates if not result.gates[name]]
 
 
@@ -593,9 +592,7 @@ def run_local(args: argparse.Namespace, config: WalkingAgentConfig) -> int:
             cycle_payload = _cycle_payload(
                 config, stage, seed=seed, stage_cycle=stage_cycle
             )
-            cycle_config = (
-                configs_root / f"{global_cycle:02d}_{stage.name}.yaml"
-            )
+            cycle_config = configs_root / f"{global_cycle:02d}_{stage.name}.yaml"
             cycle_config.parent.mkdir(parents=True, exist_ok=True)
             cycle_config.write_text(
                 yaml.safe_dump(cycle_payload, sort_keys=False), encoding="utf-8"
@@ -647,9 +644,7 @@ def run_local(args: argparse.Namespace, config: WalkingAgentConfig) -> int:
                 _write_json_atomic(agent_root / "agent_state.json", state)
                 return return_code
 
-            candidate = select_cycle_candidate(
-                run_directory, stage, config.hard_safety
-            )
+            candidate = select_cycle_candidate(run_directory, stage, config.hard_safety)
             if stage_best is None or candidate.rank > stage_best.rank:
                 stage_best = candidate
             current_checkpoint = stage_best.checkpoint
@@ -794,9 +789,7 @@ def run_remote(args: argparse.Namespace) -> int:
     verify = ["ssh"]
     if args.port is not None:
         verify.extend(["-p", str(args.port)])
-    verify.extend(
-        [target, f"git -C {shlex.quote(args.remote_repo)} rev-parse HEAD"]
-    )
+    verify.extend([target, f"git -C {shlex.quote(args.remote_repo)} rev-parse HEAD"])
     remote_sha = subprocess.run(
         verify, check=True, capture_output=True, text=True
     ).stdout.strip()
@@ -814,9 +807,7 @@ def run_remote(args: argparse.Namespace) -> int:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--agent-config", type=Path, default=DEFAULT_AGENT_CONFIG
-    )
+    parser.add_argument("--agent-config", type=Path, default=DEFAULT_AGENT_CONFIG)
     parser.add_argument("--agent-id")
     parser.add_argument("--resume-checkpoint")
     parser.add_argument("--allow-cpu", action="store_true")
@@ -824,9 +815,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--host", help="Run the same supervisor on this SSH host")
     parser.add_argument("--user", default="leeygang")
     parser.add_argument("--port", type=int)
-    parser.add_argument(
-        "--remote-repo", default="/home/leeygang/projects/WildRobot2"
-    )
+    parser.add_argument("--remote-repo", default="/home/leeygang/projects/WildRobot2")
     parser.add_argument("--local-worker", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args(argv)
 

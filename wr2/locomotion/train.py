@@ -23,7 +23,10 @@ from wr2.locomotion.configs import (
     load_training_config,
     training_config_to_dict,
 )
-from wr2.locomotion.walking_metrics import walking_score as calculate_walking_score
+from wr2.locomotion.walking_metrics import (
+    minimum_foot_swing_fraction,
+    walking_score as calculate_walking_score,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _KNOWN_OPTIONAL_IMPORT_MESSAGES = (
@@ -438,11 +441,22 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 value = metric(f"episode/{name}")
                 return "n/a" if value is None else format(value, format_spec)
 
+            left_contact = metric("episode/left_foot_contact_per_step")
+            right_contact = metric("episode/right_foot_contact_per_step")
+            minimum_swing = (
+                None
+                if left_contact is None or right_contact is None
+                else minimum_foot_swing_fraction(left_contact, right_contact)
+            )
+            minimum_swing_text = (
+                "n/a" if minimum_swing is None else format(minimum_swing, ".1%")
+            )
             print(
                 f"Rollout [{_format_duration(elapsed_s)}] steps={step:,} | "
                 f"ep_len={rollout_show('length', '.0f')} "
                 f"vx={rollout_show('forward_velocity_m_s_per_step')} "
                 f"contact={rollout_show('contact_phase_match_per_step', '.1%')} "
+                f"min_swing={minimum_swing_text} "
                 f"sat={rollout_show('action_saturation_fraction_per_step', '.1%')} "
                 f"near={rollout_show('action_near_boundary_fraction_per_step', '.1%')} "
                 f"|a-home|={rollout_show('action_deviation_from_home_abs_mean_per_step')}",
@@ -526,13 +540,20 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             flush=True,
         )
         tilt_rad = metric("eval/episode_torso_tilt_rad_per_step")
+        left_contact = metric("eval/episode_left_foot_contact_per_step")
+        right_contact = metric("eval/episode_right_foot_contact_per_step")
+        minimum_swing = (
+            None
+            if left_contact is None or right_contact is None
+            else minimum_foot_swing_fraction(left_contact, right_contact)
+        )
         print(
             "  └─ state : "
             f"height={show(metric('eval/episode_torso_height_m_per_step'))}m "
             f"tilt={show(None if tilt_rad is None else math.degrees(tilt_rad), '.1f')}deg "
             f"fall={show(metric('eval/episode_fall'), '.1%')} "
-            f"feet=L{show(metric('eval/episode_left_foot_contact_per_step'), '.0%')}"
-            f"/R{show(metric('eval/episode_right_foot_contact_per_step'), '.0%')}",
+            f"feet=L{show(left_contact, '.0%')}"
+            f"/R{show(right_contact, '.0%')}",
             flush=True,
         )
         print(
@@ -540,6 +561,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             f"phase_score={show(metric('eval/episode_feet_phase_tracking_per_step'))} "
             f"contact_match={show(metric('eval/episode_contact_phase_match_per_step'), '.1%')} "
             f"double_support={show(metric('eval/episode_double_support_per_step'), '.1%')} "
+            f"min_swing={show(minimum_swing, '.1%')} "
             f"foot_z=L{show(metric('eval/episode_left_foot_height_m_per_step'))}m"
             f"/R{show(metric('eval/episode_right_foot_height_m_per_step'))}m "
             f"width={show(metric('eval/episode_feet_lateral_distance_m_per_step'))}m",

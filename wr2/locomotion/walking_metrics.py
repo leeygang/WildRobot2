@@ -17,6 +17,7 @@ WALKING_GATE_NAMES = frozenset(
         "lateral_velocity",
         "yaw_rate_error",
         "contact_phase",
+        "bilateral_foot_use",
         "double_support",
         "feet_phase",
         "torque_rms",
@@ -40,6 +41,7 @@ class WalkingGoal:
     max_abs_lateral_velocity_m_s: float
     max_yaw_rate_error_rad_s: float
     min_contact_phase_match: float
+    min_each_foot_swing_fraction: float
     max_double_support: float
     min_feet_phase_score: float
     max_actuator_torque_rms_nm: float
@@ -66,6 +68,7 @@ class WalkingGoal:
         probability_fields = (
             "max_fall_rate",
             "min_contact_phase_match",
+            "min_each_foot_swing_fraction",
             "max_double_support",
             "max_action_saturation_fraction",
             "min_forward_velocity_ratio",
@@ -110,26 +113,18 @@ _METRIC_NAMES = {
     "fall_rate": "eval/episode_fall",
     "command_forward_m_s": "eval/episode_command_forward_m_s_per_step",
     "forward_velocity_m_s": "eval/episode_forward_velocity_m_s_per_step",
-    "forward_velocity_error_m_s": (
-        "eval/episode_forward_velocity_error_m_s_per_step"
-    ),
+    "forward_velocity_error_m_s": ("eval/episode_forward_velocity_error_m_s_per_step"),
     "lateral_velocity_m_s": "eval/episode_lateral_velocity_m_s_per_step",
     "yaw_rate_error_rad_s": "eval/episode_yaw_rate_error_rad_s_per_step",
     "contact_phase_match": "eval/episode_contact_phase_match_per_step",
+    "left_foot_contact_fraction": "eval/episode_left_foot_contact_per_step",
+    "right_foot_contact_fraction": "eval/episode_right_foot_contact_per_step",
     "double_support": "eval/episode_double_support_per_step",
     "feet_phase_score": "eval/episode_feet_phase_tracking_per_step",
-    "actuator_torque_rms_nm": (
-        "eval/episode_actuator_torque_rms_nm_per_step"
-    ),
-    "mean_step_peak_torque_nm": (
-        "eval/episode_actuator_torque_peak_nm_per_step"
-    ),
-    "sustained_torque_exposure": (
-        "eval/episode_sustained_torque_exposure_per_step"
-    ),
-    "action_saturation_fraction": (
-        "eval/episode_action_saturation_fraction_per_step"
-    ),
+    "actuator_torque_rms_nm": ("eval/episode_actuator_torque_rms_nm_per_step"),
+    "mean_step_peak_torque_nm": ("eval/episode_actuator_torque_peak_nm_per_step"),
+    "sustained_torque_exposure": ("eval/episode_sustained_torque_exposure_per_step"),
+    "action_saturation_fraction": ("eval/episode_action_saturation_fraction_per_step"),
     "nonfinite_state": "eval/episode_nonfinite_state",
 }
 
@@ -145,13 +140,23 @@ def walking_score(
 ) -> float:
     """Rank policies by survival, commanded motion, and alternating support."""
     survival = min(max(episode_length / target_episode_length, 0.0), 1.0)
-    velocity_score = math.exp(-(velocity_error_m_s / velocity_sigma_m_s) ** 2)
+    velocity_score = math.exp(-((velocity_error_m_s / velocity_sigma_m_s) ** 2))
     return (
         survival
         * velocity_score
         * (0.5 + 0.5 * contact_match)
         * (1.0 - 0.5 * double_support)
     )
+
+
+def minimum_foot_swing_fraction(
+    left_foot_contact_fraction: float,
+    right_foot_contact_fraction: float,
+) -> float:
+    """Return the smaller commanded-walking swing fraction across both feet."""
+    left_contact = min(max(left_foot_contact_fraction, 0.0), 1.0)
+    right_contact = min(max(right_foot_contact_fraction, 0.0), 1.0)
+    return min(1.0 - left_contact, 1.0 - right_contact)
 
 
 def _scalar(metrics: Mapping[str, Any], name: str) -> float:
@@ -182,6 +187,13 @@ def evaluate_walking_goal(
     values["forward_velocity_ratio"] = (
         values["forward_velocity_m_s"] / values["command_forward_m_s"]
     )
+    values["minimum_foot_swing_fraction"] = minimum_foot_swing_fraction(
+        values["left_foot_contact_fraction"],
+        values["right_foot_contact_fraction"],
+    )
+    values["foot_contact_imbalance"] = abs(
+        values["left_foot_contact_fraction"] - values["right_foot_contact_fraction"]
+    )
     score = walking_score(
         episode_length=values["episode_length"],
         target_episode_length=target_episode_length,
@@ -195,16 +207,13 @@ def evaluate_walking_goal(
         "episode_length": values["episode_length"] >= goal.min_episode_length,
         "fall_rate": values["fall_rate"] <= goal.max_fall_rate,
         "forward_velocity_ratio": (
-            values["forward_velocity_ratio"] + 1e-9
-            >= goal.min_forward_velocity_ratio
+            values["forward_velocity_ratio"] + 1e-9 >= goal.min_forward_velocity_ratio
         ),
         "forward_velocity_error": (
-            values["forward_velocity_error_m_s"]
-            <= goal.max_forward_velocity_error_m_s
+            values["forward_velocity_error_m_s"] <= goal.max_forward_velocity_error_m_s
         ),
         "lateral_velocity": (
-            abs(values["lateral_velocity_m_s"])
-            <= goal.max_abs_lateral_velocity_m_s
+            abs(values["lateral_velocity_m_s"]) <= goal.max_abs_lateral_velocity_m_s
         ),
         "yaw_rate_error": (
             values["yaw_rate_error_rad_s"] <= goal.max_yaw_rate_error_rad_s
@@ -212,23 +221,22 @@ def evaluate_walking_goal(
         "contact_phase": (
             values["contact_phase_match"] >= goal.min_contact_phase_match
         ),
+        "bilateral_foot_use": (
+            values["minimum_foot_swing_fraction"] >= goal.min_each_foot_swing_fraction
+        ),
         "double_support": values["double_support"] <= goal.max_double_support,
         "feet_phase": values["feet_phase_score"] >= goal.min_feet_phase_score,
         "torque_rms": (
-            values["actuator_torque_rms_nm"]
-            <= goal.max_actuator_torque_rms_nm
+            values["actuator_torque_rms_nm"] <= goal.max_actuator_torque_rms_nm
         ),
         "torque_peak": (
-            values["mean_step_peak_torque_nm"]
-            <= goal.max_mean_step_peak_torque_nm
+            values["mean_step_peak_torque_nm"] <= goal.max_mean_step_peak_torque_nm
         ),
         "torque_exposure": (
-            values["sustained_torque_exposure"]
-            <= goal.max_sustained_torque_exposure
+            values["sustained_torque_exposure"] <= goal.max_sustained_torque_exposure
         ),
         "action_saturation": (
-            values["action_saturation_fraction"]
-            <= goal.max_action_saturation_fraction
+            values["action_saturation_fraction"] <= goal.max_action_saturation_fraction
         ),
         "finite_state": values["nonfinite_state"] <= goal.max_nonfinite_state,
     }

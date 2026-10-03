@@ -28,6 +28,7 @@ stages:
       - forward_velocity_ratio
       - forward_velocity_error
       - contact_phase
+      - bilateral_foot_use
       - action_saturation
     overrides:
       domain_randomization.enabled: false
@@ -42,6 +43,7 @@ stages:
       max_abs_lateral_velocity_m_s: 0.08
       max_yaw_rate_error_rad_s: 0.30
       min_contact_phase_match: 0.65
+      min_each_foot_swing_fraction: 0.10
       max_double_support: 0.70
       min_feet_phase_score: 0.75
       max_actuator_torque_rms_nm: 1.0157
@@ -59,6 +61,7 @@ stages:
       - forward_velocity_ratio
       - forward_velocity_error
       - contact_phase
+      - bilateral_foot_use
       - action_saturation
     overrides:
       domain_randomization.enabled: true
@@ -73,6 +76,7 @@ stages:
       max_abs_lateral_velocity_m_s: 0.03
       max_yaw_rate_error_rad_s: 0.10
       min_contact_phase_match: 0.80
+      min_each_foot_swing_fraction: 0.20
       max_double_support: 0.25
       min_feet_phase_score: 1.10
       max_actuator_torque_rms_nm: 1.0157

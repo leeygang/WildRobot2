@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy while preserving WR2's measured actuator envelope.
-version: "0.10.1"
-version_name: "WR2 validated ZMP-critic gait acquisition"
+version: "0.10.2"
+version_name: "WR2 ToddlerBot-strict velocity gait acquisition"
 seed: 0
 
 environment:
@@ -34,12 +34,11 @@ environment:
   target_torso_height_m: 0.301
   terminate_height_m: 0.20
   terminate_projected_gravity_z: -0.50
-  # Acquisition kernel: unlike the final ToddlerBot-equivalent tolerance below,
-  # this still supplies a useful gradient when a new policy stands at 0.20 m/s.
-  # Tighten this toward velocity_tracking_sigma after gait acquisition.
-  velocity_reward_sigma: 0.15
-  # Strict scoring tolerance, equivalent to ToddlerBot's
-  # exp(-1000 * velocity_error^2). This does not become easier during acquisition.
+  # Match ToddlerBot's active exp(-1000 * velocity_error^2) reward. The broader
+  # 0.15 m/s acquisition kernel let a stationary one-foot policy retain 64% of
+  # the velocity reward at a 0.10 m/s command in the 0.10.1 canary.
+  velocity_reward_sigma: 0.03162277660168379
+  # Use the same strict tolerance for checkpoint scoring.
   velocity_tracking_sigma: 0.03162277660168379
   # Equivalent to ToddlerBot's exp(-4 * yaw_rate_error^2).
   yaw_tracking_sigma: 0.50
