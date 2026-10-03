@@ -39,7 +39,7 @@ class ZMPReferenceValidationTest(unittest.TestCase):
         commands = tuple(result.command_forward_m_s for result in results)
         np.testing.assert_allclose(
             commands,
-            (0.08, 0.105, 0.13, 0.155, 0.18, 0.10),
+            (0.05, 0.0625, 0.075, 0.0875, 0.10),
             atol=1e-9,
         )
         self.assertTrue(all(result.passed for result in results))

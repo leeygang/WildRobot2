@@ -108,10 +108,10 @@ torque is recomputed from the changing joint state on every substep. It applies
 one control-step action delay and exposes a deployable
 15-frame actor history (825 values) and privileged critic history (1440
 values), newest first. It uses simulator-only state for rewards and
-termination. The active acquisition config trains at 0.08--0.18 m/s under
+termination. The active acquisition config trains at 0.05--0.10 m/s under
 nominal dynamics; the robust stage expands this to 0.10--0.25 m/s and enables
-domain randomization. Both include explicit standing episodes and resample
-commands every three seconds. A smooth alternating-foot
+domain randomization. Acquisition uses 20% explicit standing episodes and
+resamples commands every three seconds. A smooth alternating-foot
 target provides dense swing-height guidance using ToddlerBot's active
 half-cycle reward equation. Separately, the ZMP trajectory and desired-contact
 critic feature use ToddlerBot's 2:1 single-support-to-double-support design.
@@ -207,7 +207,13 @@ automatic geometry preflight. It keeps the same network shapes, but the first
 v0.10.1 comparison should also be a cold start. v0.11.0 replaces the bounded
 absolute tanh policy with ToddlerBot's unbounded `walk_home + 0.25 * residual`
 contract. Every older checkpoint is incompatible and the v0.11.0 comparison
-must be a cold start.
+must be a cold start. The v0.11.0 canary acquired stable bilateral in-place
+stepping but no forward motion: at its final checkpoint, foot phase contributed
+about 216 return while velocity contributed only 0.70. v0.11.1 retains the
+strict ToddlerBot reward and action contract but shifts acquisition commands
+from 0.08--0.18 to 0.05--0.10 m/s, where a cold policy receives a measurable
+velocity gradient. It must also start cold to avoid restoring the in-place
+local optimum.
 
 Validate the generated reference before training with:
 

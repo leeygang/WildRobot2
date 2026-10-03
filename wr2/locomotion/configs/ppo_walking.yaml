@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy while preserving WR2's measured actuator envelope.
-version: "0.11.0"
-version_name: "WR2 ToddlerBot residual-action gait acquisition"
+version: "0.11.1"
+version_name: "WR2 ToddlerBot low-speed gait acquisition"
 seed: 0
 
 environment:
@@ -19,12 +19,14 @@ environment:
   privileged_actuator_force_scale: 0.1
   reset_joint_noise_rad: 0.02
   reset_velocity_noise_rad_s: 0.05
-  # Walking commands exclude zero; zero_command_probability supplies explicit
-  # standing episodes so a stationary policy cannot exploit weak tracking.
-  command_forward_range_m_s: [0.08, 0.18]
+  # ToddlerBot acquires walking at 0.05--0.10 m/s magnitudes. WR2 keeps only
+  # the forward component because lateral/yaw ZMP references are not ready.
+  # The lower bound keeps the strict velocity reward's gradient measurable
+  # from rest; later robust training expands to 0.15 and 0.20 m/s.
+  command_forward_range_m_s: [0.05, 0.10]
   command_lateral_range_m_s: [0.0, 0.0]
   command_yaw_range_rad_s: [0.0, 0.0]
-  zero_command_probability: 0.10
+  zero_command_probability: 0.20
   command_resample_steps: 150
   command_active_threshold_m_s: 0.05
   gait_cycle_s: 0.72
@@ -37,9 +39,9 @@ environment:
   target_torso_height_m: 0.301
   terminate_height_m: 0.20
   terminate_projected_gravity_z: -0.50
-  # Match ToddlerBot's active exp(-1000 * velocity_error^2) reward. The broader
-  # 0.15 m/s acquisition kernel let a stationary one-foot policy retain 64% of
-  # the velocity reward at a 0.10 m/s command in the 0.10.1 canary.
+  # Match ToddlerBot's active exp(-1000 * velocity_error^2) reward. The earlier
+  # 0.15 m/s kernel let a stationary one-foot policy retain 64% of the velocity
+  # reward at a 0.10 m/s command in the v0.10.1 canary.
   velocity_reward_sigma: 0.03162277660168379
   # Use the same strict tolerance for checkpoint scoring.
   velocity_tracking_sigma: 0.03162277660168379

@@ -13,13 +13,14 @@ completed before treating a policy as deployment-qualified.
   active velocity term and joint damping sum to the fitted effective damping
   of 0.673622 N m s/rad; this remains a provisional single-servo training
   nominal, not a deployment rating.
-- [ ] Start a new cold PPO gait-acquisition canary with training contract
-  v0.11.0. The actor still has 825 inputs, but actions are now ToddlerBot-style
-  unbounded residuals mapped by `walk_home + 0.25 rad * action`. All earlier
-  checkpoints have incompatible action semantics and must not be restored.
+- [x] Run the cold v0.11.0 residual-action canary. It produced stable bilateral
+  phase stepping and safe torque but remained near zero forward speed because
+  the strict velocity reward supplied negligible gradient at 0.08--0.18 m/s.
+- [ ] Run the cold v0.11.1 acquisition canary at 0.05--0.10 m/s with 20%
+  standing commands. Do not restore the v0.11.0 in-place local optimum.
 - [x] Align acquisition and evaluation with ToddlerBot's active strict
   `exp(-1000 * velocity_error^2)` kernel (`sigma=0.0316 m/s`). Keep it fixed in
-  the v0.11.0 action-contract canary so the comparison changes one mechanism.
+  the v0.11.x canaries so command sampling is the only new mechanism.
 - [ ] Pass the P0 walking gates at 0.10, 0.15, and 0.20 m/s under independent
   randomized confirmation.
 - [ ] Export the accepted policy and implement the physical runtime adapter for

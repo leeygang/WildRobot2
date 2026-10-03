@@ -73,6 +73,11 @@ class WalkingTrainingAgentTest(unittest.TestCase):
         self.assertEqual(payload["ppo"]["num_timesteps"], 100_000_000)
         self.assertEqual(payload["ppo"]["evaluation_forward_command_m_s"], 0.10)
         self.assertEqual(
+            payload["environment"]["command_forward_range_m_s"],
+            [0.05, 0.10],
+        )
+        self.assertEqual(payload["environment"]["zero_command_probability"], 0.20)
+        self.assertEqual(
             payload["network"]["policy_hidden_layer_sizes"],
             list(base.network.policy_hidden_layer_sizes),
         )

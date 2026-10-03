@@ -117,10 +117,11 @@ reward uses alternating half-cycle swings. The ZMP IK lookup and desired
 critic-contact feature separately use the planner's 2:1
 single-support-to-double-support design.
 
-ToddlerBot samples forward/backward, lateral, turning, and standing commands.
-WR2 gait acquisition intentionally samples 0.08--0.18 m/s forward commands and
-10% standing commands; robust training expands the forward range and uses 20%
-standing commands. Both resample every three seconds. WR2 starts a new gait at
+ToddlerBot samples 0.05--0.10 m/s walking magnitudes plus standing and turning.
+WR2 v0.11.1 samples 0.05--0.10 m/s forward commands and 20% standing commands;
+lateral and turning commands remain disabled until their ZMP references and
+orientation contract are ready. Robust training expands the forward range.
+Both resample every three seconds. WR2 starts a new gait at
 phase zero when leaving stand, which is reproducible on hardware; ToddlerBot's
 episode clock continues through command changes. This is an explicit WR2
 deployment choice, not numerical parity.
@@ -135,7 +136,7 @@ All terms below are integrated over the 20 ms control period.
 
 | Term | ToddlerBot active equation | WR2 equation | Status |
 |---|---|---|---|
-| XY velocity | `2 exp(-1000 ||v-c||^2)` | `2 exp(-||v-c||^2 / 0.15^2)` | Intentional acquisition kernel; final score remains TB-strict |
+| XY velocity | `2 exp(-1000 ||v-c||^2)` | same | Aligned |
 | Yaw rate | `1.5 exp(-4 (w-c)^2)` | same | Aligned |
 | Roll/pitch rate | `-sum(w_xy^2)` | same | Aligned |
 | Torso orientation | `2.5 exp(-20 angle_to_ref^2)` | `2.5 exp(-20 tilt^2)` | Yaw-invariant WR2 adaptation |
@@ -147,11 +148,13 @@ All terms below are integrated over the 20 ms control period.
 | Foot tilt | `-5` times summed sine tilt | same relative to WR2 home sole axes | Model-frame adaptation |
 | Torque/power | disabled in active TB config | small WR2 torque-squared and power costs | WR2 servo safety requirement |
 
-The wider 0.15 m/s acquisition velocity kernel is the largest intentional
-reward divergence. It gives a cold policy gradient while standing. Success
-scoring still uses ToddlerBot's strict `exp(-1000 error^2)` tolerance. It should
-be tightened only as a separately measured experiment, not combined with this
-semantic correction.
+WR2 keeps ToddlerBot's strict velocity kernel during acquisition. The v0.11.0
+canary showed why command sampling matters with that kernel: a cold policy at
+the previous average 0.118 m/s command had almost no velocity gradient and
+optimized the much stronger foot-phase term into stable in-place stepping.
+v0.11.1 uses ToddlerBot's 0.05--0.10 m/s acquisition magnitudes so small forward
+motion enters the useful part of the same reward curve; no reward weight or
+kernel changes in this experiment.
 
 ## ZMP-reference boundary
 
