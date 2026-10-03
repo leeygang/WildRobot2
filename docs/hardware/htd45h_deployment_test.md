@@ -123,12 +123,13 @@ The fitter identifies one effective velocity-damping term. WR2 training keeps
 0.5, or 0.173622 N m s/rad. Never assign the full fitted total to the joint
 while retaining `kv_sim`; that would double-count velocity feedback.
 
-Equivalent unit-A low-load dynamics captures are complete. H1 also provides a
-preliminary positive-load hysteresis trace: 0.443 degree mean center loop width
-over three cycles, with 0.026 degree cycle standard deviation. Temperature rose
-from 31 C to 53 C during its 36.1-second profile, so H2 has a plan-enforced
-30 C cooldown target. Further hardware work should add a clock-aligned
-current/voltage logger, repeat the safe conditions on independently labeled
+Equivalent unit-A low-load dynamics captures are complete. The first signed
+hysteresis pair is also complete. H1 measured a 0.443 degree mean center loop;
+H2 measured 1.588 degrees, a preliminary 3.58x negative/positive asymmetry.
+Both remain inside the provisional 0--2 degree training range. H1 rose from
+31 C to 53 C while H2, after its enforced 30 C cooldown, rose from 31 C to
+42 C. Further hardware work should independently reproduce the signed pair,
+add a clock-aligned current/voltage logger, repeat safe conditions on other
 servos, or use the upgraded fixtures required for precise backlash,
 torque-speed, and braking. Do not run the unsafe legacy E4/E5 conditions with
 the current fixture.
@@ -142,13 +143,17 @@ command units. This is direction-dependent *loaded hysteresis* of the whole
 fixture and servo loop. It does not isolate mechanical backlash, and the
 internal encoder cannot resolve below its 0.24-degree telemetry step.
 
-The positive H1 condition completed under Git revision `b22c604`; its raw trace
-and standalone analysis are in
-`results/servo_sysid/unit-a-bam-hysteresis-run01`. Because the evidence update
-changes the clean Git revision recorded by a campaign, run H2 in a new
-directory. H2 disables torque and waits until reported temperature is at or
-below 30 C before moving; it times out without motion if cooldown does not
-complete within 15 minutes:
+H1 completed under Git revision `b22c604`; H2 completed under `7de4416`. Their
+raw traces, standalone reports, and the combined signed report are in
+`results/servo_sysid/`. H2 verified the cooldown guard by waiting 45 seconds
+with torque disabled until temperature reached 30 C. Exact observations,
+artifact hashes, and limitations are retained in the unit-A evidence index.
+
+The next test is an independent cold-start repetition of both signs. Run both
+conditions in one campaign so the second condition retains the same clean Git
+revision. The global 30 C target applies to H1, and H2 independently enforces
+the same target; the runner unloads the servo while waiting and stops without
+motion if either cooldown exceeds 15 minutes:
 
 ```bash
 uv run python -m wr2.tools.servo_sysid run \
@@ -156,16 +161,15 @@ uv run python -m wr2.tools.servo_sysid run \
   --servo-id 100 \
   --servo-label htd45h-unit-a \
   --board-port /dev/serial/by-id/usb-1a86_USB_Single_Serial_5C4C127022-if00 \
-  --run-dir results/servo_sysid/unit-a-bam-hysteresis-minus10-run02 \
+  --run-dir results/servo_sysid/unit-a-bam-hysteresis-validation-run03 \
   --measured-weight-kg 2.650 \
   --measured-com-radius-m 0.1204 \
   --cooldown-target-c 30 \
-  --start-at H2_loaded_hysteresis_minus10 \
-  --stop-after H2_loaded_hysteresis_minus10 \
+  --run-all \
   --execute --confirm-fixture-safe
 ```
 
-Once H2 exists, emit the combined report:
+The first-pair combined report was generated with:
 
 ```bash
 uv run python -m wr2.tools.servo_sysid hysteresis \
