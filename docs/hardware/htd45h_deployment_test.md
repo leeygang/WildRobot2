@@ -134,6 +134,27 @@ servos, or use the upgraded fixtures required for precise backlash,
 torque-speed, and braking. Do not run the unsafe legacy E4/E5 conditions with
 the current fixture.
 
+### Current unit-B checkpoint
+
+Unit B completed the full `bam_low_load_qualification` plan in fit run01 and
+held-out run02. Each campaign contains 15 captures and 6,566 valid samples.
+Run02 completed without warnings; run01 retained one isolated 9.111 V internal
+telemetry warning that was not reproduced. A duplicate Q4 runner produced a
+bookkeeping-only return-code conflict; the valid first-writer artifacts were
+reviewed and hashed, and the manifest contains an explicit metadata-recovery
+event.
+
+The run03 effective fit used only Q3/Q4/Q5 from run01 and reserved the matching
+run02 traces for validation. It selected zero additional delay, kept every
+continuous parameter inside its optimizer bounds, and achieved 0.7565 degree
+fit and 0.7558 degree held-out mean replay RMSE. Its mapped training values are
+`kp_sim=24.44385`, `kv_sim=0.5`, joint `damping=0.336343`,
+`frictionloss=0.449174`, and `armature=0.042909`. These values are unit-B
+variability evidence; they do not replace the current unit-A nominal or define
+a population distribution. Exact metrics, hashes, and limitations are in
+[`htd45h_unit_b.json`](evidence/htd45h_unit_b.json). No additional unit-B BAM
+capture is required.
+
 ### Coarse loaded hysteresis with the current BAM
 
 The `bam_hysteresis` plan runs three continuous 1 degree/s forward/reverse
@@ -193,16 +214,17 @@ no more than 0.75 N m inferred fixture torque. Once the fixture is checked and
 the servo is correctly labeled, one command can run the complete campaign. The
 runner cools, tests, returns to neutral, and disables torque independently for
 every stage; it stops on the first blocking failure. An exclusive per-campaign
-lock rejects a duplicate command before it can move hardware. For example, run
-the unit-B held-out campaign with:
+lock rejects a duplicate command before it can move hardware. Unit B is
+complete; after physically installing and labeling unit C, begin its fit
+campaign with:
 
 ```bash
 uv run python -m wr2.tools.servo_sysid run \
   --plan bam_low_load_qualification \
   --servo-id 100 \
-  --servo-label htd45h-unit-b \
+  --servo-label htd45h-unit-c \
   --board-port /dev/serial/by-id/usb-1a86_USB_Single_Serial_5C4C127022-if00 \
-  --run-dir results/servo_sysid/unit-b-bam-low-load-validation-run02 \
+  --run-dir results/servo_sysid/unit-c-bam-low-load-fit-run01 \
   --measured-weight-kg 2.650 \
   --measured-com-radius-m 0.1204 \
   --run-all \

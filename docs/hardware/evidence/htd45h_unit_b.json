@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "servo_model": "HTD-45H",
+  "servo_label": "htd45h-unit-b",
+  "records": [
+    {
+      "record_id": "unit-b-bam-low-load-run01-run02-fit-run03",
+      "evidence_status": "held_out_validated_single_servo_low_load_characterization",
+      "accepted_for": [
+        "unit_b_low_load_effective_dynamics",
+        "unit_b_signed_position_repeatability",
+        "unit_b_coarse_loaded_hysteresis",
+        "provisional_unit_a_unit_b_training_variability_observation"
+      ],
+      "not_accepted_for": [
+        "deployment_qualification",
+        "population_specification",
+        "isolated_mechanical_backlash",
+        "continuous_torque",
+        "torque_speed",
+        "braking",
+        "measured_shaft_torque",
+        "current_or_power_qualification"
+      ],
+      "source_fit_campaign": "results/servo_sysid/unit-b-bam-low-load-fit-run01",
+      "source_validation_campaign": "results/servo_sysid/unit-b-bam-low-load-validation-run02",
+      "source_fit": "results/servo_sysid/htd45h-unit-b-dynamics-fit-run03.json",
+      "observed_at_utc": "2026-10-03T18:19:41.340581+00:00",
+      "software_revisions": {
+        "fit_campaign": "7e5c261606d571e4092145702c23ecee9135c292",
+        "validation_campaign": "1da626cc769087dba0a20182073a32632b02bd50",
+        "fit_review_head": "1da626cc769087dba0a20182073a32632b02bd50",
+        "fit_revision_status": "The fit JSON does not embed a Git revision; the recorded review HEAD is retained as provenance rather than claimed as embedded fit metadata."
+      },
+      "plan": {
+        "name": "bam_low_load_qualification",
+        "sha256": "ae376e2f0b5b5a2c9e0cad39bc12dd2742636f1046e1689882b5b1ce367022af"
+      },
+      "fixture": {
+        "label": "wr2-htd45h-2650g",
+        "sha256": "47f9b07fc126f48a82a1786604723a0d8cff283fa74e3cfa014674193845ad23",
+        "measured_weight_kg": 2.65,
+        "measured_com_radius_m": 0.1204
+      },
+      "artifact_sha256": {
+        "fit_campaign_manifest.json": "995ab63eddc9c17f8d526c0de4df81fbcdeaa7f89a35f81af8d267b02e84f401",
+        "validation_campaign_manifest.json": "174e925efb7ea800936f38d365f47b613056c18fe78a14d0f71e2f2277cef8d1",
+        "htd45h-unit-b-dynamics-fit-run03.json": "b0a400e39761f4690073a80ac3e9255ee8af3b16e2d11e174720c44ac4861047"
+      },
+      "campaigns": {
+        "fit": {
+          "status": "completed_with_warnings",
+          "completed_at": "2026-10-03T15:48:07.823030+00:00",
+          "warning": "One isolated servo-reported 9.111 V sample occurred in Q2 repeat 2 and recovered to 12.311 V on the next sample. No external supply log exists to classify the event."
+        },
+        "validation": {
+          "status": "completed",
+          "completed_at": "2026-10-03T16:25:45.775768+00:00",
+          "warnings": []
+        }
+      },
+      "metadata_recovery": {
+        "condition_id": "Q4_loaded_dynamics_plus10",
+        "status": "repaired_with_audit_record",
+        "reason": "A duplicate concurrent runner returned 1 after the valid first writer saved the completed Q4 artifact pair.",
+        "corrected_fields": [
+          "Q4 returncode 1 to 0",
+          "removed stale failed_condition"
+        ],
+        "q4_artifact_sha256": {
+          "json": "dd45ea701eb5082cfd9830b2cf155911c5f190d9861befab25f4c4dfc6e61336",
+          "npz": "f1ce74907abf86ded933d91fbb8be46475d999b692ff52110737927b332746ca"
+        }
+      },
+      "data_integrity": {
+        "fit_npz_count": 15,
+        "fit_sample_count": 6566,
+        "validation_npz_count": 15,
+        "validation_sample_count": 6566,
+        "all_arrays_length_consistent": true,
+        "all_numeric_samples_finite": true,
+        "all_timestamps_strictly_increasing": true,
+        "all_samples_torque_enabled": true
+      },
+      "tested_envelope": {
+        "gravity_neutral_chirp_hz": [
+          0.1,
+          4.0
+        ],
+        "signed_loaded_chirp_hz": [
+          0.1,
+          2.0
+        ],
+        "signed_loaded_amplitude_deg": 2.0,
+        "hysteresis_sweep_rate_deg_s": 1.0,
+        "hysteresis_cycles_per_direction": 3,
+        "positive_predicted_peak_torque_nm": 0.6472507773,
+        "negative_predicted_peak_torque_nm": 0.680798679,
+        "minimum_servo_reported_voltage_v": 9.111,
+        "maximum_servo_reported_temperature_c": 53.0,
+        "external_supply_logs_archived": false
+      },
+      "signed_repeatability": {
+        "telemetry_resolution_deg": 0.24,
+        "positive_10deg": {
+          "fit_loaded_mean_deg": 7.9253333333,
+          "validation_loaded_mean_deg": 7.936,
+          "fit_validation_mean_delta_deg": 0.0106666667,
+          "fit_loaded_std_deg": 0.0199555061,
+          "validation_loaded_std_deg": 0.032,
+          "fit_loaded_range_deg": 0.0533333333,
+          "validation_loaded_range_deg": 0.08,
+          "maximum_requested_center_error_deg": 2.1066666667
+        },
+        "negative_10deg": {
+          "fit_loaded_mean_deg": -9.0506666667,
+          "validation_loaded_mean_deg": -9.0453333333,
+          "fit_validation_mean_delta_deg": 0.0053333333,
+          "fit_loaded_std_deg": 0.0130639453,
+          "validation_loaded_std_deg": 0.0391918359,
+          "fit_loaded_range_deg": 0.0266666667,
+          "validation_loaded_range_deg": 0.08,
+          "maximum_requested_center_error_deg": 0.9866666667
+        },
+        "post_first_repeat_signed_zero_separation_deg": {
+          "fit": 0.9,
+          "validation": 1.032
+        },
+        "interpretation": "Loaded repeatability is below the 0.24 degree telemetry step and must be reported at that resolution. The reproducible signed zero separation is direction-dependent system behavior, not an absolute encoder calibration."
+      },
+      "dynamic_capture_repeatability": {
+        "Q3_gravity_neutral_tracking_rmse_deg": {
+          "fit": 1.2127649935,
+          "validation": 1.1953535817,
+          "validation_change_fraction": -0.0143567896
+        },
+        "Q4_positive_loaded_tracking_rmse_deg": {
+          "fit": 2.0238536218,
+          "validation": 2.037475929,
+          "validation_change_fraction": 0.0067308757
+        },
+        "Q5_negative_loaded_tracking_rmse_deg": {
+          "fit": 0.9333795156,
+          "validation": 0.9248174821,
+          "validation_change_fraction": -0.0091731534
+        }
+      },
+      "loaded_hysteresis": {
+        "telemetry_resolution_deg": 0.24,
+        "positive_10deg": {
+          "fit_center_loop_mean_deg": 0.4738461538,
+          "validation_center_loop_mean_deg": 0.4676923077,
+          "validation_change_fraction": -0.012987013,
+          "fit_all_commands_p95_deg": 0.7089230769,
+          "validation_all_commands_p95_deg": 0.672,
+          "fit_all_commands_max_deg": 0.8123076923,
+          "validation_all_commands_max_deg": 1.0338461538
+        },
+        "negative_10deg": {
+          "fit_center_loop_mean_deg": 1.5753846154,
+          "validation_center_loop_mean_deg": 1.6246153846,
+          "validation_change_fraction": 0.03125,
+          "fit_all_commands_p95_deg": 1.5894545455,
+          "validation_all_commands_p95_deg": 1.6375384615,
+          "fit_all_commands_max_deg": 1.6246153846,
+          "validation_all_commands_max_deg": 1.7723076923
+        },
+        "interpretation": "The held-out sessions reproduce strong signed loaded system hysteresis. The values combine control response, friction, gravity, and fixture compliance and are not isolated mechanical backlash."
+      },
+      "effective_fit": {
+        "simulation_dt_s": 0.002,
+        "force_limit_nm_held_fixed": 4.0,
+        "searched_extra_delay_steps": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "kp_nm_per_rad": 24.4438486735,
+        "effective_velocity_damping_nm_s_per_rad": 0.8363428092,
+        "frictionloss_nm": 0.4491740062,
+        "armature_kg_m2": 0.0429092508,
+        "extra_command_delay_steps": 0,
+        "fit_mean_rmse_deg": 0.7564870911,
+        "fit_max_rmse_deg": 0.8566036622,
+        "validation_mean_rmse_deg": 0.7558347707,
+        "validation_max_rmse_deg": 0.8362308502,
+        "validation_abs_p95_range_deg": [
+          1.1768389345,
+          1.3747279119
+        ],
+        "residual_bias_range_deg": [
+          0.566132935,
+          0.7628644901
+        ],
+        "approximate_95pct_factor": {
+          "kp": 1.0379411491,
+          "effective_velocity_damping": 1.3547336197,
+          "frictionloss": 1.082449451,
+          "armature": 1.5598231898
+        },
+        "approximate_95pct_interval": {
+          "kp_nm_per_rad": [
+            23.5503223816,
+            25.3712763797
+          ],
+          "effective_velocity_damping_nm_s_per_rad": [
+            0.6173485304,
+            1.1330217212
+          ],
+          "frictionloss_nm": [
+            0.4149607225,
+            0.4862081565
+          ],
+          "armature_kg_m2": [
+            0.0275090479,
+            0.0669308444
+          ]
+        },
+        "all_continuous_parameters_inside_bounds": true,
+        "delay_zero_cost_improvement_over_delay_one_fraction": 0.02747532
+      },
+      "training_parameter_mapping": {
+        "identity": "effective_velocity_damping = kv_sim + joint_damping",
+        "kp_sim": 24.4438486735,
+        "kv_sim_held_fixed": 0.5,
+        "joint_damping_nm_s_per_rad": 0.3363428092,
+        "frictionloss_nm": 0.4491740062,
+        "armature_kg_m2": 0.0429092508,
+        "fitted_extra_command_delay_steps": 0,
+        "mapping_status": "accepted_for_unit_b_provisional_training_variability_evidence"
+      },
+      "unit_a_comparison": {
+        "kp_change_fraction": 0.0118673174,
+        "effective_velocity_damping_change_fraction": 0.2416050304,
+        "frictionloss_change_fraction": -0.0350080225,
+        "armature_change_fraction": 1.048038776,
+        "interpretation": "Unit B supports the unit-A position gain and zero-extra-delay choices but shows material damping and armature variation. Two servos are insufficient for a population distribution."
+      },
+      "limitations": [
+        "Only one additional labeled servo was characterized; units A and B do not satisfy the three-servo population criterion.",
+        "The fitted model is an effective symmetric low-load position-servo model and does not reproduce all signed bias and hysteresis.",
+        "The fit identifies total velocity damping, not active velocity gain separately from passive joint damping; kv_sim=0.5 is a retained decomposition convention.",
+        "Zero selected extra delay does not imply zero physical response lag; response dynamics remain embodied in the effective model.",
+        "The 4 N m force cap was held fixed and was not qualified by captures whose predicted peaks were no greater than 0.681 N m.",
+        "Temperature reached 53 C during a short positive hysteresis capture; this is not thermal-equilibrium or continuous-torque evidence.",
+        "No external voltage, current, measured shaft-torque, or output-encoder log was archived.",
+        "The internal 0.24 degree position telemetry cannot resolve precise mechanical backlash."
+      ]
+    }
+  ]
+}

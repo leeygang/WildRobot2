@@ -51,11 +51,12 @@ dynamometer: without an inline torque sensor, output torque is inferred from
 fixture geometry, and inertia, bearing friction, compliance, and gravity cannot
 be separated reliably during fast motion.
 
-Before every powered test, verify the measured mass and center radius, rigid
-mounting, output-shaft counter-bearing, full commanded-path clearance, catcher,
-independent power cutoff, EEPROM limits, supply voltage, and a starting
-temperature no greater than the selected cooldown limit. Run only one bounded
-condition at a time and inspect its JSON/NPZ artifacts before continuing.
+Before every powered campaign, verify the measured mass and center radius,
+rigid mounting, output-shaft counter-bearing, full commanded-path clearance,
+catcher, independent power cutoff, EEPROM limits, supply voltage, and the
+selected cooldown limit. The bounded low-load plan may then run all stages in
+one command; it independently cools, returns to neutral, and unloads each stage
+and stops on the first blocking failure.
 
 The following work can be completed with the current fixture:
 
@@ -78,17 +79,21 @@ validation; it deliberately excludes every test requiring new instrumentation.
   and loaded position repeatability, direction-dependent error, internal
   voltage and temperature, and geometry-inferred fixture torque preserved in
   `docs/hardware/evidence/htd45h_unit_a.json`.
-- [ ] Extend low-load commissioning to several angles, repeat the incomplete
-  +10 set, and repeat all accepted conditions on additional labeled servos.
+- [ ] Extend low-load commissioning to several angles and repeat all accepted
+  conditions on additional labeled servos. Unit B now has complete fit and
+  held-out campaigns preserved in
+  `docs/hardware/evidence/htd45h_unit_b.json`; unit C remains.
 - [ ] Run slow forward/reverse sweeps at cold and warmed conditions to obtain
   preliminary *loaded* backlash and hysteresis evidence. Approach every target
   from both directions and retain the complete command/position trajectory;
   endpoint-only measurements are insufficient. The automated
   first `bam_hysteresis` signed pair is complete: H1 measured 0.443 degree mean
   center loop width and H2 measured 1.588 degrees, a preliminary 3.58x
-  direction asymmetry. An independent cold-start signed repetition and
-  controlled cold/warm comparisons remain. The servo's 0.24-degree telemetry
-  resolution limits the smallest deadband this setup can resolve.
+  direction asymmetry. Unit B independently reproduced the signed effect in
+  two sessions: positive center means were 0.474/0.468 degrees and negative
+  means were 1.575/1.625 degrees. Controlled cold/warm comparisons remain. The
+  servo's 0.24-degree telemetry resolution limits the smallest deadband this
+  setup can resolve.
 - [x] Collect the first gravity-neutral, low-amplitude E3 chirp on unit A. The
   run completed without voltage warnings and is retained as preliminary
   position-loop, whole-response, and low-load speed evidence.
@@ -100,6 +105,11 @@ validation; it deliberately excludes every test requiring new instrumentation.
   bounds, and achieved 0.865 degree fit and 0.855 degree held-out mean replay
   RMSE. Its total damping is explicitly split into `kv_sim` plus joint damping
   before use by training.
+- [x] Collect and validate the complete unit-B low-load matrix. Run01 and the
+  held-out run02 each contain all 15 captures. The effective fit selected zero
+  extra delay, kept every continuous parameter inside its bounds, and achieved
+  0.7565 degree fit and 0.7558 degree held-out mean replay RMSE. This is
+  accepted as unit-B variability evidence, not a population specification.
 - [ ] Run bounded low-load thermal/current-duration tests only after adding a
   clock-aligned external supply logger. Record supply voltage and current in
   addition to command, position, derived velocity, servo voltage, and
@@ -107,8 +117,8 @@ validation; it deliberately excludes every test requiring new instrumentation.
 - [ ] Repeat safe conditions on at least three independently labeled servos and
   at the intended deployment wiring and supply configuration before treating
   the observations as a population range. The bounded
-  `bam_low_load_qualification` collection plan is ready for units B and C; two
-  complete campaigns per servo remain to be collected.
+  `bam_low_load_qualification` fit and held-out campaigns are complete for unit
+  B; two complete campaigns on unit C remain to be collected.
 
 For the present unit A, do not run the documented E1, E2, or E4--E7 high-load
 conditions. Existing evidence covers only about 1 N m for short holds, and an
