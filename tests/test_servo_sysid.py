@@ -457,6 +457,38 @@ class CampaignAnalysisTest(unittest.TestCase):
         )
         self.assertEqual(negative[negative.index("--cooldown-target-c") + 1], "30.0")
 
+    def test_low_load_qualification_plan_covers_current_bam_matrix(self):
+        plan = load_plan("bam_low_load_qualification")
+        self.assertEqual(
+            [condition.condition_id for condition in plan.conditions],
+            [
+                "Q1_repeatability_plus10",
+                "Q2_repeatability_minus10",
+                "Q3_gravity_neutral_dynamics",
+                "Q4_loaded_dynamics_plus10",
+                "Q5_loaded_dynamics_minus10",
+                "Q6_loaded_hysteresis_plus10",
+                "Q7_loaded_hysteresis_minus10",
+            ],
+        )
+        self.assertTrue(
+            all(condition.cooldown_target_c == 30.0 for condition in plan.conditions)
+        )
+        self.assertTrue(
+            all(condition.max_temperature_c == 55.0 for condition in plan.conditions)
+        )
+        self.assertEqual([item.kind for item in plan.conditions[:2]], ["repeatability"] * 2)
+        self.assertEqual(
+            [item.profile for item in plan.conditions[-2:]], ["hysteresis"] * 2
+        )
+        self.assertLessEqual(
+            max(
+                float(item.max_predicted_torque_nm or 0.0)
+                for item in plan.conditions
+            ),
+            0.75,
+        )
+
     def test_bam_hardware_mode_requires_bounded_selection(self):
         with self.assertRaisesRegex(SystemExit, "requires --stop-after"):
             campaign_main(
@@ -687,6 +719,7 @@ class CampaignAnalysisTest(unittest.TestCase):
             available_plans(),
             (
                 "bam_hysteresis",
+                "bam_low_load_qualification",
                 "bam_position",
                 "bam_repeatability",
                 "legacy_deployment",

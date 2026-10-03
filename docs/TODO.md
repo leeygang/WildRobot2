@@ -59,6 +59,12 @@ and stops on the first non-voltage failed gate. Qualified-range voltage
 excursions are warnings recorded in capture metadata; the external supply
 logger must still be started and synchronized separately.
 
+Use `--plan bam_low_load_qualification` for each additional servo. Its seven
+stages combine signed repeatability, gravity-neutral dynamics, signed loaded
+dynamics, and signed coarse hysteresis under the same current-fixture limits.
+Run it twice per servo and reserve the second complete campaign for held-out
+validation; it deliberately excludes every test requiring new instrumentation.
+
 - [x] Collect preliminary unit-A low-load commissioning at +10 and -10 degrees.
   The accepted data comprise four +10 repeats and five -10 repeats, with zero
   and loaded position repeatability, direction-dependent error, internal
@@ -92,7 +98,9 @@ logger must still be started and synchronized separately.
   temperature. A rising final temperature slope is not a continuous rating.
 - [ ] Repeat safe conditions on at least three independently labeled servos and
   at the intended deployment wiring and supply configuration before treating
-  the observations as a population range.
+  the observations as a population range. The bounded
+  `bam_low_load_qualification` collection plan is ready for units B and C; two
+  complete campaigns per servo remain to be collected.
 
 For the present unit A, do not run the documented E1, E2, or E4--E7 high-load
 conditions. Existing evidence covers only about 1 N m for short holds, and an

@@ -178,6 +178,41 @@ uv run python -m wr2.tools.servo_sysid hysteresis \
   --output results/servo_sysid/unit-a-bam-hysteresis-H1-H2-summary.json
 ```
 
+### Complete current-BAM matrix for additional servos
+
+The `bam_low_load_qualification` plan is the collection plan for units B and C.
+It contains only the current fixture's bounded low-load tests:
+
+1. Q1/Q2: five signed position-repeatability captures;
+2. Q3: gravity-neutral 0.1--4 Hz dynamics;
+3. Q4/Q5: signed 0.1--2 Hz loaded dynamics; and
+4. Q6/Q7: signed coarse loaded hysteresis.
+
+Every stage starts at or below 30 C, aborts at 55 C, and is preflight-capped at
+no more than 0.75 N m inferred fixture torque. Run one stage at a time and
+inspect it before advancing. For example, begin unit B with:
+
+```bash
+uv run python -m wr2.tools.servo_sysid run \
+  --plan bam_low_load_qualification \
+  --servo-id 100 \
+  --servo-label htd45h-unit-b \
+  --board-port /dev/serial/by-id/usb-1a86_USB_Single_Serial_5C4C127022-if00 \
+  --run-dir results/servo_sysid/unit-b-bam-low-load-fit-run01 \
+  --measured-weight-kg 2.650 \
+  --measured-com-radius-m 0.1204 \
+  --start-at Q1_repeatability_plus10 \
+  --stop-after Q1_repeatability_plus10 \
+  --execute --confirm-fixture-safe
+```
+
+Reuse the same run directory and advance `--start-at`/`--stop-after` through Q7.
+Then repeat the entire plan in a new `unit-b-bam-low-load-validation-run02`
+directory without changing its parameters. Use run01 only for fitting and run02
+only for held-out replay and repeatability comparison. Apply the identical two
+campaign process to unit C. The plan does not qualify isolated mechanical
+backlash, continuous torque, torque-speed, braking, shaft torque, or current.
+
 Directories created by the former `bam_suite.py` implementation contain a
 different manifest schema and are evidence archives only; do not resume them
 with the plan runner. The deprecated `bam_suite` and `commission` module names

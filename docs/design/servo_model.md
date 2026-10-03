@@ -141,10 +141,10 @@ torque.
 | Test goal | Hardware collector | Orchestrator today | Analyzer today | Artifact | Readiness |
 |---|---|---|---|---|---|
 | Voltage, temperature, command, position, derived velocity, timing | `capture.py` | Any caller | Capture summaries | One NPZ trace plus JSON metadata | Available |
-| Repeated zero/loaded position | `capture.py --prepare-only` | `campaign.py --plan bam_position` or `bam_repeatability` | `analysis/position.py` | Per-repeat NPZ/JSON plus summary and campaign manifest | Available in the current implementation; captures from older revisions may have empty NPZ traces and JSON-only preparation telemetry |
-| Gravity-neutral position dynamics | `capture.py` | E3 in the `bam_position` plan | `fit.py` | NPZ/JSON, fit JSON | Unit-A run07 fit capture and independent run08 validation capture accepted for the provisional training nominal |
-| Loaded dynamics | `capture.py` | Direct bounded captures near +/-10 degrees; legacy E4/E5 remain unsafe | `fit.py` | NPZ/JSON, fit JSON | Runs10/11 fit and runs12/13 held-out validation complete at 0.647/0.681 N m predicted peaks |
-| Backlash/hysteresis | `capture.py --profile hysteresis` | `campaign.py --plan bam_hysteresis` | `analysis/hysteresis.py`; top-level `hysteresis` command | Signed sweep NPZ/JSON with per-cycle summary; optional multi-capture report | Ready for coarse loaded unit-A capture; external encoder still required for precise mechanical backlash |
+| Repeated zero/loaded position | `capture.py --prepare-only` | `campaign.py --plan bam_position`, `bam_repeatability`, or `bam_low_load_qualification` | `analysis/position.py` | Per-repeat NPZ/JSON plus summary and campaign manifest | Available in the current implementation; captures from older revisions may have empty NPZ traces and JSON-only preparation telemetry |
+| Gravity-neutral position dynamics | `capture.py` | E3 in `bam_position` or Q3 in `bam_low_load_qualification` | `fit.py` | NPZ/JSON, fit JSON | Unit-A run07 fit capture and independent run08 validation capture accepted for the provisional training nominal |
+| Loaded dynamics | `capture.py` | Q4/Q5 in `bam_low_load_qualification`; legacy E4/E5 remain unsafe | `fit.py` | NPZ/JSON, fit JSON | Runs10/11 fit and runs12/13 held-out validation complete at 0.647/0.681 N m predicted peaks |
+| Backlash/hysteresis | `capture.py --profile hysteresis` | `campaign.py --plan bam_hysteresis` or Q6/Q7 in `bam_low_load_qualification` | `analysis/hysteresis.py`; top-level `hysteresis` command | Signed sweep NPZ/JSON with per-cycle summary; optional multi-capture report | Unit-A signed pair and held-out pair complete; external encoder still required for precise mechanical backlash |
 | Low-load continuous torque | `capture.py --constant-hold-s` | E7 in the `legacy_deployment` plan | Thermal gate in `analyze.py` | NPZ/JSON plus external current log | Partly implemented; E7 load is unsafe and instrument control is missing |
 | Supply voltage/current | None | Label only | Aggregate JSON ingestion through the `report` command | Required: raw timestamped log plus derived summary | Missing collector |
 | Measured shaft torque | None | None | Optional aggregate fields only | Required: raw calibrated torque trace | Missing collector and sensor |
@@ -168,6 +168,7 @@ servo_sysid/campaign.py       one preflight/run/resume orchestrator
 plan.py + plans/*.yaml     one campaign manifest and raw artifacts
           |
           +-- bam_hysteresis
+          +-- bam_low_load_qualification
           +-- bam_position
           +-- bam_repeatability
           +-- legacy_deployment

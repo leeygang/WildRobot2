@@ -1,0 +1,97 @@
+schema_version: 1
+name: bam_low_load_qualification
+description: Complete bounded low-load qualification matrix for the current BAM
+setup: wr2-htd45h-2650g
+required_instruments: [servo_bus]
+data_goals:
+  - signed zero and loaded position repeatability
+  - gravity-neutral position-loop dynamics
+  - signed low-load dynamic response
+  - coarse signed loaded output-position hysteresis
+  - servo-reported voltage and temperature
+limitations:
+  - run this plan twice per servo and reserve the second campaign for validation
+  - fixture torque is inferred from geometry, not measured shaft torque
+  - hysteresis includes control, friction, gravity, and fixture compliance
+  - this plan does not qualify isolated backlash, continuous torque, torque-speed, or braking
+  - external supply current is unavailable unless a synchronized logger is archived
+conditions:
+  - condition_id: Q1_repeatability_plus10
+    description: five low-load repeatability captures at +10 degrees
+    kind: repeatability
+    center_deg: 10.0
+    repeats: 5
+    prepare_only: true
+    prepare_speed_deg_s: 5.0
+    settle_s: 3.0
+    cooldown_target_c: 30.0
+    amplitudes_deg: "2"
+    max_static_torque_nm: 0.7
+    max_predicted_torque_nm: 0.7
+    max_temperature_c: 55.0
+  - condition_id: Q2_repeatability_minus10
+    description: five low-load repeatability captures at -10 degrees
+    kind: repeatability
+    center_deg: -10.0
+    repeats: 5
+    prepare_only: true
+    prepare_speed_deg_s: 5.0
+    settle_s: 3.0
+    cooldown_target_c: 30.0
+    amplitudes_deg: "2"
+    max_static_torque_nm: 0.7
+    max_predicted_torque_nm: 0.7
+    max_temperature_c: 55.0
+  - condition_id: Q3_gravity_neutral_dynamics
+    description: gravity-neutral 2-degree, 0.1-4 Hz inertial response
+    center_deg: 0.0
+    amplitudes_deg: "2"
+    chirp_end_hz: 4.0
+    cooldown_target_c: 30.0
+    max_static_torque_nm: 0.2
+    max_predicted_torque_nm: 0.6
+    max_temperature_c: 55.0
+  - condition_id: Q4_loaded_dynamics_plus10
+    description: positive-load 2-degree, 0.1-2 Hz response
+    center_deg: 10.0
+    amplitudes_deg: "2"
+    chirp_end_hz: 2.0
+    cooldown_target_c: 30.0
+    max_static_torque_nm: 0.75
+    max_predicted_torque_nm: 0.75
+    max_temperature_c: 55.0
+  - condition_id: Q5_loaded_dynamics_minus10
+    description: negative-load 2-degree, 0.1-2 Hz response
+    center_deg: -10.0
+    amplitudes_deg: "2"
+    chirp_end_hz: 2.0
+    cooldown_target_c: 30.0
+    max_static_torque_nm: 0.75
+    max_predicted_torque_nm: 0.75
+    max_temperature_c: 55.0
+  - condition_id: Q6_loaded_hysteresis_plus10
+    description: three slow forward/reverse 8-to-12-degree sweeps
+    center_deg: 10.0
+    amplitudes_deg: "2"
+    profile: hysteresis
+    cooldown_target_c: 30.0
+    sweep_rate_deg_s: 1.0
+    sweep_cycles: 3
+    move_time_ms: 250
+    settle_s: 1.0
+    max_static_torque_nm: 0.75
+    max_predicted_torque_nm: 0.75
+    max_temperature_c: 55.0
+  - condition_id: Q7_loaded_hysteresis_minus10
+    description: three slow forward/reverse -12-to--8-degree sweeps
+    center_deg: -10.0
+    amplitudes_deg: "2"
+    profile: hysteresis
+    cooldown_target_c: 30.0
+    sweep_rate_deg_s: 1.0
+    sweep_cycles: 3
+    move_time_ms: 250
+    settle_s: 1.0
+    max_static_torque_nm: 0.75
+    max_predicted_torque_nm: 0.75
+    max_temperature_c: 55.0
