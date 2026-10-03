@@ -189,8 +189,12 @@ It contains only the current fixture's bounded low-load tests:
 4. Q6/Q7: signed coarse loaded hysteresis.
 
 Every stage starts at or below 30 C, aborts at 55 C, and is preflight-capped at
-no more than 0.75 N m inferred fixture torque. Run one stage at a time and
-inspect it before advancing. For example, begin unit B with:
+no more than 0.75 N m inferred fixture torque. Once the fixture is checked and
+the servo is correctly labeled, one command can run the complete campaign. The
+runner cools, tests, returns to neutral, and disables torque independently for
+every stage; it stops on the first blocking failure. An exclusive per-campaign
+lock rejects a duplicate command before it can move hardware. For example, run
+the unit-B held-out campaign with:
 
 ```bash
 uv run python -m wr2.tools.servo_sysid run \
@@ -198,19 +202,20 @@ uv run python -m wr2.tools.servo_sysid run \
   --servo-id 100 \
   --servo-label htd45h-unit-b \
   --board-port /dev/serial/by-id/usb-1a86_USB_Single_Serial_5C4C127022-if00 \
-  --run-dir results/servo_sysid/unit-b-bam-low-load-fit-run01 \
+  --run-dir results/servo_sysid/unit-b-bam-low-load-validation-run02 \
   --measured-weight-kg 2.650 \
   --measured-com-radius-m 0.1204 \
-  --start-at Q1_repeatability_plus10 \
-  --stop-after Q1_repeatability_plus10 \
+  --run-all \
   --execute --confirm-fixture-safe
 ```
 
-Reuse the same run directory and advance `--start-at`/`--stop-after` through Q7.
-Then repeat the entire plan in a new `unit-b-bam-low-load-validation-run02`
-directory without changing its parameters. Use run01 only for fitting and run02
-only for held-out replay and repeatability comparison. Apply the identical two
-campaign process to unit C. The plan does not qualify isolated mechanical
+Reissuing the same command safely skips stages already recorded complete, so an
+interrupted campaign resumes without repeating accepted data. Use run01 only
+for fitting and run02 only for held-out replay and repeatability comparison.
+Apply the identical two-campaign process to unit C, changing both the physical
+servo and its label/run directory. A servo swap is an intentional operator
+checkpoint and is not automated. Use `--start-at` plus `--stop-after` only when
+a single stage needs diagnosis. The plan does not qualify isolated mechanical
 backlash, continuous torque, torque-speed, braking, shaft torque, or current.
 
 Directories created by the former `bam_suite.py` implementation contain a

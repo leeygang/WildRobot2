@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
+import fcntl
 import json
 import math
+import os
 from pathlib import Path
 import subprocess
 import sys
-from typing import Any, Sequence
+from typing import Any, Iterator, Sequence, TextIO
 
 from wr2.tools.servo_sysid.analysis.position import summarize_series
 from wr2.tools.servo_sysid.core import DEFAULT_FIXTURE, file_sha256
@@ -287,6 +290,43 @@ def _write_manifest(path: Path, payload: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
+@contextmanager
+def _campaign_lock(campaign_dir: Path) -> Iterator[TextIO]:
+    """Reject overlapping hardware runners targeting the same campaign."""
+    campaign_dir.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = campaign_dir.parent / f".{campaign_dir.name}.lock"
+    handle = lock_path.open("a+", encoding="utf-8")
+    try:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            handle.seek(0)
+            owner = handle.read().strip()
+            detail = f"; owner={owner}" if owner else ""
+            raise SystemExit(
+                f"campaign is already running for {campaign_dir}{detail}"
+            ) from None
+        handle.seek(0)
+        handle.truncate()
+        handle.write(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "started_at": datetime.now(timezone.utc).isoformat(),
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        handle.flush()
+        yield handle
+    finally:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
 def _same_number(left: object, right: float) -> bool:
     try:
         return abs(float(left) - float(right)) <= 1e-12
@@ -559,33 +599,13 @@ def _condition_has_voltage_warning(record: dict[str, Any]) -> bool:
     )
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
-    plan = configured_plan(args)
-    _validate_args(args, plan)
-    selected = selected_conditions(args, plan)
-
-    print(f"WR2 HTD-45H campaign plan={plan.name}", flush=True)
-    print(f"mode={'HARDWARE' if args.execute else 'PREFLIGHT'}", flush=True)
-    print(f"setup={plan.setup}", flush=True)
-    for index, condition in enumerate(selected, start=1):
-        output = Path("/tmp") / f"wr2_preflight_{condition.condition_id}.npz"
-        print(
-            f"\nPREFLIGHT [{index}/{len(selected)}] {condition.condition_id}: "
-            f"{condition.description}",
-            flush=True,
-        )
-        returncode = _run(capture_command(args, condition, output, execute=False))
-        if returncode:
-            return returncode
-    if not args.execute:
-        print("\nCampaign preflight passed; no hardware was opened.")
-        return 0
-
-    git_state = _git_state()
-    if not git_state["worktree_clean"]:
-        raise SystemExit("hardware capture requires a clean Git worktree")
-    campaign_dir = _campaign_directory(args, plan)
+def _run_hardware_campaign(
+    args: argparse.Namespace,
+    plan: CampaignPlan,
+    selected: tuple[CampaignCondition, ...],
+    git_state: dict[str, Any],
+    campaign_dir: Path,
+) -> int:
     manifest_path = campaign_dir / "campaign_manifest.json"
     fixture_path = args.fixture_mjcf.expanduser().resolve()
     if manifest_path.is_file():
@@ -636,6 +656,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         for item in manifest["conditions"]
         if _condition_completed(item)
     }
+    if manifest.get("failed_condition") in completed:
+        manifest.pop("failed_condition")
     has_voltage_warnings = any(
         _condition_has_voltage_warning(item) for item in manifest["conditions"]
     )
@@ -651,6 +673,37 @@ def main(argv: Sequence[str] | None = None) -> int:
     _write_manifest(manifest_path, manifest)
     print(f"Campaign status={manifest['status']}: {campaign_dir}")
     return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    plan = configured_plan(args)
+    _validate_args(args, plan)
+    selected = selected_conditions(args, plan)
+
+    print(f"WR2 HTD-45H campaign plan={plan.name}", flush=True)
+    print(f"mode={'HARDWARE' if args.execute else 'PREFLIGHT'}", flush=True)
+    print(f"setup={plan.setup}", flush=True)
+    for index, condition in enumerate(selected, start=1):
+        output = Path("/tmp") / f"wr2_preflight_{condition.condition_id}.npz"
+        print(
+            f"\nPREFLIGHT [{index}/{len(selected)}] {condition.condition_id}: "
+            f"{condition.description}",
+            flush=True,
+        )
+        returncode = _run(capture_command(args, condition, output, execute=False))
+        if returncode:
+            return returncode
+    if not args.execute:
+        print("\nCampaign preflight passed; no hardware was opened.")
+        return 0
+
+    git_state = _git_state()
+    if not git_state["worktree_clean"]:
+        raise SystemExit("hardware capture requires a clean Git worktree")
+    campaign_dir = _campaign_directory(args, plan)
+    with _campaign_lock(campaign_dir):
+        return _run_hardware_campaign(args, plan, selected, git_state, campaign_dir)
 
 
 if __name__ == "__main__":

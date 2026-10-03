@@ -26,6 +26,7 @@ from wr2.tools.servo_sysid.analysis.hysteresis import (
 from wr2.tools.servo_sysid.analyze import analyze_campaigns
 from wr2.tools.servo_sysid.campaign import (
     CONDITIONS,
+    _campaign_lock,
     capture_command,
     configured_plan,
     main as campaign_main,
@@ -489,6 +490,64 @@ class CampaignAnalysisTest(unittest.TestCase):
             0.75,
         )
 
+    def test_low_load_run_all_executes_complete_matrix(self):
+        with tempfile.TemporaryDirectory() as temp:
+            campaign_dir = Path(temp) / "unit-b"
+
+            def completed(_args, condition, _output):
+                return 0, {
+                    "condition_id": condition.condition_id,
+                    "outcome": "completed",
+                    "captures": [],
+                }
+
+            with (
+                patch("wr2.tools.servo_sysid.campaign._run", return_value=0) as run,
+                patch(
+                    "wr2.tools.servo_sysid.campaign._run_repeatability_condition",
+                    side_effect=completed,
+                ) as repeatability,
+                patch(
+                    "wr2.tools.servo_sysid.campaign._run_capture_condition",
+                    side_effect=completed,
+                ) as capture,
+                patch(
+                    "wr2.tools.servo_sysid.campaign._git_state",
+                    return_value={"revision": "abc123", "worktree_clean": True},
+                ),
+            ):
+                result = campaign_main(
+                    [
+                        "--plan",
+                        "bam_low_load_qualification",
+                        "--servo-id",
+                        "100",
+                        "--servo-label",
+                        "unit-b",
+                        "--board-port",
+                        "unused",
+                        "--campaign-dir",
+                        str(campaign_dir),
+                        "--measured-weight-kg",
+                        "2.650",
+                        "--measured-com-radius-m",
+                        "0.1204",
+                        "--run-all",
+                        "--execute",
+                        "--confirm-fixture-safe",
+                    ]
+                )
+
+            manifest = json.loads(
+                (campaign_dir / "campaign_manifest.json").read_text()
+            )
+        self.assertEqual(result, 0)
+        self.assertEqual(run.call_count, 7)
+        self.assertEqual(repeatability.call_count, 2)
+        self.assertEqual(capture.call_count, 5)
+        self.assertEqual(manifest["status"], "completed")
+        self.assertEqual(len(manifest["conditions"]), 7)
+
     def test_bam_hardware_mode_requires_bounded_selection(self):
         with self.assertRaisesRegex(SystemExit, "requires --stop-after"):
             campaign_main(
@@ -509,6 +568,14 @@ class CampaignAnalysisTest(unittest.TestCase):
                     "--confirm-fixture-safe",
                 ]
             )
+
+    def test_campaign_lock_rejects_overlapping_runner(self):
+        with tempfile.TemporaryDirectory() as temp:
+            campaign_dir = Path(temp) / "unit-a"
+            with _campaign_lock(campaign_dir):
+                with self.assertRaisesRegex(SystemExit, "already running"):
+                    with _campaign_lock(campaign_dir):
+                        self.fail("overlapping runner acquired the campaign lock")
 
     def test_bam_preflight_runs_all_plan_conditions_without_hardware(self):
         with patch("wr2.tools.servo_sysid.campaign._run", return_value=0) as run:
