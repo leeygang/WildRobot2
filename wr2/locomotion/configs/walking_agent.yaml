@@ -1,6 +1,6 @@
 # Goal-gated WR2 walking curriculum. Each stage has a high emergency ceiling so
 # the autonomous agent can keep improving instead of stopping after a few runs.
-version: "1.1.0"
+version: "1.2.0"
 base_training_config: wr2/locomotion/configs/ppo_walking.yaml
 agent_output_root: results/wr2_walking_agent
 
@@ -21,7 +21,7 @@ hard_safety:
 stages:
   - name: gait_acquisition
     max_cycles: 2000
-    evaluation_commands_m_s: [0.10]
+    evaluation_commands_m_s: [0.05]
     required_gates:
       - episode_length
       - fall_rate
@@ -32,7 +32,9 @@ stages:
       - action_saturation
     overrides:
       domain_randomization.enabled: true
-      environment.command_forward_range_m_s: [0.05, 0.10]
+      # First acquire signed forward progress inside the strict velocity
+      # kernel; robust_walking expands the command range after promotion.
+      environment.command_forward_range_m_s: [0.05, 0.05]
       environment.zero_command_probability: 0.20
     goal:
       min_walking_score: 0.20

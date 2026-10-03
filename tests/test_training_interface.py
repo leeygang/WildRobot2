@@ -225,7 +225,7 @@ class TrainingInterfaceTest(unittest.TestCase):
             self.training_config.environment.torque_exposure_time_constant_s, 0.0
         )
         environment = self.training_config.environment
-        self.assertEqual(environment.command_forward_range_m_s, (0.05, 0.10))
+        self.assertEqual(environment.command_forward_range_m_s, (0.05, 0.05))
         self.assertGreaterEqual(environment.command_forward_range_m_s[0], 0.0)
         self.assertEqual(environment.command_lateral_range_m_s, (0.0, 0.0))
         self.assertEqual(environment.command_yaw_range_rad_s, (0.0, 0.0))
@@ -276,7 +276,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(noise.projected_gravity_amplitude_min, 0.8)
         self.assertEqual(noise.projected_gravity_amplitude_max, 1.2)
         self.assertEqual(self.training_config.ppo.num_timesteps, 1_000_000_000)
-        self.assertEqual(self.training_config.ppo.evaluation_forward_command_m_s, 0.10)
+        self.assertEqual(self.training_config.ppo.evaluation_forward_command_m_s, 0.05)
         self.assertEqual(self.training_config.ppo.learning_rate, 3e-5)
         self.assertEqual(self.training_config.ppo.clipping_epsilon, 0.2)
         self.assertEqual(

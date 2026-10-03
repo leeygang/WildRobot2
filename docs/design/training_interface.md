@@ -201,7 +201,10 @@ Brax checkpoints are written after each evaluation. During gait acquisition,
 `best_params` uses a hard-safe score dominated by survival, forward-speed
 ratio, contact-phase progress, and reduced double support; this prevents the
 strict final walking score from selecting a stationary policy. `params` stores
-the final policy. The active config evaluates at a fixed 0.10 m/s.
+the final policy. The active v0.15.0 acquisition config trains and evaluates at
+a fixed 0.05 m/s while retaining 20% standing commands. This gives the strict
+ToddlerBot velocity reward a measurable gradient from rest; command range is
+expanded only after the policy demonstrates positive forward motion.
 v0.10.0 adds ToddlerBot-style ZMP trajectory error to the asymmetric critic
 without changing the 825/1440 network shapes. Parameter shapes from v0.9.2 are
 technically compatible, but the value function semantics changed, so the first
@@ -228,6 +231,13 @@ alter transition and return semantics, so v0.12.0 also requires a cold start.
 v0.13.0 aligns physics timing, sensor-noise semantics, and from-scratch domain
 randomization with ToddlerBot. These change the training distribution, so
 v0.13.0 also requires a cold start.
+v0.14.0 narrows actuator randomization for gait acquisition. Its 20M canary
+learned a stable bilateral gait with 86% contact-phase match, 5.6% double
+support, and 3.1% action saturation, but converged to -0.018 m/s under a
++0.10 m/s evaluation command. v0.15.0 keeps those validated randomization and
+ToddlerBot reward settings while fixing the active acquisition command at
++0.05 m/s. Its policy and observation contracts are unchanged, so it may
+warm-start from the v0.14.0 12,042,240-step checkpoint.
 
 Validate the generated reference before training with:
 

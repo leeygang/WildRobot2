@@ -19,9 +19,13 @@ completed before treating a policy as deployment-qualified.
 - [x] Run the cold v0.11.1 acquisition canary at 0.05--0.10 m/s with 20%
   standing commands. It improved stochastic survival from 20% to 6% falls but
   still stepped mostly in place and reached about 10% target clipping.
-- [ ] Run the cold v0.13.0 forward/stand randomized canary. Do not restore a
-  v0.11.x or v0.12.x checkpoint because phase lifecycle, physics timing,
-  sensor-noise semantics, and the training distribution changed.
+- [x] Run the cold v0.14.0 moderate-randomization canary. It acquired stable
+  bilateral stepping with low action saturation, but optimized a backward gait
+  because the mixed 0.05--0.10 m/s commands supplied little early velocity
+  gradient relative to the foot-phase return.
+- [ ] Warm-start v0.15.0 from the v0.14.0 12,042,240-step checkpoint and run a
+  20M fixed-0.05-m/s acquisition canary. Require positive forward velocity
+  before expanding the active command curriculum back toward 0.10 m/s.
 - [ ] Prototype the ToddlerBot RSL-RL path with a current RTX-5070-compatible
   PyTorch build. Migrate from Brax only if checkpoint/evaluation behavior is
   equivalent and measured throughput and peak GPU memory are not materially
