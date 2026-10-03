@@ -146,7 +146,7 @@ def _set_simulation_options(root: ET.Element) -> None:
             0,
         )
         root.insert(worldbody_index, option)
-    option.set("timestep", "0.002")
+    option.set("timestep", "0.005")
 
     flag = option.find("flag")
     if flag is None:
@@ -300,7 +300,7 @@ def _write_mjx_variant(
 
     The canonical model keeps convenient MuJoCo position actuators.  Training
     uses motor actuators because the environment applies the same explicit
-    PD/torque-speed/braking envelope as ToddlerBot on every 2 ms physics step.
+    PD/torque-speed/braking envelope as ToddlerBot on every 5 ms physics step.
     """
     mjx_root = copy.deepcopy(canonical_root)
     sensors = mjx_root.find("sensor")

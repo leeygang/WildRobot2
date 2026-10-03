@@ -52,7 +52,7 @@ target to its robot-specific safe limits.
 | Contract | ToddlerBot | WR2 | Classification |
 |---|---|---|---|
 | Policy period | 20 ms | 20 ms | Aligned |
-| Physics integration | 5 ms x 4 | 2 ms x 10 | WR2 adaptation for its stiff servo/contact model |
+| Physics integration | 5 ms x 4 | 5 ms x 4 | Aligned in v0.13.0; monitor contact/servo stability |
 | Target delay | one policy step | one policy step | Aligned |
 | Episode horizon | 1,000 policy steps | 1,000 policy steps | Aligned |
 | Reward integration | weighted reward rate x 0.02 s | weighted reward rate x 0.02 s | Aligned |
@@ -118,12 +118,13 @@ critic-contact feature separately use the planner's 2:1
 single-support-to-double-support design.
 
 ToddlerBot samples signed walking commands plus standing and turning. WR2
-v0.12.0 retains a forward-only 0.05--0.10 m/s acquisition scope and 20%
-standing commands while command-scope parity is reviewed;
-lateral and turning commands remain disabled until their ZMP references and
-orientation contract are ready. This is not a morphology exception. Both
-resample every three seconds. WR2 now matches ToddlerBot's continuous episode
-phase clock: standing changes desired foot height/contact but does not pause or
+v0.13.0 deliberately targets only standing and positive forward walking:
+acquisition samples 0.05--0.10 m/s plus 20% standing commands, while lateral
+and yaw ranges remain exactly zero. Command resampling within an episode trains
+both standing-to-walking and walking-to-standing transitions. Backward and
+lateral locomotion are deferred product scope, not hidden parity claims. Both
+resample every three seconds. WR2 matches ToddlerBot's continuous episode phase
+clock: standing changes desired foot height/contact but does not pause or
 restart phase.
 
 ToddlerBot foot height is measured from a site whose nominal world height is
@@ -223,10 +224,15 @@ noise now match ToddlerBot.
 
 ## Randomization and remaining measured gaps
 
-Nominal gait acquisition keeps dynamics randomization disabled. The later WR2
-robust stage covers the same classes as ToddlerBot plus explicit target bias,
-speed, braking, and WR2 servo uncertainty. Its numerical ranges are not claimed
-to be ToddlerBot parity because the robots and actuators differ.
+WR2 v0.13.0 enables dynamics and observation randomization during gait
+acquisition, matching ToddlerBot's active from-scratch strategy. It covers the
+same classes as ToddlerBot plus explicit target bias, speed, braking, and WR2
+servo uncertainty. Encoder and IMU noise use ToddlerBot's distributions,
+AR(1) cutoff formulation, bias walks, and amplitude variation. WR2 rotates its
+projected-gravity observation by ToddlerBot's quaternion small-angle error
+instead of exposing a noisy full quaternion. Unmeasured IMU delay is no longer
+invented. Numerical dynamics ranges remain WR2-specific, and all sensor values
+are provisional until installed-WR2 measurements replace the ToddlerBot prior.
 
 The remaining unresolved values require WR2 hardware measurements:
 

@@ -31,7 +31,7 @@ stages:
       - bilateral_foot_use
       - action_saturation
     overrides:
-      domain_randomization.enabled: false
+      domain_randomization.enabled: true
       environment.command_forward_range_m_s: [0.05, 0.10]
       environment.zero_command_probability: 0.20
     goal:

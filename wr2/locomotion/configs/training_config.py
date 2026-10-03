@@ -35,17 +35,20 @@ class RewardWeights:
 
 @dataclass(frozen=True)
 class ObservationNoise:
-    joint_position_std_rad: float
-    joint_velocity_std_rad_s: float
-    gyro_std_rad_s: float
+    joint_position_uniform_rad: float
+    joint_velocity_uniform_rad_s: float
+    gyro_cutoff_hz: float
     gyro_colored_std_rad_s: float
-    gyro_colored_alpha: float
     gyro_bias_walk_std_rad_s: float
-    projected_gravity_std: float
-    projected_gravity_colored_std: float
-    projected_gravity_colored_alpha: float
-    projected_gravity_bias_walk_std: float
-    imu_one_step_delay_probability: float
+    gyro_white_std_rad_s: float
+    gyro_amplitude_min: float
+    gyro_amplitude_max: float
+    projected_gravity_cutoff_hz: float
+    projected_gravity_colored_std_rad: float
+    projected_gravity_bias_walk_std_rad: float
+    projected_gravity_white_std_rad: float
+    projected_gravity_amplitude_min: float
+    projected_gravity_amplitude_max: float
 
 
 @dataclass(frozen=True)
@@ -363,13 +366,17 @@ def load_training_config(
     if environment.policy_action_scale_rad <= 0.0:
         raise ValueError("environment.policy_action_scale_rad must be positive")
     noise = environment.observation_noise
-    for name in ("gyro_colored_alpha", "projected_gravity_colored_alpha"):
-        if not 0.0 <= getattr(noise, name) < 1.0:
-            raise ValueError(f"observation_noise.{name} must be in [0, 1)")
-    if not 0.0 <= noise.imu_one_step_delay_probability <= 1.0:
-        raise ValueError(
-            "observation_noise.imu_one_step_delay_probability must be in [0, 1]"
-        )
+    for name in ("gyro_cutoff_hz", "projected_gravity_cutoff_hz"):
+        if getattr(noise, name) <= 0.0:
+            raise ValueError(f"observation_noise.{name} must be positive")
+    for prefix in ("gyro", "projected_gravity"):
+        minimum = getattr(noise, f"{prefix}_amplitude_min")
+        maximum = getattr(noise, f"{prefix}_amplitude_max")
+        if minimum <= 0.0 or maximum < minimum:
+            raise ValueError(
+                f"observation_noise.{prefix}_amplitude_min/max must be "
+                "positive and ordered"
+            )
     if environment.privileged_linear_velocity_scale <= 0.0:
         raise ValueError(
             "environment.privileged_linear_velocity_scale must be positive"

@@ -1,9 +1,9 @@
 simulation:
-    timestep_s: 0.002
+    timestep_s: 0.005
 
 control:
     period_s: 0.02
-    decimation: 10
+    decimation: 4
 
 action:
     representation: normalized_joint_position

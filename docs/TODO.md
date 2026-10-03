@@ -19,9 +19,13 @@ completed before treating a policy as deployment-qualified.
 - [x] Run the cold v0.11.1 acquisition canary at 0.05--0.10 m/s with 20%
   standing commands. It improved stochastic survival from 20% to 6% falls but
   still stepped mostly in place and reached about 10% target clipping.
-- [ ] Run the cold v0.12.0 lifecycle-aligned canary after the remaining
-  forward-walking setup decisions are complete. Do not restore a v0.11.x
-  checkpoint because phase, reset, and termination semantics changed.
+- [ ] Run the cold v0.13.0 forward/stand randomized canary. Do not restore a
+  v0.11.x or v0.12.x checkpoint because phase lifecycle, physics timing,
+  sensor-noise semantics, and the training distribution changed.
+- [ ] Prototype the ToddlerBot RSL-RL path with a current RTX-5070-compatible
+  PyTorch build. Migrate from Brax only if checkpoint/evaluation behavior is
+  equivalent and measured throughput and peak GPU memory are not materially
+  worse on the target GPU.
 - [x] Align acquisition and evaluation with ToddlerBot's active strict
   `exp(-1000 * velocity_error^2)` kernel (`sigma=0.0316 m/s`). Keep it fixed in
   the v0.11.x canaries so command sampling is the only new mechanism.

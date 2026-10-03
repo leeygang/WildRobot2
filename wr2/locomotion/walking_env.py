@@ -102,6 +102,19 @@ def _inverse_rotate_vector(quaternion: jax.Array, vector: jax.Array) -> jax.Arra
     return _rotate_vector(quaternion * jp.array([1.0, -1.0, -1.0, -1.0]), vector)
 
 
+def _rotate_vector_by_rotvec(vector: jax.Array, rotvec: jax.Array) -> jax.Array:
+    """Apply a small orientation error represented by a rotation vector."""
+    angle = jp.linalg.norm(rotvec)
+    safe_angle = jp.maximum(angle, 1e-8)
+    axis = rotvec / safe_angle
+    rotated = (
+        vector * jp.cos(angle)
+        + jp.cross(axis, vector) * jp.sin(angle)
+        + axis * jp.dot(axis, vector) * (1.0 - jp.cos(angle))
+    )
+    return jp.where(angle > 1e-8, rotated, vector)
+
+
 def feet_lateral_distance(
     torso_quaternion: jax.Array, foot_delta_world: jax.Array
 ) -> jax.Array:
@@ -451,7 +464,7 @@ class WR2WalkingEnv(PipelineEnv):
     ) -> tuple[dict[str, jax.Array], dict[str, jax.Array]]:
         joint_position = pipeline_state.q[self._joint_qpos_indices]
         joint_velocity = pipeline_state.qd[self._joint_qvel_indices]
-        _, angular_velocity, linear_velocity, projected_gravity = (
+        torso_quat, angular_velocity, linear_velocity, projected_gravity = (
             self._kinematic_observation(pipeline_state)
         )
         true_joint_position = joint_position
@@ -460,7 +473,7 @@ class WR2WalkingEnv(PipelineEnv):
         true_projected_gravity = projected_gravity
 
         if self.add_observation_noise:
-            keys = jax.random.split(rng, 8)
+            keys = jax.random.split(rng, 10)
             noise = self.config.observation_noise
             # ToddlerBot models encoder backlash as a torque-direction-dependent
             # offset rather than independent white noise.
@@ -470,18 +483,29 @@ class WR2WalkingEnv(PipelineEnv):
             )
             joint_position = (
                 joint_position
-                + noise.joint_position_std_rad
-                * jax.random.normal(keys[0], joint_position.shape)
+                + jax.random.uniform(
+                    keys[0],
+                    joint_position.shape,
+                    minval=-noise.joint_position_uniform_rad,
+                    maxval=noise.joint_position_uniform_rad,
+                )
             )
             joint_velocity = (
                 joint_velocity
-                + noise.joint_velocity_std_rad_s
-                * jax.random.normal(keys[1], joint_velocity.shape)
+                + jax.random.uniform(
+                    keys[1],
+                    joint_velocity.shape,
+                    minval=-noise.joint_velocity_uniform_rad_s,
+                    maxval=noise.joint_velocity_uniform_rad_s,
+                )
             )
-            gyro_colored = noise.gyro_colored_alpha * imu_state[
+            gyro_rho = jp.exp(
+                -_TWO_PI * noise.gyro_cutoff_hz * self.robot.control_period_s
+            )
+            gyro_colored = gyro_rho * imu_state[
                 "gyro_colored"
             ] + jp.sqrt(
-                1.0 - noise.gyro_colored_alpha**2
+                jp.maximum(1e-12, 1.0 - gyro_rho**2)
             ) * noise.gyro_colored_std_rad_s * jax.random.normal(
                 keys[2], angular_velocity.shape
             )
@@ -490,53 +514,70 @@ class WR2WalkingEnv(PipelineEnv):
             ] + noise.gyro_bias_walk_std_rad_s * jax.random.normal(
                 keys[3], angular_velocity.shape
             )
+            gyro_amplitude = jax.random.uniform(
+                keys[5],
+                angular_velocity.shape,
+                minval=noise.gyro_amplitude_min,
+                maxval=noise.gyro_amplitude_max,
+            )
             current_angular_velocity = (
                 angular_velocity
-                + gyro_colored
-                + gyro_bias
-                + noise.gyro_std_rad_s
-                * jax.random.normal(keys[4], angular_velocity.shape)
+                + gyro_amplitude
+                * (
+                    gyro_colored
+                    + gyro_bias
+                    + noise.gyro_white_std_rad_s
+                    * jax.random.normal(keys[4], angular_velocity.shape)
+                )
             )
-            gravity_colored = noise.projected_gravity_colored_alpha * imu_state[
+            gravity_rho = jp.exp(
+                -_TWO_PI
+                * noise.projected_gravity_cutoff_hz
+                * self.robot.control_period_s
+            )
+            gravity_colored = gravity_rho * imu_state[
                 "gravity_colored"
             ] + jp.sqrt(
-                1.0 - noise.projected_gravity_colored_alpha**2
-            ) * noise.projected_gravity_colored_std * jax.random.normal(
-                keys[5], projected_gravity.shape
+                jp.maximum(1e-12, 1.0 - gravity_rho**2)
+            ) * noise.projected_gravity_colored_std_rad * jax.random.normal(
+                keys[6], projected_gravity.shape
             )
             gravity_bias = imu_state[
                 "gravity_bias"
-            ] + noise.projected_gravity_bias_walk_std * jax.random.normal(
-                keys[6], projected_gravity.shape
+            ] + noise.projected_gravity_bias_walk_std_rad * jax.random.normal(
+                keys[7], projected_gravity.shape
             )
-            current_projected_gravity = (
-                projected_gravity
-                + gravity_colored
+            gravity_amplitude = jax.random.uniform(
+                keys[9],
+                projected_gravity.shape,
+                minval=noise.projected_gravity_amplitude_min,
+                maxval=noise.projected_gravity_amplitude_max,
+            )
+            gravity_rotvec = gravity_amplitude * (
+                gravity_colored
                 + gravity_bias
-                + noise.projected_gravity_std
-                * jax.random.normal(keys[7], projected_gravity.shape)
+                + noise.projected_gravity_white_std_rad
+                * jax.random.normal(keys[8], projected_gravity.shape)
+            )
+            # ToddlerBot composes R_noise * R_true. Projecting world gravity
+            # through its inverse is equivalent to applying inverse noise in
+            # the world frame, then transforming into the true torso frame.
+            noisy_world_gravity = _rotate_vector_by_rotvec(
+                jp.asarray([0.0, 0.0, -1.0]), -gravity_rotvec
+            )
+            current_projected_gravity = _inverse_rotate_vector(
+                torso_quat, noisy_world_gravity
             )
             current_projected_gravity = current_projected_gravity / jp.linalg.norm(
                 current_projected_gravity
             )
-            angular_velocity = jp.where(
-                imu_state["delay_one_step"],
-                imu_state["previous_gyro"],
-                current_angular_velocity,
-            )
-            projected_gravity = jp.where(
-                imu_state["delay_one_step"],
-                imu_state["previous_gravity"],
-                current_projected_gravity,
-            )
+            angular_velocity = current_angular_velocity
+            projected_gravity = current_projected_gravity
             next_imu_state = {
-                **imu_state,
                 "gyro_colored": gyro_colored,
                 "gyro_bias": gyro_bias,
                 "gravity_colored": gravity_colored,
                 "gravity_bias": gravity_bias,
-                "previous_gyro": current_angular_velocity,
-                "previous_gravity": current_projected_gravity,
             }
         else:
             next_imu_state = imu_state
@@ -632,8 +673,7 @@ class WR2WalkingEnv(PipelineEnv):
             torso_pitch_rng,
             backlash_rng,
             actuator_rng,
-            imu_delay_rng,
-        ) = jax.random.split(rng, 12)
+        ) = jax.random.split(rng, 11)
         qpos = self._default_qpos.at[self._joint_qpos_indices].add(
             jax.random.uniform(
                 joint_rng,
@@ -739,24 +779,11 @@ class WR2WalkingEnv(PipelineEnv):
             is_walking,
             self.config.zmp_reference.single_double_support_ratio,
         )
-        _, initial_gyro, _, initial_gravity = self._kinematic_observation(
-            pipeline_state
-        )
         imu_state = {
             "gyro_colored": jp.zeros(3),
             "gyro_bias": jp.zeros(3),
             "gravity_colored": jp.zeros(3),
             "gravity_bias": jp.zeros(3),
-            "previous_gyro": initial_gyro,
-            "previous_gravity": initial_gravity,
-            "delay_one_step": (
-                jax.random.bernoulli(
-                    imu_delay_rng,
-                    self.config.observation_noise.imu_one_step_delay_probability,
-                )
-                if self.add_observation_noise
-                else jp.asarray(False)
-            ),
         }
         observation_frames, imu_state = self._observation(
             pipeline_state,
@@ -920,7 +947,7 @@ class WR2WalkingEnv(PipelineEnv):
         target: jax.Array,
         actuator_noise: dict[str, jax.Array],
     ):
-        """Hold a position target while integrating ten 2 ms torque steps."""
+        """Hold a position target across the configured physics substeps."""
 
         def integrate(current, _):
             torque = self._controller_torque(current, target, actuator_noise)

@@ -23,7 +23,7 @@
       <joint damping="0.01" frictionloss="0" armature="0.01" limited="true" range="-0.008726646259971648 0.008726646259971648" />
     </default>
   </default>
-  <option timestep="0.002" iterations="1" ls_iterations="4">
+  <option timestep="0.005" iterations="1" ls_iterations="4">
     <flag eulerdamp="disable" />
   </option>
   <worldbody>

@@ -71,7 +71,7 @@ and EEPROM limits. It does **not** expose motor current or shaft torque.
 | Passive/active braking ratio | Training direction-dependent torque controller | `passive_active_ratio`; randomization scale | 1.0; currently not randomized | No valid collection script yet. Compare externally back-driven and actively driven quadrants | Guarded bidirectional dynamometer | Missing; placeholder |
 
 Simulation uses these parameters in `WalkingEnv._controller_torque()`. At every
-2 ms physics substep it applies PD torque, the provisional acceleration/braking
+5 ms physics substep it applies PD torque, the provisional acceleration/braking
 envelope, and the randomized limits. Deployment hardware does not use this
 software torque controller; these values make simulation resemble and bound the
 closed-loop position servo.

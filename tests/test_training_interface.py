@@ -17,6 +17,7 @@ from wr2.locomotion.train import (
 )
 from wr2.locomotion.walking_env import (
     WR2WalkingEnv,
+    _rotate_vector_by_rotvec,
     feet_lateral_distance,
     feet_orientation_error,
     normalized_action_rate_cost,
@@ -116,7 +117,11 @@ class TrainingInterfaceTest(unittest.TestCase):
             self.robot.config["observation"]["layout_id"], "wr2_proprio_v3"
         )
         self.assertEqual(self.robot.control_period_s, 0.02)
-        self.assertEqual(self.robot.simulation_timestep_s, 0.002)
+        self.assertEqual(self.robot.simulation_timestep_s, 0.005)
+        self.assertEqual(
+            self.robot.control_period_s / self.robot.simulation_timestep_s,
+            4.0,
+        )
         np.testing.assert_array_equal(self.robot.neutral_position_rad, np.zeros(17))
         expected_walk_home = np.zeros(17)
         for name, value in {
@@ -223,8 +228,11 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
         environment = self.training_config.environment
         self.assertEqual(environment.command_forward_range_m_s, (0.05, 0.10))
+        self.assertGreaterEqual(environment.command_forward_range_m_s[0], 0.0)
+        self.assertEqual(environment.command_lateral_range_m_s, (0.0, 0.0))
+        self.assertEqual(environment.command_yaw_range_rad_s, (0.0, 0.0))
         self.assertEqual(environment.zero_command_probability, 0.20)
-        self.assertFalse(environment.randomization.enabled)
+        self.assertTrue(environment.randomization.enabled)
         self.assertEqual(environment.reset_joint_noise_rad, 0.0)
         self.assertEqual(environment.reset_velocity_noise_rad_s, 0.0)
         self.assertEqual(environment.terminate_height_m, 0.20)
@@ -258,6 +266,17 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(environment.rewards.close_feet, -10.0)
         self.assertEqual(environment.rewards.feet_orientation, -5.0)
         self.assertEqual(environment.policy_action_scale_rad, 0.25)
+        noise = environment.observation_noise
+        self.assertEqual(noise.joint_position_uniform_rad, 0.05)
+        self.assertEqual(noise.joint_velocity_uniform_rad_s, 0.10)
+        self.assertEqual(noise.gyro_cutoff_hz, 0.35)
+        self.assertEqual(noise.gyro_colored_std_rad_s, 0.25)
+        self.assertEqual(noise.gyro_amplitude_min, 0.8)
+        self.assertEqual(noise.gyro_amplitude_max, 2.0)
+        self.assertEqual(noise.projected_gravity_cutoff_hz, 0.25)
+        self.assertEqual(noise.projected_gravity_colored_std_rad, 0.10)
+        self.assertEqual(noise.projected_gravity_amplitude_min, 0.8)
+        self.assertEqual(noise.projected_gravity_amplitude_max, 1.2)
         self.assertEqual(self.training_config.ppo.num_timesteps, 1_000_000_000)
         self.assertEqual(self.training_config.ppo.evaluation_forward_command_m_s, 0.10)
         self.assertEqual(self.training_config.ppo.learning_rate, 3e-5)
@@ -278,8 +297,15 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(self.training_config.output.root, "results/wr2_walking")
 
     def test_nominal_reset_matches_walk_home_with_zero_velocity(self):
-        environment = WR2WalkingEnv(
+        nominal_config = replace(
             self.training_config.environment,
+            randomization=replace(
+                self.training_config.environment.randomization,
+                enabled=False,
+            ),
+        )
+        environment = WR2WalkingEnv(
+            nominal_config,
             add_observation_noise=False,
         )
         state = environment.reset(jax.random.PRNGKey(17))
@@ -292,6 +318,33 @@ class TrainingInterfaceTest(unittest.TestCase):
             np.asarray(state.pipeline_state.qd),
             np.zeros(environment.sys.nv),
             atol=1e-7,
+        )
+
+    def test_projected_gravity_noise_is_a_norm_preserving_rotation(self):
+        gravity = jp.asarray([0.0, 0.0, -1.0])
+        noisy = _rotate_vector_by_rotvec(gravity, jp.asarray([0.10, 0.0, 0.0]))
+
+        self.assertAlmostEqual(float(jp.linalg.norm(noisy)), 1.0, places=6)
+        self.assertAlmostEqual(
+            float(jp.arccos(jp.clip(jp.dot(gravity, noisy), -1.0, 1.0))),
+            0.10,
+            places=6,
+        )
+
+    def test_toddlerbot_shaped_observation_noise_is_finite(self):
+        environment = WR2WalkingEnv(
+            self.training_config.environment,
+            add_observation_noise=True,
+        )
+        state = jax.jit(environment.reset)(jax.random.PRNGKey(29))
+        state = jax.jit(environment.step)(state, environment.home_action)
+        actor_frame = np.asarray(state.obs["state"][:55])
+
+        self.assertTrue(np.isfinite(actor_frame).all())
+        self.assertAlmostEqual(np.linalg.norm(actor_frame[-3:]), 1.0, places=5)
+        self.assertEqual(
+            set(state.info["imu_state"]),
+            {"gyro_colored", "gyro_bias", "gravity_colored", "gravity_bias"},
         )
 
     def test_gait_phase_advances_while_standing_and_does_not_restart(self):
@@ -314,6 +367,30 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
         self.assertAlmostEqual(float(next_state.info["gait_phase"]), expected, places=6)
         self.assertGreater(float(next_state.info["command"][0]), 0.0)
+
+    def test_forward_walking_can_transition_to_standing(self):
+        config = replace(
+            self.training_config.environment,
+            command_forward_range_m_s=(0.10, 0.10),
+            zero_command_probability=1.0,
+            command_resample_steps=1,
+        )
+        environment = WR2WalkingEnv(config, add_observation_noise=False)
+        state = environment.reset(jax.random.PRNGKey(31))
+        starting_phase = 2.0
+        state.info["command"] = jp.asarray([0.10, 0.0, 0.0])
+        state.info["gait_phase"] = jp.asarray(starting_phase)
+        next_state = jax.jit(environment.step)(state, environment.home_action)
+        jax.block_until_ready(next_state.reward)
+
+        np.testing.assert_array_equal(
+            np.asarray(next_state.info["command"]), np.zeros(3)
+        )
+        self.assertAlmostEqual(
+            float(next_state.info["gait_phase"]),
+            np.mod(starting_phase + environment._gait_phase_increment, 2.0 * np.pi),
+            places=6,
+        )
 
     def test_termination_uses_torso_height_only(self):
         self.assertTrue(bool(torso_height_unhealthy(jp.asarray(0.19), 0.20, 1.0)))

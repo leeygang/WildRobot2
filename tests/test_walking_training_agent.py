@@ -69,7 +69,7 @@ class WalkingTrainingAgentTest(unittest.TestCase):
             stage_cycle=1,
         )
         self.assertEqual(payload["seed"], 4)
-        self.assertFalse(payload["domain_randomization"]["enabled"])
+        self.assertTrue(payload["domain_randomization"]["enabled"])
         self.assertEqual(payload["ppo"]["num_timesteps"], 100_000_000)
         self.assertEqual(payload["ppo"]["evaluation_forward_command_m_s"], 0.10)
         self.assertEqual(
@@ -303,7 +303,7 @@ class WalkingTrainingAgentTest(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(state["status"], "dry_run")
         self.assertEqual(generated.ppo.num_timesteps, 100_000_000)
-        self.assertFalse(generated.environment.randomization.enabled)
+        self.assertTrue(generated.environment.randomization.enabled)
 
 
 if __name__ == "__main__":

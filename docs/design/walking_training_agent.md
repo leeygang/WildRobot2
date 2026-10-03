@@ -11,9 +11,9 @@ The default campaign is defined in
 `wr2/locomotion/configs/walking_agent.yaml`. Success gates normally terminate it;
 each stage has a 2,000-cycle emergency ceiling:
 
-1. `gait_acquisition`: up to 2,000 100M-step cycles under nominal dynamics;
-2. `robust_walking`: up to 2,000 100M-step cycles with the measured WR2
-   actuator and contact randomization; and
+1. `gait_acquisition`: up to 2,000 100M-step cycles under randomized dynamics;
+2. `robust_walking`: up to 2,000 100M-step cycles with expanded forward-speed
+   coverage, tighter gates, and the same WR2 randomization; and
 3. confirmation at 0.10, 0.15, and 0.20 m/s for three independent seeds and
    128 environments per seed/speed combination.
 
@@ -23,9 +23,9 @@ complete metric rows, rejects checkpoints that violate hard simulation
 invariants, and warm-starts the next cycle from the best walking checkpoint.
 
 The policy contract, reward equations, joint limits, network shape, and servo
-model cannot be changed by stage overrides. The allowed curriculum
-changes are limited to command sampling and enabling the already configured
-domain randomization.
+model cannot be changed by stage overrides. The allowed curriculum changes are
+limited to forward/standing command sampling and the ranges of the already
+enabled domain randomization.
 
 The acquisition gate is deliberately easier because it is only a curriculum
 transition: it proves the policy has stopped exploiting standing and has begun
