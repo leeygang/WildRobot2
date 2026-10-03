@@ -144,14 +144,16 @@ slew-limited to 27 units per 20 ms control step, or 5.655 rad/s. This is below
 the vendor's 5.818 rad/s no-load speed at 11.1 V. The training MJCF uses torque
 actuators. On every 5 ms substep an explicit controller applies the provisional
 position gain, damping, asymmetric braking, and a vendor-endpoint torque-speed
-envelope. Peak torque is randomized from 1 to 4 N m; neither value is treated
-as a continuous-torque rating. The held-out-validated unit-A low-load fit sets
-the provisional nominal position gain to 24.1574 N m/rad while preserving the
-conservative 8--32 N m/rad randomization range. The fitted total velocity
-damping is 0.673622 N m s/rad; training realizes it as `kv_sim=0.5` plus
-0.173622 N m s/rad passive joint damping.
-Each episode adds an independent +/-2-degree actuator-target bias so the policy
-cannot assume perfect zero calibration or rigid target tracking.
+envelope. Peak torque is randomized from 3.6 to 4.0 N m during gait
+acquisition; neither value is treated as a continuous-torque rating. The
+earlier 1--4 N m envelope is reserved for a later robustness curriculum. The
+held-out-validated unit-A low-load fit sets the provisional nominal position
+gain to 24.1574 N m/rad, with acquisition randomization limited to 0.9--1.1x.
+The fitted total velocity damping is 0.673622 N m s/rad; training realizes it
+as `kv_sim=0.5` plus 0.173622 N m s/rad passive joint damping.
+Each acquisition episode adds an independent +/-0.5-degree actuator-target
+bias and 0--0.5-degree backlash. Wider measured and conservative envelopes are
+introduced only after PPO has acquired bilateral forward walking.
 
 The reward includes a squared actuator-torque cost as a proxy for winding
 heating. Mechanical power alone is insufficient because a stationary servo can

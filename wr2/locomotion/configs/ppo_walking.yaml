@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
-# policy while preserving WR2's measured actuator envelope.
-version: "0.13.0"
-version_name: "WR2 forward/stand randomized ToddlerBot baseline"
+# policy and its moderate gait-acquisition randomization.
+version: "0.14.0"
+version_name: "WR2 ToddlerBot-aligned gait-acquisition randomization"
 seed: 0
 
 environment:
@@ -114,27 +114,30 @@ observation_noise:
   projected_gravity_amplitude_max: 1.2
 
 domain_randomization:
-  # Match ToddlerBot's active strategy: train the policy under randomized
-  # dynamics and sensor observations from the beginning.
+  # Match ToddlerBot's active strategy: use moderate randomization while PPO
+  # first acquires a gait. The wider WR2 deployment envelope is a later robust
+  # training curriculum, not a uniform distribution for initial learning.
   enabled: true
   friction_scale: [0.7, 1.3]
   damping_scale: [0.8, 1.2]
   armature_scale: [0.8, 1.2]
   frictionloss_scale: [0.7, 1.3]
-  # Preserve the conservative 8--32 N m/rad envelope around the fitted
-  # 24.1574 N m/rad unit-A nominal.
-  kp_scale: [0.331161964, 1.324647854]
-  kv_scale: [0.8, 1.2]
-  # Nominal peak cap is 4 N m, so this spans 1--4 N m.
-  torque_limit_scale: [0.25, 1.0]
+  # Keep actuator response recognizable during gait acquisition. Upper bounds
+  # for torque, speed, and braking stay at the hardware-bounded nominal.
+  kp_scale: [0.9, 1.1]
+  kv_scale: [0.9, 1.1]
+  torque_limit_scale: [0.9, 1.0]
   body_mass_scale: [0.8, 1.2]
-  target_bias_rad: [-0.034906585, 0.034906585]
+  # Provisional +/-0.5-degree acquisition uncertainty. Expand only after a
+  # bilateral forward gait has been learned and independently evaluated.
+  target_bias_rad: [-0.008726646, 0.008726646]
   initial_torso_roll_rad: [-0.10, 0.10]
   initial_torso_pitch_rad: [-0.10, 0.10]
-  # Provisional until bidirectional WR2 position sweeps identify backlash.
-  backlash_rad: [0.0, 0.034906585]
-  max_speed_scale: [0.9, 1.1]
-  brake_torque_scale: [0.5, 1.0]
+  # Provisional 0--0.5-degree acquisition range until bidirectional WR2 sweeps
+  # identify a population distribution.
+  backlash_rad: [0.0, 0.008726646]
+  max_speed_scale: [0.9, 1.0]
+  brake_torque_scale: [0.9, 1.0]
   passive_active_ratio_scale: [1.0, 1.0]
 
 ppo:

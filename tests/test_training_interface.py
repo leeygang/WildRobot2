@@ -201,24 +201,22 @@ class TrainingInterfaceTest(unittest.TestCase):
             servo["vendor_no_load_speed_rad_s"],
         )
         randomization = self.training_config.environment.randomization
-        np.testing.assert_allclose(
-            tuple(value * servo["kp_sim"] for value in randomization.kp_scale),
-            (8.0, 32.0),
-            rtol=0.0,
-            atol=1e-7,
-        )
+        self.assertEqual(randomization.kp_scale, (0.9, 1.1))
+        self.assertEqual(randomization.kv_scale, (0.9, 1.1))
         self.assertEqual(
             tuple(
                 value * servo["torque_limit_nm"]
                 for value in randomization.torque_limit_scale
             ),
-            (1.0, 4.0),
+            (3.6, 4.0),
         )
-        self.assertAlmostEqual(randomization.target_bias_rad[0], np.deg2rad(-2.0))
-        self.assertAlmostEqual(randomization.target_bias_rad[1], np.deg2rad(2.0))
+        self.assertAlmostEqual(randomization.target_bias_rad[0], np.deg2rad(-0.5))
+        self.assertAlmostEqual(randomization.target_bias_rad[1], np.deg2rad(0.5))
         self.assertEqual(randomization.body_mass_scale, (0.8, 1.2))
         self.assertAlmostEqual(randomization.initial_torso_roll_rad[0], -0.1)
-        self.assertAlmostEqual(randomization.backlash_rad[1], np.deg2rad(2.0))
+        self.assertAlmostEqual(randomization.backlash_rad[1], np.deg2rad(0.5))
+        self.assertEqual(randomization.max_speed_scale, (0.9, 1.0))
+        self.assertEqual(randomization.brake_torque_scale, (0.9, 1.0))
 
         self.assertLess(
             self.training_config.environment.rewards.actuator_torque_squared, 0.0
