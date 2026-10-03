@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy while preserving WR2's measured actuator envelope.
-version: "0.11.1"
-version_name: "WR2 ToddlerBot low-speed gait acquisition"
+version: "0.12.0"
+version_name: "WR2 ToddlerBot lifecycle-aligned gait acquisition"
 seed: 0
 
 environment:
@@ -17,8 +17,10 @@ environment:
   # ToddlerBot asymmetric-critic scales. These do not affect deployment input.
   privileged_linear_velocity_scale: 2.0
   privileged_actuator_force_scale: 0.1
-  reset_joint_noise_rad: 0.02
-  reset_velocity_noise_rad_s: 0.05
+  # Match ToddlerBot's nominal reset. Structured perturbations belong to the
+  # domain-randomization path rather than unconditional reset noise.
+  reset_joint_noise_rad: 0.0
+  reset_velocity_noise_rad_s: 0.0
   # ToddlerBot acquires walking at 0.05--0.10 m/s magnitudes. WR2 keeps only
   # the forward component because lateral/yaw ZMP references are not ready.
   # The lower bound keeps the strict velocity reward's gradient measurable
@@ -30,7 +32,8 @@ environment:
   command_resample_steps: 150
   command_active_threshold_m_s: 0.05
   gait_cycle_s: 0.72
-  # Start each rollout from double support and phase zero, matching deployment.
+  # Start each episode at phase zero. The phase clock then advances continuously
+  # through standing and command changes, matching ToddlerBot.
   randomize_gait_phase_on_reset: false
   swing_height_m: 0.04
   feet_phase_tracking_sigma_m2: 0.0007
@@ -38,7 +41,7 @@ environment:
   contact_force_threshold_n: 1.0
   target_torso_height_m: 0.301
   terminate_height_m: 0.20
-  terminate_projected_gravity_z: -0.50
+  terminate_max_height_m: 1.0
   # Match ToddlerBot's active exp(-1000 * velocity_error^2) reward. The earlier
   # 0.15 m/s kernel let a stationary one-foot policy retain 64% of the velocity
   # reward at a 0.10 m/s command in the v0.10.1 canary.

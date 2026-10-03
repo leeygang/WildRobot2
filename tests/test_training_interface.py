@@ -21,6 +21,7 @@ from wr2.locomotion.walking_env import (
     feet_orientation_error,
     normalized_action_rate_cost,
     support_contact_active,
+    torso_height_unhealthy,
 )
 from wr2.locomotion.walking_metrics import walking_score
 from wr2.reference.walk_zmp import periodic_lipm_lateral_reference
@@ -224,6 +225,10 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(environment.command_forward_range_m_s, (0.05, 0.10))
         self.assertEqual(environment.zero_command_probability, 0.20)
         self.assertFalse(environment.randomization.enabled)
+        self.assertEqual(environment.reset_joint_noise_rad, 0.0)
+        self.assertEqual(environment.reset_velocity_noise_rad_s, 0.0)
+        self.assertEqual(environment.terminate_height_m, 0.20)
+        self.assertEqual(environment.terminate_max_height_m, 1.0)
         self.assertEqual(environment.command_resample_steps, 150)
         self.assertEqual(environment.gait_cycle_s, 0.72)
         self.assertEqual(environment.privileged_linear_velocity_scale, 2.0)
@@ -271,6 +276,49 @@ class TrainingInterfaceTest(unittest.TestCase):
             self.training_config.checkpoints.selection_metric, "acquisition"
         )
         self.assertEqual(self.training_config.output.root, "results/wr2_walking")
+
+    def test_nominal_reset_matches_walk_home_with_zero_velocity(self):
+        environment = WR2WalkingEnv(
+            self.training_config.environment,
+            add_observation_noise=False,
+        )
+        state = environment.reset(jax.random.PRNGKey(17))
+        np.testing.assert_allclose(
+            np.asarray(state.pipeline_state.q),
+            np.asarray(environment._default_qpos),
+            atol=1e-7,
+        )
+        np.testing.assert_allclose(
+            np.asarray(state.pipeline_state.qd),
+            np.zeros(environment.sys.nv),
+            atol=1e-7,
+        )
+
+    def test_gait_phase_advances_while_standing_and_does_not_restart(self):
+        config = replace(
+            self.training_config.environment,
+            command_forward_range_m_s=(0.10, 0.10),
+            zero_command_probability=0.0,
+            command_resample_steps=1,
+        )
+        environment = WR2WalkingEnv(config, add_observation_noise=False)
+        state = environment.reset(jax.random.PRNGKey(19))
+        starting_phase = 1.25
+        state.info["command"] = jp.zeros(3)
+        state.info["gait_phase"] = jp.asarray(starting_phase)
+        next_state = jax.jit(environment.step)(state, environment.home_action)
+        jax.block_until_ready(next_state.reward)
+        expected = np.mod(
+            starting_phase + environment._gait_phase_increment,
+            2.0 * np.pi,
+        )
+        self.assertAlmostEqual(float(next_state.info["gait_phase"]), expected, places=6)
+        self.assertGreater(float(next_state.info["command"][0]), 0.0)
+
+    def test_termination_uses_torso_height_only(self):
+        self.assertTrue(bool(torso_height_unhealthy(jp.asarray(0.19), 0.20, 1.0)))
+        self.assertFalse(bool(torso_height_unhealthy(jp.asarray(0.30), 0.20, 1.0)))
+        self.assertTrue(bool(torso_height_unhealthy(jp.asarray(1.01), 0.20, 1.0)))
 
     def test_action_rate_matches_tb_policy_residual_semantics(self):
         environment = WR2WalkingEnv(

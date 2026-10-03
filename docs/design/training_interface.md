@@ -213,7 +213,12 @@ about 216 return while velocity contributed only 0.70. v0.11.1 retains the
 strict ToddlerBot reward and action contract but shifts acquisition commands
 from 0.08--0.18 to 0.05--0.10 m/s, where a cold policy receives a measurable
 velocity gradient. It must also start cold to avoid restoring the in-place
-local optimum.
+local optimum. The v0.11.1 canary improved stochastic survival but still
+converged to in-place stepping with excessive target clipping. v0.12.0 aligns
+the remaining episode lifecycle: phase advances continuously through standing
+and command changes, nominal reset is exactly `walk_home` with zero velocity,
+and locomotion termination uses ToddlerBot's torso-height range. These changes
+alter transition and return semantics, so v0.12.0 also requires a cold start.
 
 Validate the generated reference before training with:
 

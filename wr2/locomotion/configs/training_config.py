@@ -105,7 +105,7 @@ class WalkingEnvConfig:
     contact_force_threshold_n: float
     target_torso_height_m: float
     terminate_height_m: float
-    terminate_projected_gravity_z: float
+    terminate_max_height_m: float
     velocity_reward_sigma: float
     velocity_tracking_sigma: float
     yaw_tracking_sigma: float
@@ -392,6 +392,10 @@ def load_training_config(
         raise ValueError("environment.swing_height_m must be positive")
     if environment.contact_force_threshold_n <= 0.0:
         raise ValueError("environment.contact_force_threshold_n must be positive")
+    if environment.terminate_height_m >= environment.terminate_max_height_m:
+        raise ValueError(
+            "environment termination height range must have positive width"
+        )
     if environment.velocity_reward_sigma <= 0.0:
         raise ValueError("environment.velocity_reward_sigma must be positive")
     if environment.velocity_tracking_sigma <= 0.0:

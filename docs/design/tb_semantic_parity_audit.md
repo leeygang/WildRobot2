@@ -117,14 +117,14 @@ reward uses alternating half-cycle swings. The ZMP IK lookup and desired
 critic-contact feature separately use the planner's 2:1
 single-support-to-double-support design.
 
-ToddlerBot samples 0.05--0.10 m/s walking magnitudes plus standing and turning.
-WR2 v0.11.1 samples 0.05--0.10 m/s forward commands and 20% standing commands;
+ToddlerBot samples signed walking commands plus standing and turning. WR2
+v0.12.0 retains a forward-only 0.05--0.10 m/s acquisition scope and 20%
+standing commands while command-scope parity is reviewed;
 lateral and turning commands remain disabled until their ZMP references and
-orientation contract are ready. Robust training expands the forward range.
-Both resample every three seconds. WR2 starts a new gait at
-phase zero when leaving stand, which is reproducible on hardware; ToddlerBot's
-episode clock continues through command changes. This is an explicit WR2
-deployment choice, not numerical parity.
+orientation contract are ready. This is not a morphology exception. Both
+resample every three seconds. WR2 now matches ToddlerBot's continuous episode
+phase clock: standing changes desired foot height/contact but does not pause or
+restart phase.
 
 ToddlerBot foot height is measured from a site whose nominal world height is
 zero. WR2 subtracts each foot site's `walk_home` world height. These are the
@@ -198,11 +198,11 @@ evaluation command before any GPU compilation.
 
 WR2 resets delayed action, target slew state, command, gait phase, observation
 history, IMU state, torque exposure, and its episode counter with the physical
-state. The multi-episode wrapper regression protects this lifecycle.
-ToddlerBot terminates primarily by torso height. WR2 also terminates on severe
-tilt and non-finite state; these are intentional safety checks. WR2 reset joint
-and velocity perturbations are small acquisition randomization not present in
-ToddlerBot's same form.
+state. The multi-episode wrapper regression protects this lifecycle. Nominal
+reset now uses the exact `walk_home` state with zero velocity; structured
+perturbations belong to domain randomization. Termination matches ToddlerBot's
+torso-height range. WR2 additionally terminates non-finite states as an
+infrastructure guard, not a locomotion criterion.
 
 Both use a 1 N foot-support threshold. WR2 now applies it to upward world force
 and explicitly requires the named foot geom/floor pair. Contact phase is a P0

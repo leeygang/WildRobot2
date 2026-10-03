@@ -66,6 +66,17 @@ def normalized_action_rate_cost(
     return jp.sum(jp.square(action - previous_action))
 
 
+def torso_height_unhealthy(
+    torso_height_m: jax.Array,
+    minimum_height_m: float,
+    maximum_height_m: float,
+) -> jax.Array:
+    """Return ToddlerBot's torso-height termination condition."""
+    return (torso_height_m < minimum_height_m) | (
+        torso_height_m > maximum_height_m
+    )
+
+
 def support_contact_active(
     contact_distance: jax.Array,
     contact_force_world: jax.Array,
@@ -954,10 +965,11 @@ class WR2WalkingEnv(PipelineEnv):
         joint_velocity = pipeline_state.qd[self._joint_qvel_indices]
         command = state.info["command"]
         is_walking = self._is_walking(command)
-        gait_phase = jp.where(
-            is_walking,
-            jp.mod(state.info["gait_phase"] + self._gait_phase_increment, _TWO_PI),
-            0.0,
+        # ToddlerBot's gait clock is an episode clock: standing only changes
+        # the desired foot state; it does not pause or restart phase.
+        gait_phase = jp.mod(
+            state.info["gait_phase"] + self._gait_phase_increment,
+            _TWO_PI,
         )
 
         velocity_xy = jp.exp(
@@ -1072,8 +1084,10 @@ class WR2WalkingEnv(PipelineEnv):
 
         step_count = state.info["step_count"] + 1
         torso_z = pipeline_state.x.pos[self._root_link_index, 2]
-        unhealthy = (torso_z < self.config.terminate_height_m) | (
-            projected_gravity[2] > self.config.terminate_projected_gravity_z
+        unhealthy = torso_height_unhealthy(
+            torso_z,
+            self.config.terminate_height_m,
+            self.config.terminate_max_height_m,
         )
         nonfinite = ~jp.all(jp.isfinite(pipeline_state.q))
         timeout = step_count >= self.config.episode_length
@@ -1126,12 +1140,7 @@ class WR2WalkingEnv(PipelineEnv):
         resample_command = jp.mod(step_count, self.config.command_resample_steps) == 0
         next_command = jp.where(resample_command, sampled_command, command)
         next_is_walking = self._is_walking(next_command)
-        next_gait_phase = jp.where(next_is_walking, gait_phase, 0.0)
-        next_gait_phase = jp.where(
-            resample_command & next_is_walking & ~is_walking,
-            0.0,
-            next_gait_phase,
-        )
+        next_gait_phase = gait_phase
         next_desired_contact = expected_foot_contacts(
             next_gait_phase,
             next_is_walking,
