@@ -129,6 +129,42 @@ conditions on independently labeled servos, or use the upgraded fixtures
 required for backlash, torque-speed, and braking. Do not run the unsafe legacy
 E4/E5 conditions with the current fixture.
 
+### Coarse loaded hysteresis with the current BAM
+
+The `bam_hysteresis` plan runs three continuous 1 degree/s forward/reverse
+cycles over +8 to +12 degrees and then -12 to -8 degrees. It retains every
+command and measured-position sample and reports output loop width at matched
+command units. This is direction-dependent *loaded hysteresis* of the whole
+fixture and servo loop. It does not isolate mechanical backlash, and the
+internal encoder cannot resolve below its 0.24-degree telemetry step.
+
+Run the positive condition first and inspect it before reusing the same run
+directory for the negative condition:
+
+```bash
+uv run python -m wr2.tools.servo_sysid run \
+  --plan bam_hysteresis \
+  --servo-id 100 \
+  --servo-label htd45h-unit-a \
+  --board-port /dev/serial/by-id/usb-1a86_USB_Single_Serial_5C4C127022-if00 \
+  --run-dir results/servo_sysid/unit-a-bam-hysteresis-run01 \
+  --measured-weight-kg 2.650 \
+  --measured-com-radius-m 0.1204 \
+  --start-at H1_loaded_hysteresis_plus10 \
+  --stop-after H1_loaded_hysteresis_plus10 \
+  --execute --confirm-fixture-safe
+```
+
+After the positive capture passes review, replace both stage arguments with
+`H2_loaded_hysteresis_minus10`. Once both exist, emit the combined report:
+
+```bash
+uv run python -m wr2.tools.servo_sysid hysteresis \
+  results/servo_sysid/unit-a-bam-hysteresis-run01/01_H1_loaded_hysteresis_plus10.npz \
+  results/servo_sysid/unit-a-bam-hysteresis-run01/02_H2_loaded_hysteresis_minus10.npz \
+  --output results/servo_sysid/unit-a-bam-hysteresis-run01/hysteresis_summary.json
+```
+
 Directories created by the former `bam_suite.py` implementation contain a
 different manifest schema and are evidence archives only; do not resume them
 with the plan runner. The deprecated `bam_suite` and `commission` module names

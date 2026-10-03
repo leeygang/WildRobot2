@@ -68,8 +68,10 @@ logger must still be started and synchronized separately.
 - [ ] Run slow forward/reverse sweeps at cold and warmed conditions to obtain
   preliminary *loaded* backlash and hysteresis evidence. Approach every target
   from both directions and retain the complete command/position trajectory;
-  endpoint-only measurements are insufficient. The servo's 0.24-degree
-  telemetry resolution limits the smallest deadband this setup can resolve.
+  endpoint-only measurements are insufficient. The automated
+  `bam_hysteresis` plan and analyzer are ready; unit-A captures remain to be
+  collected. The servo's 0.24-degree telemetry resolution limits the smallest
+  deadband this setup can resolve.
 - [x] Collect the first gravity-neutral, low-amplitude E3 chirp on unit A. The
   run completed without voltage warnings and is retained as preliminary
   position-loop, whole-response, and low-load speed evidence.

@@ -79,8 +79,8 @@ continuing.
 The staged high-load qualification procedure is in
 [`docs/hardware/htd45h_deployment_test.md`](docs/hardware/htd45h_deployment_test.md).
 Use `uv run python -m wr2.tools.servo_sysid list-plans` to inspect the versioned
-servo campaigns; `run`, `capture`, `fit`, and `report` share that single module
-entry point. The canonical servo protocol remains
+servo campaigns; `run`, `capture`, `fit`, `hysteresis`, and `report` share that
+single module entry point. The canonical servo protocol remains
 [`wr2/actuation/htd45h.py`](wr2/actuation/htd45h.py).
 
 ## Copy results from a remote machine

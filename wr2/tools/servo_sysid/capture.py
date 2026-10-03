@@ -20,12 +20,14 @@ from typing import Protocol, Sequence
 import numpy as np
 
 from wr2.actuation.htd45h import Htd45hBus, SerialTransport, SerialTransportConfig
+from wr2.tools.servo_sysid.analysis.hysteresis import summarize_arrays as summarize_hysteresis
 from wr2.tools.servo_sysid.core import (
     DEFAULT_FIXTURE,
     FixtureModel,
     ProfileSegment,
     SERVO_CENTER_UNIT,
     SERVO_RANGE_RAD,
+    build_hysteresis_profile,
     build_profile,
     file_sha256,
     radians_to_units,
@@ -561,6 +563,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-hz", type=float, default=50.0)
     parser.add_argument("--move-time-ms", type=int, default=20)
     parser.add_argument("--write-deadband-units", type=int, default=0)
+    parser.add_argument(
+        "--profile", choices=("standard", "hysteresis"), default="standard"
+    )
+    parser.add_argument("--sweep-rate-deg-s", type=float, default=1.0)
+    parser.add_argument("--sweep-cycles", type=int, default=3)
     parser.add_argument("--constant-hold-s", type=float)
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--prepare-speed-deg-s", type=float, default=20.0)
@@ -606,6 +613,7 @@ def _validate_args(args: argparse.Namespace) -> None:
         "baudrate": args.baudrate,
         "sample_hz": args.sample_hz,
         "chirp_duration_s": args.chirp_duration_s,
+        "sweep_rate_deg_s": args.sweep_rate_deg_s,
         "prepare_speed_deg_s": args.prepare_speed_deg_s,
         "return_speed_deg_s": args.return_speed_deg_s,
         "cooldown_target_c": args.cooldown_target_c,
@@ -646,6 +654,10 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--move-time-ms must be between 0 and 30000")
     if args.write_deadband_units < 0:
         raise SystemExit("--write-deadband-units must be non-negative")
+    if args.sweep_cycles < 1 or args.sweep_cycles > 20:
+        raise SystemExit("--sweep-cycles must be between 1 and 20")
+    if args.profile == "hysteresis" and len(args.amplitudes_deg) != 1:
+        raise SystemExit("hysteresis profile requires exactly one amplitude")
     if args.cooldown_target_c > args.max_temperature_c:
         raise SystemExit("--cooldown-target-c must not exceed --max-temperature-c")
     if args.hard_min_voltage_v > args.min_voltage_v:
@@ -716,18 +728,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         direction=args.fixture_direction,
         qpos_offset_rad=math.radians(args.fixture_qpos_offset_deg),
     )
-    segments = build_profile(
-        center_deg=args.center_deg,
-        amplitudes_deg=args.amplitudes_deg,
-        sample_hz=args.sample_hz,
-        settle_s=args.settle_s,
-        chirp_start_hz=args.chirp_start_hz,
-        chirp_end_hz=args.chirp_end_hz,
-        chirp_duration_s=args.chirp_duration_s,
-        constant_hold_s=(
-            max(1.0, args.settle_s) if args.prepare_only else args.constant_hold_s
-        ),
-    )
+    if args.profile == "hysteresis":
+        if args.prepare_only or args.constant_hold_s is not None:
+            raise SystemExit(
+                "hysteresis profile cannot be combined with prepare-only or a hold"
+            )
+        segments = build_hysteresis_profile(
+            center_deg=args.center_deg,
+            amplitude_deg=args.amplitudes_deg[0],
+            sample_hz=args.sample_hz,
+            settle_s=args.settle_s,
+            sweep_rate_deg_s=args.sweep_rate_deg_s,
+            sweep_cycles=args.sweep_cycles,
+        )
+    else:
+        segments = build_profile(
+            center_deg=args.center_deg,
+            amplitudes_deg=args.amplitudes_deg,
+            sample_hz=args.sample_hz,
+            settle_s=args.settle_s,
+            chirp_start_hz=args.chirp_start_hz,
+            chirp_end_hz=args.chirp_end_hz,
+            chirp_duration_s=args.chirp_duration_s,
+            constant_hold_s=(
+                max(1.0, args.settle_s)
+                if args.prepare_only
+                else args.constant_hold_s
+            ),
+        )
     required_angle_units = _profile_unit_range(segments)
     center_torque = float(
         fixture.evaluate_static([math.radians(args.center_deg)])[0][0]
@@ -897,11 +925,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             profile_duration_s = (
                 sum(len(segment.targets_rad) for segment in segments) / args.sample_hz
             )
-            profile_description = (
-                f"holding {args.center_deg:+.1f} deg"
-                if args.constant_hold_s is not None
-                else "running the dynamic position profile"
-            )
+            if args.constant_hold_s is not None:
+                profile_description = f"holding {args.center_deg:+.1f} deg"
+            elif args.profile == "hysteresis":
+                profile_description = "running the bidirectional hysteresis profile"
+            else:
+                profile_description = "running the dynamic position profile"
             print(
                 f"TEST START: {profile_description} for {profile_duration_s:.1f} s; "
                 f"shutdown temperature is {args.max_temperature_c:.1f} C. "
@@ -991,6 +1020,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arrays["command_rad"].size
         else {}
     )
+    hysteresis_summary = None
+    if args.profile == "hysteresis" and arrays["command_rad"].size:
+        try:
+            hysteresis_summary = summarize_hysteresis(
+                arrays, center_deg=args.center_deg
+            )
+        except Exception as exc:
+            # Analysis must never discard an otherwise valid hardware trace.
+            hysteresis_summary = {
+                "schema_version": 1,
+                "status": "analysis_failed",
+                "failures": [f"{type(exc).__name__}: {exc}"],
+            }
     metadata: dict[str, object] = {
         "schema_version": 1,
         "condition_id": args.condition_id,
@@ -1013,11 +1055,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         "tested_static_torque_nm": tested_static,
         "predicted_envelope": envelope,
         "sample_hz": args.sample_hz,
+        "profile": args.profile,
+        "profile_amplitudes_deg": list(args.amplitudes_deg),
+        "profile_settle_s": args.settle_s,
+        "move_time_ms": args.move_time_ms,
+        "sweep_rate_deg_s": args.sweep_rate_deg_s,
+        "sweep_cycles": args.sweep_cycles,
         "write_deadband_units": args.write_deadband_units,
         "constant_hold_s": args.constant_hold_s,
         "cooldown": cooldown,
         "preparation": preparation,
         "trace_summary": trace_summary,
+        "hysteresis_summary": hysteresis_summary,
         "health_summary": _health_summary(arrays),
         "limits": {
             "min_voltage_v": args.min_voltage_v,

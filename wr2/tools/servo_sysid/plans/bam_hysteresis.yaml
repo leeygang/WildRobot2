@@ -1,0 +1,39 @@
+schema_version: 1
+name: bam_hysteresis
+description: Bounded signed loaded BAM hysteresis sweeps
+setup: wr2-htd45h-2650g
+required_instruments: [servo_bus]
+data_goals:
+  - coarse direction-dependent loaded output-position loop width
+  - cycle repeatability at positive and negative low load
+  - servo-reported voltage and temperature
+limitations:
+  - output loop width includes servo control, fixture compliance, friction, and gravity effects
+  - this plan does not isolate mechanical backlash
+  - the servo telemetry resolution is 0.24 degree; use an external encoder below that scale
+  - fixture torque is inferred from geometry, not measured shaft torque
+conditions:
+  - condition_id: H1_loaded_hysteresis_plus10
+    description: three slow forward/reverse 8-to-12-degree sweeps
+    center_deg: 10.0
+    amplitudes_deg: "2"
+    profile: hysteresis
+    sweep_rate_deg_s: 1.0
+    sweep_cycles: 3
+    move_time_ms: 250
+    settle_s: 1.0
+    max_static_torque_nm: 0.75
+    max_predicted_torque_nm: 0.75
+    max_temperature_c: 55.0
+  - condition_id: H2_loaded_hysteresis_minus10
+    description: three slow forward/reverse -12-to--8-degree sweeps
+    center_deg: -10.0
+    amplitudes_deg: "2"
+    profile: hysteresis
+    sweep_rate_deg_s: 1.0
+    sweep_cycles: 3
+    move_time_ms: 250
+    settle_s: 1.0
+    max_static_torque_nm: 0.75
+    max_predicted_torque_nm: 0.75
+    max_temperature_c: 55.0

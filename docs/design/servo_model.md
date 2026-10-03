@@ -61,7 +61,7 @@ and EEPROM limits. It does **not** expose motor current or shaft torque.
 | Zero offset and target bias | Training target-bias randomization; deployment calibration | `target_bias_rad` in `ppo_walking.yaml`; per-servo deployment calibration is not implemented | Training: +/-2 degrees; +10 and -10 repeat zero means were -0.1680 and -1.3248 degrees | Repeated bidirectional approaches with the `bam_position` or `bam_repeatability` plan | BAM; external encoder for absolute output zero | Unit-A direction/session-dependent observation; training range provisional |
 | Position repeatability | Deployment command confidence; training uncertainty selection | Capture result only; not a nominal model field | +10 accepted subset (`n=4`): loaded std 0.0327 degree, range 0.0800 degree; -10 (`n=5`): std 0.0850 degree, range 0.2133 degree | Five or more independent cooldown/approach repeats with the `bam_position` or `bam_repeatability` plan | Current BAM | Preliminary unit-A signed observations; +10 has only four accepted repeats and results are near telemetry resolution |
 | Loaded position error/compliance | Training gain/bias envelope; deployment tracking gates | Capture results; provisional `kp_sim` range | +10.08-degree command settled at 7.8667 degrees (mean error +2.2133); -10.08-degree command settled at -9.2853 degrees (mean error -0.7947). Requested incremental-travel errors were approximately +2.045 and -2.039 degrees | Repeat at signed angles and loads; retain full trajectories | Current BAM for preliminary evidence; torque sensor for separation | Observed on unit A; contains zero bias, friction, compliance, and fixture effects, not pure gain |
-| Backlash and hysteresis | Training `backlash_rad`; deployment positioning | `backlash_rad` in `ppo_walking.yaml` | 0--2 degrees training range; loaded center-tail differences were 0.704/0.720 degrees at +10 and 1.104/1.072 degrees at -10 across fit/validation repeats | Add dedicated slow unloaded and loaded forward/reverse approaches, fit direction-dependent lost motion, and validate on held-out sweeps | Instrumented BAM; external encoder required below the servo's 0.24-degree telemetry step | Repeatable coarse loaded hysteresis evidence; not a qualified mechanical backlash value |
+| Backlash and hysteresis | Training `backlash_rad`; deployment positioning | `backlash_rad` in `ppo_walking.yaml` | 0--2 degrees training range; loaded center-tail differences were 0.704/0.720 degrees at +10 and 1.104/1.072 degrees at -10 across fit/validation repeats | Run `campaign.py --plan bam_hysteresis`; `analysis/hysteresis.py` matches forward/reverse output at identical command units and reports cycle repeatability | Current BAM for coarse loaded hysteresis; external encoder required below the servo's 0.24-degree telemetry step | Automated collector/analyzer ready; dedicated unit-A sweeps not yet collected and mechanical backlash remains unqualified |
 | Peak/stall torque | Training force-cap envelope; deployment transient limit | `vendor_stall_torque_nm`, `torque_limit_nm` | Vendor stall 4.413 N m; training cap 4.0 N m randomized 1--4 N m | Sweep guarded steady/short-duration points with measured shaft torque and current | Guarded dynamometer with inline torque sensor and encoder | Vendor upper bound; not WR2-qualified |
 | Maximum validated fixture load | Training torque-exposure normalization; test planning | `maximum_validated_load_nm` and duration in `robot.yml` | 1.0157 N m for 3 s | Existing signed BAM commissioning captures; repeat across units before adoption as a population limit | Current BAM | Observed short-duration unit-A value |
 | Continuous torque | Deployment duty limit; training thermal/exposure constraints | `continuous_actual_load_*` evidence fields; no accepted continuous rating | 0.0833 N m observation did not reach cutoff; 0.317 N m reached 80 C after about 402 s; no continuous rating | Stage increasing static loads, log current/voltage/temperature, and hold until thermal equilibrium or abort. Existing E7 at 2.76 N m must not be used on unit A | Adjustable/instrumented BAM, synchronized current logger, controlled ambient/cooling | Bracket incomplete; unqualified |
@@ -144,7 +144,7 @@ torque.
 | Repeated zero/loaded position | `capture.py --prepare-only` | `campaign.py --plan bam_position` or `bam_repeatability` | `analysis/position.py` | Per-repeat NPZ/JSON plus summary and campaign manifest | Available in the current implementation; captures from older revisions may have empty NPZ traces and JSON-only preparation telemetry |
 | Gravity-neutral position dynamics | `capture.py` | E3 in the `bam_position` plan | `fit.py` | NPZ/JSON, fit JSON | Unit-A run07 fit capture and independent run08 validation capture accepted for the provisional training nominal |
 | Loaded dynamics | `capture.py` | Direct bounded captures near +/-10 degrees; legacy E4/E5 remain unsafe | `fit.py` | NPZ/JSON, fit JSON | Runs10/11 fit and runs12/13 held-out validation complete at 0.647/0.681 N m predicted peaks |
-| Backlash/hysteresis | None dedicated | None | None | Required: signed sweep NPZ/JSON and fit report | Missing |
+| Backlash/hysteresis | `capture.py --profile hysteresis` | `campaign.py --plan bam_hysteresis` | `analysis/hysteresis.py`; top-level `hysteresis` command | Signed sweep NPZ/JSON with per-cycle summary; optional multi-capture report | Ready for coarse loaded unit-A capture; external encoder still required for precise mechanical backlash |
 | Low-load continuous torque | `capture.py --constant-hold-s` | E7 in the `legacy_deployment` plan | Thermal gate in `analyze.py` | NPZ/JSON plus external current log | Partly implemented; E7 load is unsafe and instrument control is missing |
 | Supply voltage/current | None | Label only | Aggregate JSON ingestion through the `report` command | Required: raw timestamped log plus derived summary | Missing collector |
 | Measured shaft torque | None | None | Optional aggregate fields only | Required: raw calibrated torque trace | Missing collector and sensor |
@@ -167,15 +167,18 @@ servo_sysid/campaign.py       one preflight/run/resume orchestrator
           |               v
 plan.py + plans/*.yaml     one campaign manifest and raw artifacts
           |
+          +-- bam_hysteresis
           +-- bam_position
           +-- bam_repeatability
           +-- legacy_deployment
 
 analysis/position.py          repeatability and loaded-position summaries
+analysis/hysteresis.py        matched-direction loaded loop-width summaries
 fit.py                        effective position-loop dynamics and explicit
                               total-damping-to-training mapping
 analyze.py                    legacy deployment gates/specification report
-__main__.py                   run, capture, fit, report, and list-plans commands
+__main__.py                   run, capture, fit, hysteresis, report, and
+                              list-plans commands
 ```
 
 `wr2/actuation/htd45h.py` owns the serial protocol and is not duplicated under
@@ -217,10 +220,12 @@ uv run python -m wr2.tools.servo_sysid run \
 
 Do not add another servo driver. External supply, torque sensor, encoder, and
 load-motor adapters will belong under `servo_sysid/instruments/` because they
-are test equipment, not robot actuators. Backlash, thermal, torque-speed, and
-braking plan files must not be added until their required profiles,
+are test equipment, not robot actuators. Precise backlash, thermal,
+torque-speed, and braking plan files must not be added until their required
 instruments, synchronization, and offline analyzers exist. The campaign runner
-must refuse a plan when any declared instrument is unavailable.
+must refuse a plan when any declared instrument is unavailable. The existing
+`bam_hysteresis` plan is explicitly limited to coarse loaded loop width from
+the quantized internal encoder.
 
 An analyzer must never automatically edit `robot.yml` or PPO ranges. It should
 emit a proposed specification with raw evidence references, calibration

@@ -25,6 +25,10 @@ class CampaignCondition:
     prepare_speed_deg_s: float = 20.0
     settle_s: float = 1.0
     write_deadband_units: int = 0
+    move_time_ms: int = 20
+    profile: str = "standard"
+    sweep_rate_deg_s: float = 1.0
+    sweep_cycles: int = 3
     constant_hold_s: float | None = None
     required_static_torque_nm: float | None = None
     max_static_torque_nm: float | None = None
@@ -97,6 +101,11 @@ def load_plan(name: str) -> CampaignPlan:
             raise ValueError(
                 f"plan {name} condition {parsed.condition_id} has unknown kind "
                 f"{parsed.kind!r}"
+            )
+        if parsed.profile not in {"standard", "hysteresis"}:
+            raise ValueError(
+                f"plan {name} condition {parsed.condition_id} has unknown profile "
+                f"{parsed.profile!r}"
             )
         if parsed.repeats < 1:
             raise ValueError(

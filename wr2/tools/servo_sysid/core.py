@@ -100,6 +100,60 @@ def build_profile(
     return tuple(segments)
 
 
+def build_hysteresis_profile(
+    *,
+    center_deg: float,
+    amplitude_deg: float,
+    sample_hz: float = 50.0,
+    settle_s: float = 1.0,
+    sweep_rate_deg_s: float = 1.0,
+    sweep_cycles: int = 3,
+) -> tuple[ProfileSegment, ...]:
+    """Build a continuous triangular sweep for coarse loaded hysteresis.
+
+    The first center-to-low motion preconditions the approach direction. Each
+    retained cycle then visits the same command positions in both directions.
+    Segment boundaries are position-continuous so fixture acceleration remains
+    bounded by the servo controller rather than an artificial command jump.
+    """
+    if not math.isfinite(amplitude_deg) or amplitude_deg <= 0.0:
+        raise ValueError("hysteresis amplitude must be finite and positive")
+    if not math.isfinite(sweep_rate_deg_s) or sweep_rate_deg_s <= 0.0:
+        raise ValueError("hysteresis sweep rate must be finite and positive")
+    if sweep_cycles < 1:
+        raise ValueError("hysteresis sweep cycles must be positive")
+    center = math.radians(center_deg)
+    amplitude = math.radians(amplitude_deg)
+    low = center - amplitude
+    high = center + amplitude
+
+    def sweep(name: str, start: float, stop: float) -> ProfileSegment:
+        duration_s = abs(math.degrees(stop - start)) / sweep_rate_deg_s
+        count = max(2, math.ceil(duration_s * sample_hz) + 1)
+        return ProfileSegment(
+            name,
+            "sweep",
+            np.linspace(start, stop, count, dtype=np.float64),
+        )
+
+    segments = [
+        _hold("initial_center", center, settle_s, sample_hz),
+        sweep("precondition_negative", center, low),
+        _hold("precondition_low_hold", low, settle_s, sample_hz),
+    ]
+    for cycle in range(1, sweep_cycles + 1):
+        segments.extend(
+            (
+                sweep(f"sweep_positive_cycle{cycle:02d}", low, high),
+                _hold(f"turnaround_high_cycle{cycle:02d}", high, settle_s, sample_hz),
+                sweep(f"sweep_negative_cycle{cycle:02d}", high, low),
+                _hold(f"turnaround_low_cycle{cycle:02d}", low, settle_s, sample_hz),
+            )
+        )
+    segments.append(sweep("final_center", low, center))
+    return tuple(segments)
+
+
 @dataclass
 class FixtureModel:
     path: Path
@@ -183,7 +237,7 @@ class FixtureModel:
             static, inertia = self.evaluate_static(positions)
             velocity = np.zeros_like(positions)
             acceleration = np.zeros_like(positions)
-            if segment.kind == "chirp" and positions.size >= 3:
+            if segment.kind in {"chirp", "sweep"} and positions.size >= 3:
                 velocity = np.gradient(positions, dt)
                 acceleration = np.gradient(velocity, dt)
             dynamic = inertia * acceleration

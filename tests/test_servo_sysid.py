@@ -20,6 +20,9 @@ from wr2.actuation.htd45h import (
     parse_packets,
 )
 from wr2.tools.servo_sysid.analysis.position import summarize_series
+from wr2.tools.servo_sysid.analysis.hysteresis import (
+    summarize_arrays as summarize_hysteresis,
+)
 from wr2.tools.servo_sysid.analyze import analyze_campaigns
 from wr2.tools.servo_sysid.campaign import (
     CONDITIONS,
@@ -37,6 +40,7 @@ from wr2.tools.servo_sysid.capture import (
 )
 from wr2.tools.servo_sysid.core import (
     ProfileSegment,
+    build_hysteresis_profile,
     build_profile,
     radians_to_units,
     units_to_radians,
@@ -185,6 +189,48 @@ class Htd45hProtocolTest(unittest.TestCase):
         self.assertEqual(result["command_rad"].shape, (5,))
         self.assertTrue(np.all(result["loaded"] == 1.0))
         self.assertTrue(np.all(result["voltage_v"] == 11.8))
+
+    def test_hysteresis_profile_has_matched_continuous_sweeps(self):
+        profile = build_hysteresis_profile(
+            center_deg=10.0,
+            amplitude_deg=2.0,
+            sample_hz=10.0,
+            settle_s=0.2,
+            sweep_rate_deg_s=1.0,
+            sweep_cycles=2,
+        )
+        segments = {item.name: item for item in profile}
+        self.assertIn("sweep_positive_cycle01", segments)
+        self.assertIn("sweep_negative_cycle02", segments)
+        positive = segments["sweep_positive_cycle01"].targets_rad
+        negative = segments["sweep_negative_cycle01"].targets_rad
+        self.assertAlmostEqual(math.degrees(positive[0]), 8.0)
+        self.assertAlmostEqual(math.degrees(positive[-1]), 12.0)
+        np.testing.assert_allclose(positive, negative[::-1])
+
+    def test_hysteresis_summary_matches_command_units(self):
+        command_deg = np.arange(8.0, 12.01, 0.24)
+        command = np.radians(np.concatenate((command_deg, command_deg[::-1])))
+        measured = np.radians(
+            np.concatenate((command_deg - 0.24, command_deg[::-1] + 0.24))
+        )
+        segment = np.asarray(
+            ["sweep_positive_cycle01"] * command_deg.size
+            + ["sweep_negative_cycle01"] * command_deg.size
+        )
+        summary = summarize_hysteresis(
+            {
+                "segment_name": segment,
+                "command_rad": command,
+                "measured_position_rad": measured,
+            },
+            center_deg=10.0,
+        )
+        self.assertEqual(summary["status"], "measured")
+        self.assertEqual(summary["aggregate"]["completed_cycles"], 1)
+        self.assertAlmostEqual(
+            summary["cycles"][0]["center_absolute_output_loop_deg"], 0.48
+        )
 
     def test_preparation_samples_populate_canonical_trace(self):
         samples = [
@@ -371,6 +417,38 @@ class CampaignAnalysisTest(unittest.TestCase):
         self.assertEqual(plus[plus.index("--hard-min-voltage-v") + 1], "5.0")
         self.assertIn("--execute", plus)
         self.assertIn("--confirm-fixture-safe", e3)
+
+    def test_hysteresis_plan_uses_bounded_bidirectional_profile(self):
+        args = SimpleNamespace(
+            servo_id=100,
+            servo_label="unit-a",
+            board_port="unused",
+            baudrate=115200,
+            fixture_mjcf=Path("fixture.xml"),
+            fixture_direction=1,
+            fixture_qpos_offset_deg=0.0,
+            fixture_label="bam",
+            measured_weight_kg=2.650,
+            measured_com_radius_m=0.1204,
+            external_log_label=None,
+            external_log_label_prefix=None,
+            cooldown_target_c=35.0,
+            min_voltage_v=9.6,
+            hard_min_voltage_v=5.0,
+            max_temperature_c=80.0,
+            max_position_error_deg=5.0,
+            max_position_error_duration_s=0.15,
+            max_static_torque_nm=3.2,
+            max_predicted_torque_nm=3.2,
+        )
+        condition = load_plan("bam_hysteresis").conditions[0]
+        command = capture_command(
+            args, condition, Path("hysteresis.npz"), execute=True
+        )
+        self.assertEqual(command[command.index("--profile") + 1], "hysteresis")
+        self.assertEqual(command[command.index("--sweep-cycles") + 1], "3")
+        self.assertEqual(command[command.index("--move-time-ms") + 1], "250")
+        self.assertEqual(command[command.index("--max-static-torque-nm") + 1], "0.75")
 
     def test_bam_hardware_mode_requires_bounded_selection(self):
         with self.assertRaisesRegex(SystemExit, "requires --stop-after"):
@@ -600,7 +678,12 @@ class CampaignAnalysisTest(unittest.TestCase):
     def test_campaign_plans_are_versioned_and_loadable(self):
         self.assertEqual(
             available_plans(),
-            ("bam_position", "bam_repeatability", "legacy_deployment"),
+            (
+                "bam_hysteresis",
+                "bam_position",
+                "bam_repeatability",
+                "legacy_deployment",
+            ),
         )
         args = SimpleNamespace(
             plan="bam_repeatability",

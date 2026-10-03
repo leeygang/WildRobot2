@@ -6,6 +6,7 @@ import sys
 from typing import Callable, Sequence
 
 from wr2.tools.servo_sysid import analyze, campaign, capture, fit
+from wr2.tools.servo_sysid.analysis import hysteresis
 from wr2.tools.servo_sysid.plan import available_plans, load_plan
 
 
@@ -16,6 +17,7 @@ commands:
   run          preflight or execute one versioned campaign plan
   capture      expert interface for one hardware condition
   fit          fit effective position-loop dynamics from captures
+  hysteresis   summarize bidirectional BAM hysteresis captures
   report       gate legacy deployment campaigns and emit a specification
   list-plans   show installed campaign plans
 """
@@ -40,6 +42,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "run": campaign.main,
         "capture": capture.main,
         "fit": fit.main,
+        "hysteresis": hysteresis.main,
         "report": analyze.main,
     }
     if command == "list-plans":
