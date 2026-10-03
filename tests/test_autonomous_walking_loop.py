@@ -116,7 +116,16 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
         self.assertEqual(contract["active_groups"], ["leg"])
         self.assertEqual(
             contract["action_rate_semantics"],
-            "sum_squared_consecutive_normalized_policy_actions",
+            "sum_squared_consecutive_policy_residuals",
+        )
+        self.assertEqual(
+            contract["policy_action"],
+            {
+                "representation": "walk_home_centered_position_residual",
+                "scale_rad": 0.25,
+                "policy_bounds": None,
+                "physical_target_clipping": True,
+            },
         )
         self.assertEqual(contract["privileged_linear_velocity_scale"], 2.0)
         self.assertEqual(contract["privileged_actuator_force_scale"], 0.1)
@@ -159,7 +168,7 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
                 "action_saturation",
             ],
         )
-        self.assertEqual(compatibility["network"]["distribution_type"], "tanh_normal")
+        self.assertEqual(compatibility["network"]["distribution_type"], "normal")
 
     def test_codex_change_allowlist_requires_training_change(self):
         _validate_changed_files(

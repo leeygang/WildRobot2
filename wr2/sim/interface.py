@@ -163,6 +163,46 @@ class PositionActionContract:
         )
         return target.astype(np.float32)
 
+    def active_residual_targets(
+        self,
+        policy_action: npt.ArrayLike,
+        *,
+        action_scale_rad: float,
+        active_indices: npt.ArrayLike,
+        home_position_rad: npt.ArrayLike,
+        lower_limit_rad: npt.ArrayLike,
+        upper_limit_rad: npt.ArrayLike,
+    ) -> FloatArray:
+        """Map an unbounded walking-policy residual to safe joint targets.
+
+        This mirrors ToddlerBot's locomotion action path. The policy action is
+        not clipped; only the resulting physical target is clipped to the safe
+        joint limits. Inactive actuators remain at ``home_position_rad``.
+        """
+        if not np.isfinite(action_scale_rad) or action_scale_rad <= 0.0:
+            raise ValueError("action_scale_rad must be finite and positive")
+        home = np.asarray(home_position_rad, dtype=np.float32)
+        if home.ndim != 1:
+            raise ValueError("home_position_rad must be one-dimensional")
+        size = home.shape[0]
+        safe_lower, safe_upper = self._safe_limits(
+            lower_limit_rad, upper_limit_rad, size
+        )
+        indices = np.asarray(active_indices, dtype=np.int32)
+        if indices.ndim != 1 or len(np.unique(indices)) != indices.size:
+            raise ValueError("active_indices must be a unique one-dimensional array")
+        if np.any(indices < 0) or np.any(indices >= size):
+            raise ValueError("active_indices contains an out-of-range index")
+        action = _vector(policy_action, indices.size, "policy_action")
+
+        target = home.copy()
+        target[indices] = np.clip(
+            home[indices] + action_scale_rad * action,
+            safe_lower[indices],
+            safe_upper[indices],
+        )
+        return target.astype(np.float32)
+
 
 def build_wr2_proprio_v1(
     observation: RobotObservation,

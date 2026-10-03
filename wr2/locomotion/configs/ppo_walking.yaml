@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy while preserving WR2's measured actuator envelope.
-version: "0.10.3"
-version_name: "WR2 strict velocity gait acquisition with unit-A dynamics"
+version: "0.11.0"
+version_name: "WR2 ToddlerBot residual-action gait acquisition"
 seed: 0
 
 environment:
@@ -10,6 +10,9 @@ environment:
   # ToddlerBot's active pose regularizer, mapped into WR2's canonical 17-motor
   # order. Upper-body entries are zero because only legs are controlled.
   pose_weights: [0.0, 0.0, 0.0, 0.0, 0.01, 1.0, 0.01, 5.0, 5.0, 0.0, 0.0, 0.0, 0.01, 1.0, 0.01, 5.0, 5.0]
+  # ToddlerBot policy semantics: an unbounded action is a radian residual
+  # around walk_home. Physical targets, rather than policy samples, are clipped.
+  policy_action_scale_rad: 0.25
   action_delay_steps: 1
   # ToddlerBot asymmetric-critic scales. These do not affect deployment input.
   privileged_linear_velocity_scale: 2.0
@@ -150,11 +153,11 @@ network:
   policy_hidden_layer_sizes: [512, 256, 128]
   value_hidden_layer_sizes: [512, 256, 128]
   activation: elu
-  # WR2's hardware contract is bounded. The policy starts exactly at the
-  # normalized walk_home action and explores locally in pre-tanh space.
-  distribution_type: tanh_normal
+  # Match ToddlerBot's residual policy. The target path clips only after
+  # converting the unbounded sample to walk_home + 0.25 rad * action.
+  distribution_type: normal
   noise_std_type: log
-  init_noise_std: 0.13
+  init_noise_std: 0.5
 
 checkpoints:
   save_every_evaluation: true

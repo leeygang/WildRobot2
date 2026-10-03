@@ -1,6 +1,6 @@
 # ToddlerBot walking semantic parity audit
 
-Audit date: 2026-10-01
+Audit date: 2026-10-02
 
 Reference implementations:
 
@@ -37,6 +37,16 @@ autonomous loop fingerprints the action-rate, support-contact, foot-width,
 observation, and action-to-physics implementations so an experiment cannot
 silently redefine them.
 
+The follow-up v0.11.0 audit corrected the remaining policy-action mismatch.
+WR2 had used a bounded tanh-Normal absolute joint-range action while
+ToddlerBot uses an unbounded Normal residual around its default pose. That
+difference changed exploration by joint, weakened physical action-rate
+regularization by roughly 6--21x depending on the WR2 joint range, and placed
+several WR2 home coordinates near tanh's nonlinear region. WR2 now uses the
+same Normal residual distribution, 0.5 initial standard deviation, and
+`walk_home + 0.25 rad * action` mapping. WR2 clips only the resulting physical
+target to its robot-specific safe limits.
+
 ## Physics and control timing
 
 | Contract | ToddlerBot | WR2 | Classification |
@@ -60,19 +70,20 @@ the stated ToddlerBot reward intent without reproducing that bookkeeping lag.
 | Contract | ToddlerBot | WR2 | Classification |
 |---|---|---|---|
 | Controlled legs | 12, including hip yaw | 10; WR2 has no hip-yaw DOF | Morphology adaptation |
-| Policy action | unbounded Normal residual | bounded tanh-Normal absolute normalized position | WR2 hardware adaptation |
-| Position mapping | `default + 0.25 * action` | safe midpoint + safe half-range x action | Deliberate WR2 full-range contract |
-| Initial mean | residual zero/home | exact normalized `walk_home` | Equivalent physical initialization |
-| Initial standard deviation | 0.5 normalized residual | 0.13 bounded action | WR2 physical-exploration adaptation |
-| Joint-limit handling | clip motor target | distribution bound plus safe target range | WR2 avoids clipped-action aliasing |
+| Policy action | unbounded Normal residual | unbounded Normal residual | Aligned |
+| Position mapping | `default + 0.25 * action` | `walk_home + 0.25 * action` | Aligned |
+| Initial mean | residual zero/home | residual zero/home | Aligned |
+| Initial standard deviation | 0.5 residual | 0.5 residual | Aligned |
+| Joint-limit handling | clip motor target | clip safe physical target | Aligned strategy; WR2-specific limits |
 | Servo command | floating target | 0.24-degree quantization and measured slew cap | WR2 hardware requirement |
 | Controller | ToddlerBot motor envelope | WR2 fitted PD, torque-speed, and braking envelope | Robot-specific calibration |
-| Action-rate input | normalized policy commands | normalized policy commands | Corrected/aligned |
+| Action-rate input | policy residuals | policy residuals | Corrected/aligned |
 
-Absolute WR2 actions are not expected to numerically match ToddlerBot residual
-actions. Rate regularization is nevertheless applied in policy coordinates,
-where the PPO probability model operates. Quantization, slew, torque, and
-speed constraints remain in the action-to-physics path and in diagnostics.
+The policy action is not clipped at +/-1. A value beyond that range remains a
+distinct command until `walk_home + 0.25 * action` reaches a physical joint
+limit. This avoids clipped-action aliasing while retaining WR2's complete safe
+range. Quantization, slew, torque, and speed constraints remain intentional
+WR2 hardware adaptations after the aligned position mapping.
 
 ## Actor and asymmetric critic observations
 
@@ -204,8 +215,8 @@ normalization, and normalized advantages are aligned.
 WR2 uses 2,048 environments with batch 256 x 8 minibatches to fit its target
 GPU; ToddlerBot's checked-in defaults use a larger environment/batch layout.
 WR2 deterministic evaluations and checkpoint gates are operational additions.
-The tanh-Normal distribution and home-centered output head are intentional
-consequences of WR2's bounded absolute action contract.
+The Normal residual distribution, log standard deviation, and 0.5 initial
+noise now match ToddlerBot.
 
 ## Randomization and remaining measured gaps
 

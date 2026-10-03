@@ -318,12 +318,8 @@ class WR2WalkingEnv(PipelineEnv):
         active_upper = safe_upper[active_indices]
         self._active_target_midpoint = jp.asarray(0.5 * (active_lower + active_upper))
         self._active_target_half_range = jp.asarray(0.5 * (active_upper - active_lower))
-        full_home_action = self.robot.action.home_action(
-            self.robot.home_position_rad,
-            self.robot.lower_limit_rad,
-            self.robot.upper_limit_rad,
-        )
-        self._home_action = jp.asarray(full_home_action[active_indices])
+        self._policy_action_scale_rad = float(self.config.policy_action_scale_rad)
+        self._home_action = jp.zeros(self._action_size)
         pose_weights = np.asarray(self.config.pose_weights, dtype=np.float32)
         if pose_weights.shape != (self.robot.actuator_count,):
             raise ValueError(
@@ -372,8 +368,16 @@ class WR2WalkingEnv(PipelineEnv):
 
     @property
     def home_action(self) -> jax.Array:
-        """Normalized active-joint action that exactly reproduces walk_home."""
+        """Zero residual, which exactly reproduces ``walk_home``."""
         return self._home_action
+
+    def _policy_target(self, action: jax.Array) -> jax.Array:
+        """Expand an unbounded policy residual around ``walk_home``."""
+        active_target = (
+            self._home_ctrl[self._active_indices]
+            + self._policy_action_scale_rad * action
+        )
+        return self._home_ctrl.at[self._active_indices].set(active_target)
 
     @property
     def zmp_reference_diagnostics(self):
@@ -809,7 +813,6 @@ class WR2WalkingEnv(PipelineEnv):
             "torso_tilt_rad_per_step": zero,
             "action_abs_mean_per_step": zero,
             "action_max_abs_per_step": zero,
-            "action_deviation_from_home_abs_mean_per_step": zero,
             "action_saturation_fraction_per_step": zero,
             "action_near_boundary_fraction_per_step": zero,
             "target_excursion_from_home_rad_per_step": zero,
@@ -916,7 +919,6 @@ class WR2WalkingEnv(PipelineEnv):
 
     def step(self, state: State, action: jax.Array) -> State:
         rng, observation_rng, command_rng = jax.random.split(state.info["rng"], 3)
-        action = jp.clip(action, -1.0, 1.0)
         if self.config.action_delay_steps == 1:
             applied_action = state.info["previous_action"]
         elif self.config.action_delay_steps == 0:
@@ -924,13 +926,7 @@ class WR2WalkingEnv(PipelineEnv):
         else:
             raise ValueError("The initial environment supports only 0 or 1 delay steps")
 
-        applied_active_target = (
-            self._active_target_midpoint
-            + self._active_target_half_range * applied_action
-        )
-        policy_target = self._home_ctrl.at[self._active_indices].set(
-            applied_active_target
-        )
+        policy_target = self._policy_target(applied_action)
         unconstrained_target = policy_target + state.info["actuator_target_bias"]
         desired_target = jp.clip(
             unconstrained_target, self._ctrl_lower, self._ctrl_upper
@@ -983,9 +979,7 @@ class WR2WalkingEnv(PipelineEnv):
             / self.config.height_tracking_sigma**2
         )
         pose = jp.sum(jp.square(joint_position - self._home_ctrl) * self._pose_weights)
-        requested_active_target = (
-            self._active_target_midpoint + self._active_target_half_range * action
-        )
+        requested_active_target = self._policy_target(action)[self._active_indices]
         action_rate = normalized_action_rate_cost(
             action,
             state.info["previous_action"],
@@ -1087,11 +1081,11 @@ class WR2WalkingEnv(PipelineEnv):
         active_count = float(self.action_size)
         action_abs_mean = jp.mean(jp.abs(action))
         action_max_abs = jp.max(jp.abs(action))
-        action_deviation_from_home_abs_mean = jp.mean(
-            jp.abs(action - self._home_action)
+        normalized_requested_target = (
+            (requested_active_target - self._active_target_midpoint)
+            / self._active_target_half_range
         )
-        policy_saturation = jp.abs(action) >= 0.99
-        policy_near_boundary = jp.abs(action) >= 0.90
+        target_near_boundary = jp.abs(normalized_requested_target) >= 0.90
         target_excursion = jp.abs(
             requested_active_target - self._home_ctrl[self._active_indices]
         )
@@ -1118,11 +1112,11 @@ class WR2WalkingEnv(PipelineEnv):
         )
         target_clipping_fraction = jp.sum(target_clipping) / active_count
         target_slew_limiting_fraction = jp.sum(target_slew_limiting) / active_count
-        action_saturation_fraction = (
-            jp.sum(policy_saturation | target_clipping) / active_count
-        )
+        # An unbounded residual has no artificial +/-1 policy boundary.
+        # Saturation means that a physical target reached a safe joint limit.
+        action_saturation_fraction = jp.sum(target_clipping) / active_count
         action_near_boundary_fraction = (
-            jp.sum(policy_near_boundary | target_clipping) / active_count
+            jp.sum(target_near_boundary | target_clipping) / active_count
         )
         target_excursion_over_tb_range_fraction = (
             jp.sum(target_excursion_over_tb_range) / active_count
@@ -1232,9 +1226,6 @@ class WR2WalkingEnv(PipelineEnv):
             "torso_tilt_rad_per_step": torso_tilt_rad,
             "action_abs_mean_per_step": action_abs_mean,
             "action_max_abs_per_step": action_max_abs,
-            "action_deviation_from_home_abs_mean_per_step": (
-                action_deviation_from_home_abs_mean
-            ),
             "action_saturation_fraction_per_step": action_saturation_fraction,
             "action_near_boundary_fraction_per_step": (action_near_boundary_fraction),
             "target_excursion_from_home_rad_per_step": target_excursion_mean,

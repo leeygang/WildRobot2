@@ -85,6 +85,7 @@ class WalkingEnvConfig:
     episode_length: int
     active_groups: tuple[str, ...]
     pose_weights: tuple[float, ...]
+    policy_action_scale_rad: float
     action_delay_steps: int
     privileged_linear_velocity_scale: float
     privileged_actuator_force_scale: float
@@ -359,6 +360,8 @@ def load_training_config(
     )
     if environment.action_delay_steps not in (0, 1):
         raise ValueError("environment.action_delay_steps must be 0 or 1")
+    if environment.policy_action_scale_rad <= 0.0:
+        raise ValueError("environment.policy_action_scale_rad must be positive")
     noise = environment.observation_noise
     for name in ("gyro_colored_alpha", "projected_gravity_colored_alpha"):
         if not 0.0 <= getattr(noise, name) < 1.0:

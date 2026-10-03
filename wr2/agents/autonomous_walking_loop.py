@@ -468,7 +468,13 @@ def _contract_snapshot(training_config: Path) -> dict[str, Any]:
         "actuator_order": list(robot.actuator_names),
         "servo_model": robot.config["actuators"]["htd45hServo"],
         "active_groups": list(training.environment.active_groups),
-        "action_rate_semantics": "sum_squared_consecutive_normalized_policy_actions",
+        "policy_action": {
+            "representation": "walk_home_centered_position_residual",
+            "scale_rad": training.environment.policy_action_scale_rad,
+            "policy_bounds": None,
+            "physical_target_clipping": True,
+        },
+        "action_rate_semantics": "sum_squared_consecutive_policy_residuals",
         "privileged_linear_velocity_scale": (
             training.environment.privileged_linear_velocity_scale
         ),

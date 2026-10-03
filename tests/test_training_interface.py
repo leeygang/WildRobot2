@@ -251,6 +251,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(environment.rewards.angular_velocity_xy, -1.0)
         self.assertEqual(environment.rewards.close_feet, -10.0)
         self.assertEqual(environment.rewards.feet_orientation, -5.0)
+        self.assertEqual(environment.policy_action_scale_rad, 0.25)
         self.assertEqual(self.training_config.ppo.num_timesteps, 1_000_000_000)
         self.assertEqual(self.training_config.ppo.evaluation_forward_command_m_s, 0.10)
         self.assertEqual(self.training_config.ppo.learning_rate, 3e-5)
@@ -259,8 +260,8 @@ class TrainingInterfaceTest(unittest.TestCase):
             self.training_config.network.policy_hidden_layer_sizes,
             (512, 256, 128),
         )
-        self.assertEqual(self.training_config.network.distribution_type, "tanh_normal")
-        self.assertEqual(self.training_config.network.init_noise_std, 0.13)
+        self.assertEqual(self.training_config.network.distribution_type, "normal")
+        self.assertEqual(self.training_config.network.init_noise_std, 0.5)
         self.assertFalse(self.training_config.ppo.normalize_observations)
         self.assertEqual(self.training_config.ppo.training_metrics_steps, 2_000_000)
         self.assertTrue(self.training_config.checkpoints.save_every_evaluation)
@@ -270,7 +271,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
         self.assertEqual(self.training_config.output.root, "results/wr2_walking")
 
-    def test_action_rate_matches_tb_normalized_policy_action_semantics(self):
+    def test_action_rate_matches_tb_policy_residual_semantics(self):
         environment = WR2WalkingEnv(
             replace(
                 self.training_config.environment,
@@ -300,12 +301,15 @@ class TrainingInterfaceTest(unittest.TestCase):
             places=6,
         )
 
-        legacy_radian_cost = float(
-            jp.sum(
-                jp.square(environment._active_target_half_range * action_delta / 0.25)
-            )
+        np.testing.assert_allclose(
+            np.asarray(environment._policy_target(action))[environment._active_indices]
+            - np.asarray(environment._policy_target(previous_action))[
+                environment._active_indices
+            ],
+            self.training_config.environment.policy_action_scale_rad
+            * np.asarray(action_delta),
+            atol=1e-7,
         )
-        self.assertGreater(legacy_radian_cost, 5.0 * expected)
 
     def test_privileged_critic_uses_tb_feature_scales(self):
         environment = WR2WalkingEnv(
@@ -525,46 +529,31 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertAlmostEqual(reward_at_rest, strict_score_at_rest)
         self.assertLess(reward_at_rest, 5e-5)
 
-    def test_policy_distribution_enforces_normalized_action_bounds(self):
-        active = self.robot.active_actuator_indices(("leg",))
-        full_home_action = self.robot.action.home_action(
-            self.robot.home_position_rad,
-            self.robot.lower_limit_rad,
-            self.robot.upper_limit_rad,
-        )
-        home_action = full_home_action[active]
-        networks = make_network_factory(
-            self.training_config.network,
-            home_action=home_action,
-        )(
+    def test_policy_distribution_matches_tb_unbounded_residual(self):
+        networks = make_network_factory(self.training_config.network)(
             {"state": self.robot.observation_size, "privileged_state": 1440},
             10,
         )
         distribution = networks.parametric_action_distribution
-        self.assertEqual(distribution.param_size, 20)
+        self.assertEqual(distribution.param_size, 10)
 
-        logits = jp.concatenate(
-            [
-                jp.linspace(-20.0, 20.0, 10),
-                jp.zeros(10),
-            ]
-        )
+        logits = (jp.linspace(-20.0, 20.0, 10), jp.ones(10))
         action = np.asarray(distribution.mode(logits))
-        self.assertTrue(np.all(action >= -1.0))
-        self.assertTrue(np.all(action <= 1.0))
+        np.testing.assert_allclose(
+            action,
+            np.linspace(-20.0, 20.0, 10, dtype=np.float32),
+            atol=2e-6,
+        )
 
         parameters = networks.policy_network.init(jax.random.PRNGKey(0))
         initial_logits = networks.policy_network.apply(
             None,
             parameters,
-            {
-                "state": jp.zeros((1, self.robot.observation_size)),
-                "privileged_state": jp.zeros((1, 1440)),
-            },
+            jp.zeros((1, self.robot.observation_size)),
         )
         np.testing.assert_allclose(
             np.asarray(distribution.mode(initial_logits))[0],
-            home_action,
+            np.zeros(10),
             atol=1e-6,
         )
         initial_distribution = distribution.create_dist(initial_logits)
@@ -577,16 +566,7 @@ class TrainingInterfaceTest(unittest.TestCase):
     def test_ppo_actor_is_deployable_and_critic_consumes_zmp_privileged_state(self):
         from brax.training.acme import running_statistics, specs
 
-        active = self.robot.active_actuator_indices(("leg",))
-        full_home_action = self.robot.action.home_action(
-            self.robot.home_position_rad,
-            self.robot.lower_limit_rad,
-            self.robot.upper_limit_rad,
-        )
-        networks = make_network_factory(
-            self.training_config.network,
-            home_action=full_home_action[active],
-        )(
+        networks = make_network_factory(self.training_config.network)(
             {"state": self.robot.observation_size, "privileged_state": 1440},
             10,
         )
@@ -686,6 +666,67 @@ class TrainingInterfaceTest(unittest.TestCase):
                 else self.robot.upper_limit_rad[active]
             )
             np.testing.assert_allclose(targets[active], expected, atol=1e-7)
+
+    def test_walking_policy_uses_unbounded_home_centered_residuals(self):
+        environment = WR2WalkingEnv(
+            self.training_config.environment,
+            add_observation_noise=False,
+        )
+        self.assertEqual(environment.config.policy_action_scale_rad, 0.25)
+        np.testing.assert_array_equal(environment.home_action, np.zeros(10))
+
+        action = jp.linspace(-2.0, 2.0, environment.action_size)
+        target = np.asarray(environment._policy_target(action))
+        expected = self.robot.home_position_rad.copy()
+        active = self.robot.active_actuator_indices(("leg",))
+        expected[active] += 0.25 * np.asarray(action)
+        np.testing.assert_allclose(target, expected, atol=1e-7)
+
+    def test_deployment_residual_mapping_clips_only_physical_target(self):
+        active = self.robot.active_actuator_indices(("leg",))
+        left_hip_pitch = np.flatnonzero(
+            active == self.robot.actuator_names.index("left_hip_pitch")
+        ).item()
+        action_one = np.zeros(active.size)
+        action_two = np.zeros(active.size)
+        action_one[left_hip_pitch] = 1.0
+        action_two[left_hip_pitch] = 2.0
+
+        target_one = self.robot.action.active_residual_targets(
+            action_one,
+            action_scale_rad=0.25,
+            active_indices=active,
+            home_position_rad=self.robot.home_position_rad,
+            lower_limit_rad=self.robot.lower_limit_rad,
+            upper_limit_rad=self.robot.upper_limit_rad,
+        )
+        target_two = self.robot.action.active_residual_targets(
+            action_two,
+            action_scale_rad=0.25,
+            active_indices=active,
+            home_position_rad=self.robot.home_position_rad,
+            lower_limit_rad=self.robot.lower_limit_rad,
+            upper_limit_rad=self.robot.upper_limit_rad,
+        )
+        joint = active[left_hip_pitch]
+        self.assertAlmostEqual(target_one[joint], self.robot.home_position_rad[joint] + 0.25)
+        self.assertAlmostEqual(target_two[joint], self.robot.home_position_rad[joint] + 0.50)
+
+        for limit in (self.robot.lower_limit_rad, self.robot.upper_limit_rad):
+            residual = (limit[active] - self.robot.home_position_rad[active]) / 0.25
+            mapped = self.robot.action.active_residual_targets(
+                residual,
+                action_scale_rad=0.25,
+                active_indices=active,
+                home_position_rad=self.robot.home_position_rad,
+                lower_limit_rad=self.robot.lower_limit_rad,
+                upper_limit_rad=self.robot.upper_limit_rad,
+            )
+            np.testing.assert_allclose(mapped[active], limit[active], atol=1e-7)
+            inactive = np.setdiff1d(np.arange(self.robot.actuator_count), active)
+            np.testing.assert_array_equal(
+                mapped[inactive], self.robot.home_position_rad[inactive]
+            )
 
     def test_action_contract_can_reach_a_four_centimeter_swing_pose(self):
         active = self.robot.active_actuator_indices(("leg",))

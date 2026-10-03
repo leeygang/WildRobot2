@@ -6,36 +6,30 @@ preprocessing.
 
 ## Action contract
 
-The policy action vector has ten values: only the leg entries selected from
-`actuator_order.txt`. The runtime expands these into the canonical 17-actuator
-order and holds the waist and arms at their reference targets. Each policy
-value is bounded to `[-1, 1]`. Each endpoint maps to that joint's configured
-lower or upper safe command limit, while zero maps to the range midpoint.
-This avoids hidden target clipping and gives asymmetric joints their complete
-usable range.
-
-This is an absolute normalized-position interface:
+The walking-policy action vector has ten values: only the leg entries selected
+from `actuator_order.txt`. The runtime expands these into the canonical
+17-actuator order and holds the waist and arms at `walk_home`. Matching
+ToddlerBot, each policy value is an unbounded, dimensionless position residual:
 
 ```text
-midpoint = (safe_lower + safe_upper) / 2
-half_range = (safe_upper - safe_lower) / 2
-joint_target[active_leg] = midpoint + half_range * policy_action
+unconstrained_target[active_leg] = walk_home + 0.25 rad * policy_action
+joint_target = clip(unconstrained_target, safe_lower, safe_upper)
 ```
 
-`walk_home` is not generally the range midpoint, so its normalized action is
-nonzero. The policy mean, action-delay buffer, and previous-action observation
-are initialized to that exact home action. The initial policy therefore holds
-`walk_home` while retaining the full range. As in ToddlerBot, action-rate cost
-is the sum-squared difference between consecutive dimensionless policy actions.
-Joint range affects the physical target but does not silently reweight PPO's
-action-space regularizer.
+Policy zero, the delay buffer, and the previous-action observation therefore
+start at `walk_home`. PPO uses an ordinary Normal distribution with mean near
+zero and initial standard deviation `0.5`, exactly as ToddlerBot. Actions are
+not clipped to `[-1, 1]`; residuals beyond that range remain distinct and can
+reach WR2's complete safe joint range. Only the resulting physical target is
+clipped. This is important to PPO: clipping an unbounded sample before mapping
+would make distinct sampled actions produce the same transition even though
+PPO assigns them different log probabilities.
 
-PPO uses a tanh-transformed Normal distribution. This is an intentional WR2
-hardware adaptation: the deployed command contract is bounded, and an
-unbounded Normal followed by environment clipping makes many distinct sampled
-actions produce the same target while PPO assigns them different log
-probabilities. Earlier WR2 runs showed that aliasing as policy-mean runaway and
-high action saturation. Modeling the bound in the distribution removes it.
+The generic `PositionActionContract` still provides an absolute normalized
+joint-range API for low-level tools. Walking deployment must instead call its
+`active_residual_targets` adapter with the frozen `0.25 rad` scale. As in
+ToddlerBot, action-rate cost is the sum-squared difference between consecutive
+policy residuals.
 
 ## Actor observation v3
 
@@ -47,7 +41,7 @@ high action saturation. Modeling the bound in the distribution removes it.
 | command velocity | 3 | torso-frame vx, vy, yaw rate |
 | joint position error | 17 | measured position minus home |
 | joint velocity | 17 | scaled by 0.05 |
-| previous active action | 10 | normalized leg policy action |
+| previous active action | 10 | dimensionless leg position residual |
 | torso angular velocity | 3 | torso frame |
 | projected gravity | 3 | unit gravity vector in torso frame |
 
@@ -103,7 +97,7 @@ Linear Inverted Pendulum Model path chooses lateral CoM motion so
 `zmp = com - h/g * com_acceleration` alternates beneath the support feet. A
 command/phase lookup then solves the canonical WR2 MuJoCo model for bilateral
 five-DOF leg positions. The reference is privileged critic context only; the
-actor still learns absolute leg targets from deployable proprioception, and no
+actor still learns leg-target residuals from deployable proprioception, and no
 ZMP checkpoint or imitation pretraining is a prerequisite. At reset, the
 critic reference is the static `walk_home` pose; the periodic lookup becomes
 active on the first control transition, matching ToddlerBot's `t=0` boundary.
@@ -166,9 +160,11 @@ training output records the complete environment and actuator configuration in
 `run_config.json`, deterministic evaluation telemetry in
 `training_metrics.jsonl`, and stochastic-policy rollout summaries in
 `rollout_metrics.jsonl`.
-Action telemetry distinguishes hard saturation at 0.99 from near-boundary use
-at 0.90 and reports both target excursion from `walk_home` and the fraction of
-targets beyond ToddlerBot's 0.25 rad residual envelope.
+Action telemetry reports the unbounded residual magnitude. Saturation means a
+physical target was clipped at a safe joint limit; near-boundary use means the
+requested physical target entered the outer 10% of a safe joint range. Target
+excursion and the fraction beyond the nominal 0.25 rad residual envelope are
+reported separately.
 
 Run the JIT environment gate with:
 
@@ -208,7 +204,10 @@ incompatible, and pre-v0.9.1 runs used the broken episode lifecycle.
 v0.10.1 completes the runtime contract with ToddlerBot's static `t=0`
 reference boundary, active half-cycle foot-height reward semantics, and the
 automatic geometry preflight. It keeps the same network shapes, but the first
-v0.10.1 comparison should also be a cold start.
+v0.10.1 comparison should also be a cold start. v0.11.0 replaces the bounded
+absolute tanh policy with ToddlerBot's unbounded `walk_home + 0.25 * residual`
+contract. Every older checkpoint is incompatible and the v0.11.0 comparison
+must be a cold start.
 
 Validate the generated reference before training with:
 

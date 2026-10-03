@@ -313,9 +313,9 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     )
     print(f"  Actions:      {environment.action_size} (leg joints active)")
     print(
-        "  Action map:   absolute joint range; "
-        f"max |walk_home|={float(np.max(np.abs(environment.home_action))):.3f}; "
-        f"initial latent std={training_config.network.init_noise_std:.3f}"
+        "  Action map:   walk_home + "
+        f"{training_config.environment.policy_action_scale_rad:.3f}rad * residual; "
+        f"initial residual std={training_config.network.init_noise_std:.3f}"
     )
     print(f"  Environments: {training_config.ppo.num_envs:,}")
     print(f"  Target steps: {training_config.ppo.num_timesteps:,}")
@@ -364,7 +364,10 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         },
         "training_config": effective_config,
         "actuator_model": environment.robot.config["actuators"]["htd45hServo"],
-        "active_home_action": np.asarray(environment.home_action).tolist(),
+        "policy_home_action": np.asarray(environment.home_action).tolist(),
+        "policy_action_scale_rad": (
+            training_config.environment.policy_action_scale_rad
+        ),
         "zmp_reference_validation": [asdict(result) for result in zmp_preflight],
     }
     (output / "run_config.json").write_text(
@@ -459,7 +462,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 f"min_swing={minimum_swing_text} "
                 f"sat={rollout_show('action_saturation_fraction_per_step', '.1%')} "
                 f"near={rollout_show('action_near_boundary_fraction_per_step', '.1%')} "
-                f"|a-home|={rollout_show('action_deviation_from_home_abs_mean_per_step')}",
+                f"|residual|={rollout_show('action_abs_mean_per_step')}",
                 flush=True,
             )
             return
@@ -572,8 +575,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             f"rms={show(metric('eval/episode_actuator_torque_rms_nm_per_step'))}Nm "
             f"mean_peak={show(metric('eval/episode_actuator_torque_peak_nm_per_step'))}Nm "
             f"exposure={show(metric('eval/episode_sustained_torque_exposure_per_step'))} "
-            f"|action|={show(metric('eval/episode_action_abs_mean_per_step'))} "
-            f"|a-home|={show(metric('eval/episode_action_deviation_from_home_abs_mean_per_step'))} "
+            f"|residual|={show(metric('eval/episode_action_abs_mean_per_step'))} "
             f"max|a|={show(metric('eval/episode_action_max_abs_per_step'))} "
             f"sat={show(metric('eval/episode_action_saturation_fraction_per_step'), '.1%')} "
             f"near={show(metric('eval/episode_action_near_boundary_fraction_per_step'), '.1%')}",
@@ -661,10 +663,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         else make_domain_randomizer(environment.config.randomization)
     )
     ppo_config = training_config.ppo
-    network_factory = make_network_factory(
-        training_config.network,
-        home_action=environment.home_action,
-    )
+    network_factory = make_network_factory(training_config.network)
     checkpoint_path = (
         str(output / "checkpoints")
         if training_config.checkpoints.save_every_evaluation

@@ -93,10 +93,7 @@ def evaluate_checkpoint(
         zero_command_probability=0.0,
     )
     environment = WR2WalkingEnv(eval_environment_config, add_observation_noise=False)
-    network_factory = make_network_factory(
-        config.network,
-        home_action=environment.home_action,
-    )
+    network_factory = make_network_factory(config.network)
     preprocess = (
         running_statistics.normalize
         if config.ppo.normalize_observations
