@@ -123,11 +123,15 @@ The fitter identifies one effective velocity-damping term. WR2 training keeps
 0.5, or 0.173622 N m s/rad. Never assign the full fitted total to the joint
 while retaining `kv_sim`; that would double-count velocity feedback.
 
-Equivalent unit-A low-load dynamics captures are complete. Further hardware
-work should add a clock-aligned current/voltage logger, repeat the safe
-conditions on independently labeled servos, or use the upgraded fixtures
-required for backlash, torque-speed, and braking. Do not run the unsafe legacy
-E4/E5 conditions with the current fixture.
+Equivalent unit-A low-load dynamics captures are complete. H1 also provides a
+preliminary positive-load hysteresis trace: 0.443 degree mean center loop width
+over three cycles, with 0.026 degree cycle standard deviation. Temperature rose
+from 31 C to 53 C during its 36.1-second profile, so H2 has a plan-enforced
+30 C cooldown target. Further hardware work should add a clock-aligned
+current/voltage logger, repeat the safe conditions on independently labeled
+servos, or use the upgraded fixtures required for precise backlash,
+torque-speed, and braking. Do not run the unsafe legacy E4/E5 conditions with
+the current fixture.
 
 ### Coarse loaded hysteresis with the current BAM
 
@@ -138,8 +142,13 @@ command units. This is direction-dependent *loaded hysteresis* of the whole
 fixture and servo loop. It does not isolate mechanical backlash, and the
 internal encoder cannot resolve below its 0.24-degree telemetry step.
 
-Run the positive condition first and inspect it before reusing the same run
-directory for the negative condition:
+The positive H1 condition completed under Git revision `b22c604`; its raw trace
+and standalone analysis are in
+`results/servo_sysid/unit-a-bam-hysteresis-run01`. Because the evidence update
+changes the clean Git revision recorded by a campaign, run H2 in a new
+directory. H2 disables torque and waits until reported temperature is at or
+below 30 C before moving; it times out without motion if cooldown does not
+complete within 15 minutes:
 
 ```bash
 uv run python -m wr2.tools.servo_sysid run \
@@ -147,22 +156,22 @@ uv run python -m wr2.tools.servo_sysid run \
   --servo-id 100 \
   --servo-label htd45h-unit-a \
   --board-port /dev/serial/by-id/usb-1a86_USB_Single_Serial_5C4C127022-if00 \
-  --run-dir results/servo_sysid/unit-a-bam-hysteresis-run01 \
+  --run-dir results/servo_sysid/unit-a-bam-hysteresis-minus10-run02 \
   --measured-weight-kg 2.650 \
   --measured-com-radius-m 0.1204 \
-  --start-at H1_loaded_hysteresis_plus10 \
-  --stop-after H1_loaded_hysteresis_plus10 \
+  --cooldown-target-c 30 \
+  --start-at H2_loaded_hysteresis_minus10 \
+  --stop-after H2_loaded_hysteresis_minus10 \
   --execute --confirm-fixture-safe
 ```
 
-After the positive capture passes review, replace both stage arguments with
-`H2_loaded_hysteresis_minus10`. Once both exist, emit the combined report:
+Once H2 exists, emit the combined report:
 
 ```bash
 uv run python -m wr2.tools.servo_sysid hysteresis \
   results/servo_sysid/unit-a-bam-hysteresis-run01/01_H1_loaded_hysteresis_plus10.npz \
-  results/servo_sysid/unit-a-bam-hysteresis-run01/02_H2_loaded_hysteresis_minus10.npz \
-  --output results/servo_sysid/unit-a-bam-hysteresis-run01/hysteresis_summary.json
+  results/servo_sysid/unit-a-bam-hysteresis-minus10-run02/02_H2_loaded_hysteresis_minus10.npz \
+  --output results/servo_sysid/unit-a-bam-hysteresis-H1-H2-summary.json
 ```
 
 Directories created by the former `bam_suite.py` implementation contain a

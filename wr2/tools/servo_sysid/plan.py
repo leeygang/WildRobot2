@@ -24,6 +24,7 @@ class CampaignCondition:
     prepare_only: bool = False
     prepare_speed_deg_s: float = 20.0
     settle_s: float = 1.0
+    cooldown_target_c: float | None = None
     write_deadband_units: int = 0
     move_time_ms: int = 20
     profile: str = "standard"

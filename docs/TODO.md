@@ -69,8 +69,10 @@ logger must still be started and synchronized separately.
   preliminary *loaded* backlash and hysteresis evidence. Approach every target
   from both directions and retain the complete command/position trajectory;
   endpoint-only measurements are insufficient. The automated
-  `bam_hysteresis` plan and analyzer are ready; unit-A captures remain to be
-  collected. The servo's 0.24-degree telemetry resolution limits the smallest
+  `bam_hysteresis` H1 positive-load capture is complete: its three-cycle center
+  loop width was 0.443 degree mean with 0.026 degree standard deviation. H2
+  negative load, held-out repetition, and controlled cold/warm comparisons
+  remain. The servo's 0.24-degree telemetry resolution limits the smallest
   deadband this setup can resolve.
 - [x] Collect the first gravity-neutral, low-amplitude E3 chirp on unit A. The
   run completed without voltage warnings and is retained as preliminary

@@ -173,6 +173,11 @@ def capture_command(
     execute: bool,
     condition_id: str | None = None,
 ) -> list[str]:
+    cooldown_target_c = (
+        args.cooldown_target_c
+        if condition.cooldown_target_c is None
+        else min(args.cooldown_target_c, condition.cooldown_target_c)
+    )
     command = [
         sys.executable,
         "-m",
@@ -214,7 +219,7 @@ def capture_command(
         "--sweep-cycles",
         str(condition.sweep_cycles),
         "--cooldown-target-c",
-        str(args.cooldown_target_c),
+        str(cooldown_target_c),
         "--min-voltage-v",
         str(args.min_voltage_v),
         "--hard-min-voltage-v",

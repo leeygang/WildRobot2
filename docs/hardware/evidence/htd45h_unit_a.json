@@ -397,6 +397,101 @@
         "The 4 N m force cap was held fixed and was not qualified by these low-load captures.",
         "No external voltage, current, shaft-torque, or output-encoder log was archived."
       ]
+    },
+    {
+      "record_id": "unit-a-bam-hysteresis-run01-H1-plus10",
+      "evidence_status": "preliminary_observed_single_servo_loaded_hysteresis",
+      "accepted_for": [
+        "coarse_positive_loaded_hysteresis_observation"
+      ],
+      "not_accepted_for": [
+        "mechanical_backlash",
+        "negative_direction_hysteresis",
+        "temperature_dependence",
+        "continuous_torque",
+        "thermal_qualification",
+        "deployment_qualification",
+        "population_specification"
+      ],
+      "source_run": "results/servo_sysid/unit-a-bam-hysteresis-run01",
+      "source_condition": "H1_loaded_hysteresis_plus10",
+      "source_analysis": "results/servo_sysid/unit-a-bam-hysteresis-run01/H1_hysteresis_summary.json",
+      "observed_at_utc": "2026-10-03T03:37:28.423125+00:00",
+      "software_revision": "b22c60411cd5b9d72d8dad4cc60de4c80823eb8a",
+      "plan": "bam_hysteresis",
+      "plan_sha256": "471f6a449cf3e832ef43150b8335f0aa6c060a6b84558ee713cb722224fd40bf",
+      "fixture": {
+        "label": "wr2-htd45h-2650g",
+        "sha256": "47f9b07fc126f48a82a1786604723a0d8cff283fa74e3cfa014674193845ad23",
+        "measured_weight_kg": 2.65,
+        "measured_com_radius_m": 0.1204
+      },
+      "artifact_sha256": {
+        "campaign_manifest.json": "2c94ccceb087b32210e89eaa2b75cde9df33a7a489c8fd74a2de3491709d6987",
+        "01_H1_loaded_hysteresis_plus10.json": "0b69c2ef2508bcfd1deac406cdfca7b22f5db728a0e0a342fc2dea6b4466a8b6",
+        "01_H1_loaded_hysteresis_plus10.npz": "b05805daa96bda08fc3264820d43dac14559ce9b652e51767e77a6dfd28ad259",
+        "H1_hysteresis_summary.json": "85ef0cf75fb34c90afb5ceb88de4488730c4abb83be67214fde3a1e3462aec8d"
+      },
+      "tested_envelope": {
+        "center_deg": 10.0,
+        "sweep_range_deg": [
+          8.0,
+          12.0
+        ],
+        "sweep_rate_deg_s": 1.0,
+        "sweep_cycles": 3,
+        "sample_rate_hz": 50.0,
+        "sample_count": 1808,
+        "profile_duration_s": 36.138750745,
+        "center_inferred_fixture_torque_nm": 0.5377063543,
+        "peak_inferred_fixture_torque_nm": 0.6472507773,
+        "predicted_peak_speed_rad_s": 0.0174532925
+      },
+      "loaded_hysteresis": {
+        "telemetry_resolution_deg": 0.24,
+        "matched_command_count_per_cycle": 18,
+        "center_command_unit": 542,
+        "center_command_deg": 10.08,
+        "center_absolute_output_loop_by_cycle_deg": [
+          0.4061538462,
+          0.4615384615,
+          0.4615384615
+        ],
+        "center_absolute_output_loop_mean_deg": 0.4430769231,
+        "center_absolute_output_loop_std_deg": 0.0261085581,
+        "center_absolute_output_loop_range_deg": 0.0553846154,
+        "all_commands_p95_absolute_output_loop_deg": 0.612,
+        "all_commands_maximum_absolute_output_loop_deg": 0.7015384615,
+        "interpretation": "Repeatable direction-dependent loaded output-position loop width for the complete servo and fixture system; not isolated mechanical backlash."
+      },
+      "health_and_timing": {
+        "profile_minimum_servo_reported_voltage_v": 11.987,
+        "preparation_minimum_servo_reported_voltage_v": 10.697,
+        "voltage_warning_count": 0,
+        "initial_profile_temperature_c": 31.0,
+        "maximum_profile_temperature_c": 53.0,
+        "temperature_rise_c": 22.0,
+        "temperature_slope_c_per_min": 35.80668454,
+        "sample_period_p95_ms": 20.7966429356,
+        "loop_lateness_max_ms": 0.1694880193,
+        "tracking_abs_max_deg": 3.46,
+        "all_samples_torque_enabled": true
+      },
+      "next_condition": {
+        "condition_id": "H2_loaded_hysteresis_minus10",
+        "required_cooldown_target_c": 30.0,
+        "maximum_temperature_c": 55.0,
+        "run_directory_policy": "Use a new run directory because this evidence update changes the clean Git revision recorded by the campaign."
+      },
+      "limitations": [
+        "Only one positive-load condition on one servo was collected; the negative-direction H2 condition remains pending.",
+        "The internal position telemetry is quantized to 0.24 degree; sub-resolution statistics arise from repeated-sample averaging.",
+        "The observed loop includes controller behavior, gravity load, servo friction, fixture friction, compliance, and temperature change; it is not isolated mechanical backlash.",
+        "Temperature rose 22 C to 53 C during the 36.1 s profile. The result is not thermal equilibrium or a continuous-torque rating, and the next condition must begin only after cooldown.",
+        "The raw differentiated 0.624 rad/s peak is dominated by quantized position steps at 50 Hz and is not accepted as shaft-speed evidence.",
+        "Fixture torque is inferred from geometry rather than measured at the shaft.",
+        "No external voltage, current, shaft-torque, or output-encoder log was archived."
+      ]
     }
   ]
 }

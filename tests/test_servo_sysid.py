@@ -449,6 +449,13 @@ class CampaignAnalysisTest(unittest.TestCase):
         self.assertEqual(command[command.index("--sweep-cycles") + 1], "3")
         self.assertEqual(command[command.index("--move-time-ms") + 1], "250")
         self.assertEqual(command[command.index("--max-static-torque-nm") + 1], "0.75")
+        negative = capture_command(
+            args,
+            load_plan("bam_hysteresis").conditions[1],
+            Path("negative.npz"),
+            execute=True,
+        )
+        self.assertEqual(negative[negative.index("--cooldown-target-c") + 1], "30.0")
 
     def test_bam_hardware_mode_requires_bounded_selection(self):
         with self.assertRaisesRegex(SystemExit, "requires --stop-after"):

@@ -30,6 +30,7 @@ conditions:
     center_deg: -10.0
     amplitudes_deg: "2"
     profile: hysteresis
+    cooldown_target_c: 30.0
     sweep_rate_deg_s: 1.0
     sweep_cycles: 3
     move_time_ms: 250
