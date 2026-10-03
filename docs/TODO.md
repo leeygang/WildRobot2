@@ -7,8 +7,14 @@ completed before treating a policy as deployment-qualified.
 
 ## Walking training
 
+- [x] Replace the WR1/static actuator midpoint with the held-out-validated
+  unit-A low-load fit. Training now uses `kp_sim=24.1574`, `kv_sim=0.5`, joint
+  `damping=0.173622`, `frictionloss=0.465471`, and `armature=0.020951`. The
+  active velocity term and joint damping sum to the fitted effective damping
+  of 0.673622 N m s/rad; this remains a provisional single-servo training
+  nominal, not a deployment rating.
 - [ ] Start a new cold PPO gait-acquisition campaign with training contract
-  v0.10. The actor shape remains 825 values, but the critic's 17-value error
+  v0.10.3. The actor shape remains 825 values, but the critic's 17-value error
   slot now uses the phase/command WR2 ZMP joint reference. Earlier critic
   checkpoints therefore must not be used for the comparison campaign.
 - [ ] After gait acquisition, tighten `velocity_reward_sigma` from 0.15 m/s
@@ -48,22 +54,33 @@ Use `python -m wr2.tools.servo_sysid run --plan bam_position` to automate the
 bounded `+10 degree -> -10 degree -> E3` sequence. It is preflight-only by
 default, requires explicit fixture confirmation for hardware execution, records
 the plan and fixture hashes, clean Git revision, and per-condition artifacts,
-and stops on the first failed gate. The external supply logger must still be
-started and synchronized separately.
+and stops on the first non-voltage failed gate. Qualified-range voltage
+excursions are warnings recorded in capture metadata; the external supply
+logger must still be started and synchronized separately.
 
-- [ ] Repeat low-load commissioning in both directions and at several angles.
-  Record zero and loaded position repeatability, direction-dependent position
-  error, servo-reported voltage and temperature, and the gravity torque inferred
-  from measured position, mass, radius, and the versioned fixture model.
+- [x] Collect preliminary unit-A low-load commissioning at +10 and -10 degrees.
+  The accepted data comprise four +10 repeats and five -10 repeats, with zero
+  and loaded position repeatability, direction-dependent error, internal
+  voltage and temperature, and geometry-inferred fixture torque preserved in
+  `docs/hardware/evidence/htd45h_unit_a.json`.
+- [ ] Extend low-load commissioning to several angles, repeat the incomplete
+  +10 set, and repeat all accepted conditions on additional labeled servos.
 - [ ] Run slow forward/reverse sweeps at cold and warmed conditions to obtain
   preliminary *loaded* backlash and hysteresis evidence. Approach every target
   from both directions and retain the complete command/position trajectory;
   endpoint-only measurements are insufficient. The servo's 0.24-degree
   telemetry resolution limits the smallest deadband this setup can resolve.
-- [ ] Run the gravity-neutral, low-amplitude E3 chirp first to estimate the
-  effective position-loop response, whole-response delay, repeatability, and
-  low-load speed tracking. Keep separate captures for fitting and held-out
-  replay validation.
+- [x] Collect the first gravity-neutral, low-amplitude E3 chirp on unit A. The
+  run completed without voltage warnings and is retained as preliminary
+  position-loop, whole-response, and low-load speed evidence.
+- [x] Repeat E3 in a separate session for held-out dynamic validation. Run08
+  reproduced the run07 response closely and is reserved from fitting.
+- [x] Collect and validate bounded signed loaded dynamics near +/-10 degrees.
+  Runs10/11 form the fit set and runs12/13 are held out. Run14 selected no
+  extra 20 ms delay, kept every continuous parameter away from its optimizer
+  bounds, and achieved 0.865 degree fit and 0.855 degree held-out mean replay
+  RMSE. Its total damping is explicitly split into `kv_sim` plus joint damping
+  before use by training.
 - [ ] Run bounded low-load thermal/current-duration tests only after adding a
   clock-aligned external supply logger. Record supply voltage and current in
   addition to command, position, derived velocity, servo voltage, and

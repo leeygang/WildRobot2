@@ -147,8 +147,11 @@ the vendor's 5.818 rad/s no-load speed at 11.1 V. The training MJCF uses torque
 actuators. On every 2 ms substep an explicit controller applies the provisional
 position gain, damping, asymmetric braking, and a vendor-endpoint torque-speed
 envelope. Peak torque is randomized from 1 to 4 N m; neither value is treated
-as a continuous-torque rating. The nominal position gain is 16 N m/rad and is
-randomized from 8 to 32 N m/rad.
+as a continuous-torque rating. The held-out-validated unit-A low-load fit sets
+the provisional nominal position gain to 24.1574 N m/rad while preserving the
+conservative 8--32 N m/rad randomization range. The fitted total velocity
+damping is 0.673622 N m s/rad; training realizes it as `kv_sim=0.5` plus
+0.173622 N m s/rad passive joint damping.
 Each episode adds an independent +/-2-degree actuator-target bias so the policy
 cannot assume perfect zero calibration or rigid target tracking.
 

@@ -260,7 +260,13 @@ class FixtureTest(unittest.TestCase):
     @unittest.skipUnless(importlib.util.find_spec("scipy"), "SciPy is not installed")
     def test_dynamics_fitter_replays_known_parameters(self):
         from wr2.tools.servo_sysid.core import DEFAULT_FIXTURE, file_sha256
-        from wr2.tools.servo_sysid.fit import Replay, ServoDynamics, Trace, fit
+        from wr2.tools.servo_sysid.fit import (
+            Replay,
+            ServoDynamics,
+            Trace,
+            fit,
+            training_parameters,
+        )
 
         time_s = np.arange(80, dtype=np.float64) * 0.02
         replays = []
@@ -298,6 +304,22 @@ class FixtureTest(unittest.TestCase):
         fitted, report = fit(replays, delays=(0,), max_nfev=2)
         self.assertAlmostEqual(fitted.kp, expected.kp, places=4)
         self.assertLess(report["candidates"][0]["metrics"]["mean_rmse_deg"], 1e-6)
+
+        mapped = training_parameters(fitted, controller_kv=0.5)
+        self.assertAlmostEqual(
+            mapped.damping + mapped.kv_sim,
+            fitted.effective_velocity_damping,
+        )
+        self.assertAlmostEqual(mapped.kp_sim, fitted.kp)
+
+    def test_dynamics_training_mapping_rejects_double_counted_damping(self):
+        from wr2.tools.servo_sysid.fit import ServoDynamics, training_parameters
+
+        with self.assertRaisesRegex(ValueError, "smaller than controller_kv"):
+            training_parameters(
+                ServoDynamics(effective_velocity_damping=0.4),
+                controller_kv=0.5,
+            )
 
 
 class CampaignAnalysisTest(unittest.TestCase):

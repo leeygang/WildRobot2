@@ -18,11 +18,50 @@ from wr2.tools.servo_sysid.core import DEFAULT_FIXTURE, file_sha256
 
 @dataclass(frozen=True)
 class ServoDynamics:
-    kp: float = 31.902
-    effective_velocity_damping: float = 1.60618
-    armature: float = 0.024992
-    frictionloss: float = 0.324094
+    kp: float = 24.15736370745031
+    effective_velocity_damping: float = 0.6736224815759155
+    armature: float = 0.02095097890884981
+    frictionloss: float = 0.4654711955162913
     delay_steps: int = 0
+
+
+@dataclass(frozen=True)
+class TrainingParameters:
+    """Servo parameters in the split used by the WR2 training controller."""
+
+    kp_sim: float
+    kv_sim: float
+    damping: float
+    frictionloss: float
+    armature: float
+    fitted_extra_command_delay_steps: int
+
+
+def training_parameters(
+    parameters: ServoDynamics, *, controller_kv: float
+) -> TrainingParameters:
+    """Map fitted total velocity damping into active and passive terms.
+
+    The fixture replay has one effective damping term. WR2 training applies
+    ``kv_sim`` in the explicit PD controller and ``damping`` in the joint
+    dynamics, so their sum must equal the fitted term.
+    """
+    if not math.isfinite(controller_kv) or controller_kv < 0.0:
+        raise ValueError("controller_kv must be finite and non-negative")
+    joint_damping = parameters.effective_velocity_damping - controller_kv
+    if joint_damping < 0.0:
+        raise ValueError(
+            "fitted effective velocity damping is smaller than controller_kv; "
+            "rerun with a smaller --controller-kv"
+        )
+    return TrainingParameters(
+        kp_sim=parameters.kp,
+        kv_sim=controller_kv,
+        damping=joint_damping,
+        frictionloss=parameters.frictionloss,
+        armature=parameters.armature,
+        fitted_extra_command_delay_steps=parameters.delay_steps,
+    )
 
 
 @dataclass(frozen=True)
@@ -160,7 +199,15 @@ def fit(
     delays: Sequence[int],
     max_nfev: int,
 ) -> tuple[ServoDynamics, dict[str, Any]]:
-    initial = np.log([31.902, 1.60618, 0.024992, 0.324094])
+    initial_parameters = ServoDynamics()
+    initial = np.log(
+        [
+            initial_parameters.kp,
+            initial_parameters.effective_velocity_damping,
+            initial_parameters.armature,
+            initial_parameters.frictionloss,
+        ]
+    )
     lower = np.log([5.0, 0.01, 0.001, 0.001])
     upper = np.log([100.0, 5.0, 0.15, 1.0])
     best = None
@@ -229,6 +276,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--sim-dt", type=float, default=0.002)
     parser.add_argument("--delay-steps", type=_delay_list, default=(0, 1, 2, 3))
     parser.add_argument("--max-nfev", type=int, default=100)
+    parser.add_argument(
+        "--controller-kv",
+        type=float,
+        default=0.5,
+        help=(
+            "active velocity gain held fixed when mapping fitted total damping "
+            "to the WR2 training configuration"
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     return parser
 
@@ -261,11 +317,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     parameters, optimization = fit(
         fit_replays, delays=args.delay_steps, max_nfev=args.max_nfev
     )
+    mapped_parameters = training_parameters(
+        parameters, controller_kv=args.controller_kv
+    )
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "model": "effective_position_servo",
         "parameters": asdict(parameters),
+        "training_parameters": asdict(mapped_parameters),
+        "training_parameter_mapping": {
+            "identity": (
+                "effective_velocity_damping = kv_sim + joint_damping"
+            ),
+            "effective_velocity_damping": (
+                parameters.effective_velocity_damping
+            ),
+            "controller_kv_held_fixed": args.controller_kv,
+            "joint_damping_remainder": mapped_parameters.damping,
+        },
         "fit_metrics": _metrics(fit_replays, parameters),
         "validation_metrics": (
             _metrics(validation_replays, parameters) if validation_replays else None
@@ -273,6 +343,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "optimization": optimization,
         "fixture_mjcf": str(fixture),
         "fixture_sha256": fixture_hash,
+        "fit_captures": [str(path) for path in args.fit_captures],
+        "validation_captures": [str(path) for path in args.validation_capture],
+        "simulation_dt_s": args.sim_dt,
+        "searched_delay_steps": list(args.delay_steps),
         "force_limit_nm_held_fixed": args.force_limit_nm,
         "identified": [
             "effective_position_kp",
@@ -285,12 +359,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             "continuous_torque",
             "voltage_temperature_dependent_torque_speed_envelope",
             "pure_transport_delay_separate_from_servo_response",
+            "controller_velocity_gain_separate_from_passive_joint_damping",
         ],
     }
     output = args.output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     print(json.dumps(report["parameters"], indent=2))
+    print("Training parameter mapping:")
+    print(json.dumps(report["training_parameters"], indent=2))
     print(f"Wrote {output}")
     return 0
 

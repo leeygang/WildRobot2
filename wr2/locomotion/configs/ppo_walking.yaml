@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy while preserving WR2's measured actuator envelope.
-version: "0.10.2"
-version_name: "WR2 ToddlerBot-strict velocity gait acquisition"
+version: "0.10.3"
+version_name: "WR2 strict velocity gait acquisition with unit-A dynamics"
 seed: 0
 
 environment:
@@ -107,8 +107,9 @@ domain_randomization:
   damping_scale: [0.8, 1.2]
   armature_scale: [0.8, 1.2]
   frictionloss_scale: [0.7, 1.3]
-  # Nominal kp is 16 N m/rad, so this spans 8--32 N m/rad.
-  kp_scale: [0.5, 2.0]
+  # Preserve the conservative 8--32 N m/rad envelope around the fitted
+  # 24.1574 N m/rad unit-A nominal.
+  kp_scale: [0.331161964, 1.324647854]
   kv_scale: [0.8, 1.2]
   # Nominal peak cap is 4 N m, so this spans 1--4 N m.
   torque_limit_scale: [0.25, 1.0]

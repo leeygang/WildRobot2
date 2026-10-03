@@ -53,8 +53,8 @@ imu_randomization:
 
 actuators:
     htd45hServo:
-        model_status: provisional_wr2_unit_a_static_envelope
-        source: WR2_2026-09-29_to_30_unit_a_static_thermal_plus_WR1_dynamic
+        model_status: provisional_wr2_unit_a_low_load_dynamic_fit
+        source: WR2_2026-10-02_unit_a_runs07_08_10_11_12_13_fit_run14
         vendor_spec_source: HTD-45H_Bus_Servo_User_Manual_page_5
         rated_voltage_v: 11.1
         operating_voltage_range_v: [9.6, 12.6]
@@ -66,19 +66,32 @@ actuators:
         command_range_deg: [0.0, 240.0]
         command_resolution_rad: 0.0041887902
         training_target_speed_limit_rad_s: 5.8177642
-        # Provisional midpoint for training. WR2 static tests motivate a broad
-        # 8--32 N m/rad range; a WR2 dynamic fit is still pending.
-        kp_sim: 16.0
+        # Unit-A low-load fit with independent E3 and signed-load validation.
+        # This is a training nominal, not a deployment or population rating.
+        kp_sim: 24.1573637075
         kv_sim: 0.5
         torque_limit_nm: 4.0
-        damping: 1.10618
-        frictionloss: 0.324094
-        armature: 0.024992
-        wr1_fitted_parameters: [kp_sim, damping, frictionloss]
-        wr2_overridden_parameters: [kp_sim]
-        held_fixed_parameters: [kv_sim, armature, torque_limit_nm]
-        mean_capture_replay_rmse_deg: 0.4386
-        held_out_replay_rmse_deg: 0.480
+        # The fitter identifies total velocity damping. With kv_sim held at
+        # 0.5, passive joint damping is the non-negative remainder:
+        # 0.6736224816 - 0.5 = 0.1736224816 N m s/rad.
+        damping: 0.1736224816
+        fitted_effective_velocity_damping: 0.6736224816
+        velocity_damping_mapping: kv_sim_plus_joint_damping
+        frictionloss: 0.4654711955
+        armature: 0.0209509789
+        wr1_fitted_parameters: []
+        wr2_fitted_parameters: [kp_sim, fitted_effective_velocity_damping, frictionloss, armature, fitted_extra_command_delay_steps]
+        wr2_overridden_parameters: [kp_sim, damping, frictionloss, armature]
+        held_fixed_parameters: [kv_sim, torque_limit_nm]
+        mean_capture_replay_rmse_deg: 0.8650910097
+        held_out_replay_rmse_deg: 0.8546032091
+        held_out_replay_max_rmse_deg: 0.9422629011
+        fit_evidence_status: held_out_validated_single_servo_low_load
+        fit_approximate_95pct_factor:
+            kp_sim: 1.0429929255
+            fitted_effective_velocity_damping: 1.4481805643
+            frictionloss: 1.0850311318
+            armature: 2.2802711247
         maximum_validated_load_nm: 1.0157
         maximum_validated_load_duration_s: 3.0
         torque_limit_status: conservative_below_vendor_stall_upper_bound

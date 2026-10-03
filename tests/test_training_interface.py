@@ -132,14 +132,34 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
         servo = self.robot.config["actuators"]["htd45hServo"]
         self.assertEqual(
-            servo["model_status"], "provisional_wr2_unit_a_static_envelope"
+            servo["model_status"],
+            "provisional_wr2_unit_a_low_load_dynamic_fit",
+        )
+        self.assertEqual(servo["wr1_fitted_parameters"], [])
+        self.assertEqual(
+            set(servo["wr2_fitted_parameters"]),
+            {
+                "kp_sim",
+                "fitted_effective_velocity_damping",
+                "frictionloss",
+                "armature",
+                "fitted_extra_command_delay_steps",
+            },
         )
         self.assertEqual(
-            set(servo["wr1_fitted_parameters"]),
-            {"kp_sim", "damping", "frictionloss"},
+            set(servo["wr2_overridden_parameters"]),
+            {"kp_sim", "damping", "frictionloss", "armature"},
         )
-        self.assertEqual(servo["wr2_overridden_parameters"], ["kp_sim"])
-        self.assertEqual(servo["kp_sim"], 16.0)
+        self.assertAlmostEqual(servo["kp_sim"], 24.1573637075)
+        self.assertAlmostEqual(servo["kv_sim"], 0.5)
+        self.assertAlmostEqual(servo["damping"], 0.1736224816)
+        self.assertAlmostEqual(
+            servo["kv_sim"] + servo["damping"],
+            servo["fitted_effective_velocity_damping"],
+        )
+        self.assertAlmostEqual(servo["frictionloss"], 0.4654711955)
+        self.assertAlmostEqual(servo["armature"], 0.0209509789)
+        self.assertAlmostEqual(servo["held_out_replay_rmse_deg"], 0.8546032091)
         self.assertEqual(servo["maximum_validated_load_nm"], 1.0157)
         self.assertEqual(servo["maximum_validated_load_duration_s"], 3.0)
         self.assertEqual(servo["thermal_short_hold_repeat_count"], 2)
@@ -175,9 +195,11 @@ class TrainingInterfaceTest(unittest.TestCase):
             servo["vendor_no_load_speed_rad_s"],
         )
         randomization = self.training_config.environment.randomization
-        self.assertEqual(
+        np.testing.assert_allclose(
             tuple(value * servo["kp_sim"] for value in randomization.kp_scale),
             (8.0, 32.0),
+            rtol=0.0,
+            atol=1e-7,
         )
         self.assertEqual(
             tuple(

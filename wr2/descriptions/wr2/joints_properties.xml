@@ -1,9 +1,9 @@
 <default>
     <default class="htd45hServo">
       <geom contype="0" conaffinity="0" />
-      <!-- Provisional WR2 unit-A static midpoint; WR2 dynamic fitting remains pending. -->
-      <joint damping="1.10618" frictionloss="0.324094" armature="0.024992" />
-      <position kp="16.0" kv="0.5" forcerange="-4.0 4.0" />
+      <!-- Provisional WR2 unit-A low-load fit; total damping = 0.1736224816 + kv 0.5. -->
+      <joint damping="0.1736224816" frictionloss="0.4654711955" armature="0.0209509789" />
+      <position kp="24.1573637075" kv="0.5" forcerange="-4.0 4.0" />
     </default>
     <default class="backlash">
         <!-- +/- 0.5° of backlash -->

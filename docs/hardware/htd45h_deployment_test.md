@@ -107,6 +107,28 @@ inspect its artifacts and start a new run directory. The software cannot start
 or verify an arbitrary external logger, so its raw clock-aligned file still
 needs to be archived alongside the run.
 
+### Current unit-A checkpoint
+
+The unit-A set now contains four accepted +10-degree repeats, five accepted
+-10-degree repeats, gravity-neutral E3 fit/validation runs07/08, signed loaded
+fit runs10/11, and signed loaded validation runs12/13. Run14 combines the three
+fit traces and three held-out traces. It selected no extra delay, kept every
+continuous parameter away from an optimizer bound, and achieved 0.865 degree
+fit and 0.855 degree held-out mean replay RMSE. Exact observations and
+limitations are retained in
+[`htd45h_unit_a.json`](evidence/htd45h_unit_a.json).
+
+The fitter identifies one effective velocity-damping term. WR2 training keeps
+`kv_sim=0.5`, so the mapped joint damping is the fitted 0.673622 total minus
+0.5, or 0.173622 N m s/rad. Never assign the full fitted total to the joint
+while retaining `kv_sim`; that would double-count velocity feedback.
+
+Equivalent unit-A low-load dynamics captures are complete. Further hardware
+work should add a clock-aligned current/voltage logger, repeat the safe
+conditions on independently labeled servos, or use the upgraded fixtures
+required for backlash, torque-speed, and braking. Do not run the unsafe legacy
+E4/E5 conditions with the current fixture.
+
 Directories created by the former `bam_suite.py` implementation contain a
 different manifest schema and are evidence archives only; do not resume them
 with the plan runner. The deprecated `bam_suite` and `commission` module names
@@ -231,12 +253,15 @@ uv run python -m wr2.tools.servo_sysid fit \
   CAMPAIGN_A/05_E5_loaded_minus60.npz \
   --validation-capture CAMPAIGN_B/04_E4_loaded_plus60.npz \
   --validation-capture CAMPAIGN_B/05_E5_loaded_minus60.npz \
+  --controller-kv 0.5 \
   --output results/servo_sysid/htd45h_dynamics_fit.json
 ```
 
 The included fitter identifies position gain, effective total velocity
-damping, friction, armature, and whole-response delay. It deliberately does
-not auto-edit the robot model; review its held-out error and uncertainty first.
+damping, friction, armature, and whole-response delay. It emits both the
+effective parameters and an explicit training mapping in which
+`effective_velocity_damping = kv_sim + damping`. It deliberately does not
+auto-edit the robot model; review its held-out error and uncertainty first.
 A voltage/temperature-dependent torque-speed model still requires the external
 current/load-cell data and multiple load, speed, voltage, and temperature
 conditions.
