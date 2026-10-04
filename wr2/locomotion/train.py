@@ -490,12 +490,21 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             )
             learning_rate = metric("training/learning_rate")
             if learning_rate is not None:
+                cumulative_steps = metric("training/total_steps")
+                cumulative_steps_text = (
+                    "n/a"
+                    if cumulative_steps is None
+                    else format(cumulative_steps, ",.0f")
+                )
                 print(
                     "  └─ ppo   : "
                     f"loss={rollout_show_loss(metric('training/total_loss'))} "
                     f"policy={rollout_show_loss(metric('training/policy_loss'))} "
                     f"value={rollout_show_loss(metric('training/v_loss'))} "
-                    f"lr={learning_rate:.2e}",
+                    f"kl={rollout_show_loss(metric('training/kl_mean'))} "
+                    f"std={rollout_show_loss(metric('training/mean_noise_std'))} "
+                    f"lr={learning_rate:.2e} "
+                    f"total_steps={cumulative_steps_text}",
                     flush=True,
                 )
             return
@@ -630,7 +639,9 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 f"policy={show(metric('training/policy_loss'), '.4f')} "
                 f"value={show(metric('training/v_loss'), '.4f')} "
                 f"entropy={show(metric('training/entropy_loss'), '.4f')} "
-                f"kl={show(metric('training/kl_mean'), '.5f')}",
+                f"kl={show(metric('training/kl_mean'), '.5f')} "
+                f"std={show(metric('training/mean_noise_std'), '.3f')} "
+                f"total_steps={show(metric('training/total_steps'), ',.0f')}",
                 flush=True,
             )
         command_forward = metric("eval/episode_command_forward_m_s_per_step")

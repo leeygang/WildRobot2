@@ -28,6 +28,41 @@ def evaluation_iterations(total_iterations: int, num_evals: int) -> frozenset[in
     )
 
 
+def rsl_minibatch_size(
+    num_envs: int, unroll_length: int, num_minibatches: int
+) -> int:
+    """Return transitions per RSL-RL minibatch without dropping samples."""
+    rollout_size = num_envs * unroll_length
+    if rollout_size % num_minibatches != 0:
+        raise ValueError(
+            "RSL-RL rollout size must be divisible by ppo.num_minibatches: "
+            f"{num_envs} envs * {unroll_length} steps / {num_minibatches} minibatches"
+        )
+    return rollout_size // num_minibatches
+
+
+def _training_rng_keys(seed: int):
+    """Create independent reset, randomization, and evaluation RNG streams."""
+    import jax
+
+    return tuple(jax.random.split(jax.random.PRNGKey(seed), 3))
+
+
+def _diagonal_gaussian_kl(old_mean, old_std, new_mean, new_std):
+    """Return mean KL(old || new) for diagonal Normal policies."""
+    import torch
+
+    old_std = torch.clamp(old_std, min=1.0e-8)
+    new_std = torch.clamp(new_std, min=1.0e-8)
+    per_action = (
+        torch.log(new_std / old_std)
+        + (old_std.square() + (old_mean - new_mean).square())
+        / (2.0 * new_std.square())
+        - 0.5
+    )
+    return per_action.sum(dim=-1).mean()
+
+
 class RSLRLWrapper:
     """Adapt a vectorized Brax/MJX environment to RSL-RL's VecEnv contract."""
 
@@ -38,7 +73,7 @@ class RSLRLWrapper:
         device,
         num_envs: int,
         episode_length: int,
-        seed: int,
+        reset_rng,
     ) -> None:
         import jax
         import torch
@@ -54,7 +89,7 @@ class RSLRLWrapper:
         )
         self._jax_to_torch = jax_to_torch
         self._torch_to_jax = torch_to_jax
-        self._keys = jax.random.split(jax.random.PRNGKey(seed), num_envs)
+        self._keys = jax.random.split(reset_rng, num_envs)
         self._reset_fn = jax.jit(env.reset)
         self._step_fn = jax.jit(env.step)
         self.last_state = self.reset()
@@ -125,11 +160,16 @@ class _EpisodeMetrics:
             self.values[name].extend(completed.detach().cpu().tolist())
 
     def means(self) -> dict[str, float]:
-        return {
+        means = {
             name: float(np.mean(values))
             for name, values in self.values.items()
             if values
         }
+        # Brax EpisodeWrapper intentionally does not accumulate a metric named
+        # ``reward``; ``sum_reward`` is the authoritative episode return.
+        if "sum_reward" in means:
+            means["reward"] = means["sum_reward"]
+        return means
 
 
 def _actor_parameters_for_jax(policy) -> tuple[tuple[np.ndarray, np.ndarray], ...]:
@@ -274,7 +314,7 @@ class RSLPPOTrainer:
             self.load(restore_checkpoint)
 
     def checkpoint_state(self) -> dict[str, Any]:
-        """Create a portable full-state checkpoint, following ToddlerBot."""
+        """Create a portable policy/optimizer checkpoint, following ToddlerBot."""
         state = {
             "backend": "rsl_rl",
             "model_state_dict": self.policy.state_dict(),
@@ -343,9 +383,35 @@ class RSLPPOTrainer:
                     + entropy_loss
                 ),
                 "training/learning_rate": float(self.algorithm.learning_rate),
+                "training/mean_noise_std": self._mean_action_std(),
+                "training/total_steps": float(self.total_steps),
             }
         )
+        if "kl_mean" in losses:
+            metrics["training/kl_mean"] = float(losses["kl_mean"])
         return metrics
+
+    def _mean_action_std(self) -> float:
+        if self.policy.noise_std_type == "log":
+            std = self.policy.log_std.exp()
+        else:
+            std = self.policy.std
+        return float(std.detach().mean().cpu())
+
+    def _post_update_kl(self) -> float:
+        """Measure the completed PPO update against its rollout policy."""
+        storage = self.algorithm.storage
+        with self.torch.inference_mode():
+            observations = storage.observations.flatten(0, 1)
+            old_mean = storage.mu.flatten(0, 1)
+            old_std = storage.sigma.flatten(0, 1)
+            new_mean = self.policy.actor(observations)
+            if self.policy.noise_std_type == "log":
+                new_std = self.policy.log_std.exp().expand_as(new_mean)
+            else:
+                new_std = self.policy.std.expand_as(new_mean)
+            kl = _diagonal_gaussian_kl(old_mean, old_std, new_mean, new_std)
+        return float(kl.cpu())
 
     def _evaluate(self, run_step: int, losses: dict[str, float]) -> None:
         snapshot = self.checkpoint_state()
@@ -387,14 +453,18 @@ class RSLPPOTrainer:
             self.completed_iterations += 1
             self.total_steps += steps_per_iteration
             self._run_steps += steps_per_iteration
-            if (
+            report_rollout = (
                 self._run_steps - self._last_metrics_step
                 >= ppo.training_metrics_steps
-            ):
+            )
+            report_evaluation = run_iteration in eval_at
+            if report_rollout or report_evaluation:
+                losses = {**losses, "kl_mean": self._post_update_kl()}
+            if report_rollout:
                 self.progress_fn(self._run_steps, self._training_metrics(losses))
                 self._last_metrics_step = self._run_steps
 
-            if run_iteration in eval_at:
+            if report_evaluation:
                 self._evaluate(self._run_steps, losses)
                 if self.config.checkpoints.save_every_evaluation:
                     self.save(checkpoints / f"{self._run_steps:012d}.pt")
@@ -427,11 +497,7 @@ def train_rsl_ppo(
         raise ValueError("RSL-RL backend requires network.distribution_type=normal")
     if ppo.normalize_observations:
         raise ValueError("RSL-RL observation normalization is not implemented")
-    if ppo.num_envs != ppo.batch_size * ppo.num_minibatches:
-        raise ValueError(
-            "RSL-RL requires ppo.num_envs == ppo.batch_size * "
-            "ppo.num_minibatches, matching ToddlerBot"
-        )
+    rsl_minibatch_size(ppo.num_envs, ppo.unroll_length, ppo.num_minibatches)
     torch.manual_seed(training_config.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(training_config.seed)
@@ -449,12 +515,13 @@ def train_rsl_ppo(
     )
     print(f"  Torch device: {device} ({device_name})")
 
+    reset_rng, randomization_rng, evaluation_rng = _training_rng_keys(
+        training_config.seed
+    )
     vector_randomizer = None
     if randomization_fn is not None:
-        randomization_rng = jax.random.split(
-            jax.random.PRNGKey(training_config.seed), ppo.num_envs
-        )
-        vector_randomizer = partial(randomization_fn, rng=randomization_rng)
+        randomization_keys = jax.random.split(randomization_rng, ppo.num_envs)
+        vector_randomizer = partial(randomization_fn, rng=randomization_keys)
     wrapped_environment = env_training.wrap(
         environment,
         episode_length=training_config.environment.episode_length,
@@ -470,14 +537,14 @@ def train_rsl_ppo(
         num_eval_envs=ppo.num_eval_envs,
         episode_length=training_config.environment.episode_length,
         action_repeat=1,
-        key=jax.random.PRNGKey(training_config.seed + 1),
+        key=evaluation_rng,
     )
     rsl_environment = RSLRLWrapper(
         wrapped_environment,
         device=device,
         num_envs=ppo.num_envs,
         episode_length=training_config.environment.episode_length,
-        seed=training_config.seed,
+        reset_rng=reset_rng,
     )
     trainer = RSLPPOTrainer(
         rsl_environment,

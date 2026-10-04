@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy and using a fixed-speed curriculum to acquire forward motion.
-version: "0.16.0"
-version_name: "WR2 ToddlerBot-aligned RSL-RL gait acquisition"
+version: "0.16.1"
+version_name: "WR2 corrected ToddlerBot-aligned RSL-RL gait acquisition"
 seed: 0
 
 environment:
@@ -159,7 +159,11 @@ ppo:
   clipping_epsilon: 0.2
   max_grad_norm: 1.0
   unroll_length: 20
+  # Brax-only grouping knob. RSL-RL derives its minibatch from the full
+  # num_envs * unroll_length rollout and num_minibatches below.
   batch_size: 256
+  # 2048 envs * 20 steps / 8 = 5120 transitions per minibatch, matching
+  # ToddlerBot's 4096 * 20 / 16 layout on WR2's smaller GPU.
   num_minibatches: 8
   num_updates_per_batch: 4
   # Stochastic rollout summaries expose exploration behavior between the

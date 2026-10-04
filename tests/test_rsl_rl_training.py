@@ -8,11 +8,15 @@ import torch
 from rsl_rl.modules import ActorCritic
 
 from wr2.locomotion.rsl_rl_training import (
+    _EpisodeMetrics,
     _actor_parameters_for_jax,
+    _diagonal_gaussian_kl,
     _jax_policy_factory,
+    _training_rng_keys,
     evaluation_iterations,
     learning_iterations,
     load_rsl_actor_parameters,
+    rsl_minibatch_size,
 )
 
 
@@ -23,6 +27,55 @@ class RSLRLTrainingTest(unittest.TestCase):
         evaluations = evaluation_iterations(iterations, 50)
         self.assertEqual(len(evaluations), 49)
         self.assertEqual(max(evaluations), iterations)
+
+    def test_rsl_minibatch_uses_rollout_transitions_not_brax_batch_size(self):
+        self.assertEqual(rsl_minibatch_size(4096, 20, 16), 5120)
+        self.assertEqual(rsl_minibatch_size(2048, 20, 8), 5120)
+        with self.assertRaisesRegex(ValueError, "must be divisible"):
+            rsl_minibatch_size(3, 5, 4)
+
+    def test_training_rng_streams_are_distinct_and_repeatable(self):
+        keys = _training_rng_keys(7)
+        repeated = _training_rng_keys(7)
+        self.assertEqual(len(keys), 3)
+        for key, repeated_key in zip(keys, repeated, strict=True):
+            np.testing.assert_array_equal(key, repeated_key)
+        self.assertFalse(np.array_equal(keys[0], keys[1]))
+        self.assertFalse(np.array_equal(keys[0], keys[2]))
+        self.assertFalse(np.array_equal(keys[1], keys[2]))
+
+    def test_episode_reward_uses_brax_sum_reward(self):
+        metrics = _EpisodeMetrics()
+        metrics.update(
+            {
+                "length": torch.tensor([4.0]),
+                "reward": torch.tensor([0.0]),
+                "sum_reward": torch.tensor([8.0]),
+                "velocity_per_step": torch.tensor([2.0]),
+            },
+            torch.tensor([True]),
+        )
+        means = metrics.means()
+        self.assertEqual(means["reward"], 8.0)
+        self.assertEqual(means["sum_reward"], 8.0)
+        self.assertEqual(means["velocity_per_step"], 0.5)
+
+    def test_diagonal_gaussian_kl_is_zero_only_for_same_policy(self):
+        old_mean = torch.zeros((2, 3))
+        old_std = torch.ones((2, 3))
+        self.assertAlmostEqual(
+            float(
+                _diagonal_gaussian_kl(
+                    old_mean, old_std, old_mean.clone(), old_std.clone()
+                )
+            ),
+            0.0,
+            places=7,
+        )
+        shifted = _diagonal_gaussian_kl(
+            old_mean, old_std, torch.full((2, 3), 0.25), old_std
+        )
+        self.assertGreater(float(shifted), 0.0)
 
     def test_jax_evaluator_exactly_matches_torch_actor_mean(self):
         torch.manual_seed(3)
