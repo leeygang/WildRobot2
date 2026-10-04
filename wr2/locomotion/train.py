@@ -1,4 +1,4 @@
-"""Smoke-test or train WR2's phase-guided Brax PPO walking environment."""
+"""Smoke-test or train WR2's phase-guided MJX PPO walking environment."""
 
 from __future__ import annotations
 
@@ -304,6 +304,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     print("=" * 72)
     print(f"  Run ID:       {run_id}")
     print(f"  Output:       {output}")
+    print(f"  PPO backend:  {training_config.ppo.backend}")
     print(f"  JAX backend:  {backend}")
     print(f"  Devices:      {devices}")
     print(
@@ -319,6 +320,14 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     )
     print(f"  Environments: {training_config.ppo.num_envs:,}")
     print(f"  Target steps: {training_config.ppo.num_timesteps:,}")
+    if training_config.ppo.backend == "rsl_rl":
+        from wr2.locomotion.rsl_rl_training import learning_iterations
+
+        print(
+            "  Iterations:   "
+            f"{learning_iterations(training_config.ppo.num_timesteps, training_config.ppo.num_envs, training_config.ppo.unroll_length):,} "
+            f"x {training_config.ppo.num_envs * training_config.ppo.unroll_length:,} steps"
+        )
     print(f"  Episode:      {training_config.environment.episode_length} steps")
     print(
         "  Evaluation:   "
@@ -345,6 +354,12 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         f"value={list(training_config.network.value_hidden_layer_sizes)} "
         f"activation={training_config.network.activation} "
         f"distribution={training_config.network.distribution_type}"
+    )
+    print(
+        "  Optimizer:    "
+        f"lr={training_config.ppo.learning_rate:.2e} "
+        f"schedule={training_config.ppo.learning_rate_schedule} "
+        f"desired_kl={training_config.ppo.desired_kl:.3f}"
     )
     print(f"  Randomized:   {training_config.environment.randomization.enabled}")
     if args.restore_checkpoint is not None:
@@ -390,7 +405,12 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         if selection_score <= best_selection_score:
             return
         best_selection_score = selection_score
-        model.save_params(output / "best_params", params)
+        if training_config.ppo.backend == "rsl_rl":
+            import torch
+
+            torch.save(params, output / "best_params.pt")
+        else:
+            model.save_params(output / "best_params", params)
         (output / "best_checkpoint.json").write_text(
             json.dumps(candidate, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
@@ -444,6 +464,9 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 value = metric(f"episode/{name}")
                 return "n/a" if value is None else format(value, format_spec)
 
+            def rollout_show_loss(value: float | None) -> str:
+                return "n/a" if value is None else format(value, ".4f")
+
             left_contact = metric("episode/left_foot_contact_per_step")
             right_contact = metric("episode/right_foot_contact_per_step")
             minimum_swing = (
@@ -465,6 +488,16 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 f"|residual|={rollout_show('action_abs_mean_per_step')}",
                 flush=True,
             )
+            learning_rate = metric("training/learning_rate")
+            if learning_rate is not None:
+                print(
+                    "  └─ ppo   : "
+                    f"loss={rollout_show_loss(metric('training/total_loss'))} "
+                    f"policy={rollout_show_loss(metric('training/policy_loss'))} "
+                    f"value={rollout_show_loss(metric('training/v_loss'))} "
+                    f"lr={learning_rate:.2e}",
+                    flush=True,
+                )
             return
 
         steps_per_second = metric("training/sps")
@@ -663,6 +696,22 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         else make_domain_randomizer(environment.config.randomization)
     )
     ppo_config = training_config.ppo
+    if ppo_config.backend == "rsl_rl":
+        from wr2.locomotion.rsl_rl_training import train_rsl_ppo
+
+        train_rsl_ppo(
+            environment,
+            evaluation_environment,
+            training_config,
+            output=output,
+            restore_checkpoint=args.restore_checkpoint,
+            progress_fn=progress,
+            policy_params_fn=receive_policy_params,
+            randomization_fn=randomization_fn,
+            allow_cpu=args.allow_cpu,
+        )
+        return
+
     network_factory = make_network_factory(training_config.network)
     checkpoint_path = (
         str(output / "checkpoints")
@@ -691,6 +740,10 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         num_minibatches=ppo_config.num_minibatches,
         num_updates_per_batch=ppo_config.num_updates_per_batch,
         normalize_observations=ppo_config.normalize_observations,
+        normalize_advantage=ppo_config.normalize_advantage,
+        vf_loss_coefficient=ppo_config.value_loss_coef,
+        desired_kl=ppo_config.desired_kl,
+        learning_rate_schedule=ppo_config.learning_rate_schedule,
         network_factory=network_factory,
         randomization_fn=randomization_fn,
         seed=training_config.seed,
@@ -733,6 +786,8 @@ def _apply_cli_overrides(
         for name in ppo_fields
         if getattr(args, name) is not None
     }
+    if args.backend is not None:
+        ppo_overrides["backend"] = args.backend
     ppo_config = replace(training_config.ppo, **ppo_overrides)
 
     environment = training_config.environment
@@ -766,6 +821,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--smoke", action="store_true", help="Run JIT reset/step only")
     parser.add_argument("--smoke-steps", type=int, default=20)
     parser.add_argument("--num-timesteps", type=int, default=None)
+    parser.add_argument(
+        "--backend",
+        choices=("rsl_rl", "brax"),
+        default=None,
+        help="Override ppo.backend from the YAML",
+    )
     parser.add_argument("--num-envs", type=int, default=None)
     parser.add_argument("--num-evals", type=int, default=None)
     parser.add_argument("--num-eval-envs", type=int, default=None)
@@ -799,7 +860,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--restore-checkpoint",
         type=Path,
-        help="Resume from a Brax checkpoint directory in a new output run",
+        help="Resume from an RSL-RL .pt file or Brax checkpoint directory",
     )
     return parser.parse_args()
 

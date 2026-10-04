@@ -197,11 +197,14 @@ The trainer generates a run ID such as
 directory or `--run-id` to supply an explicit ID. Each run also receives an
 effective `training_config.yaml` snapshot after CLI overrides. The full config
 uses 512/256/128 policy and value networks and one billion environment steps.
-Brax checkpoints are written after each evaluation. During gait acquisition,
-`best_params` uses a hard-safe score dominated by survival, forward-speed
-ratio, contact-phase progress, and reduced double support; this prevents the
-strict final walking score from selecting a stationary policy. `params` stores
-the final policy. The active v0.15.0 acquisition config trains and evaluates at
+The default RSL-RL backend writes a full `.pt` checkpoint after each evaluation;
+it includes actor/critic parameters, optimizer state, adaptive learning rate,
+iteration/step counters, and Torch RNG state. `--backend brax` retains the JAX
+baseline. During gait acquisition, `best_params.pt` uses a hard-safe score
+dominated by survival, forward-speed ratio, contact-phase progress, and reduced
+double support; this prevents the strict final walking score from selecting a
+stationary policy. `params.pt` stores the final full state. The active v0.16.0
+acquisition config trains and evaluates at
 a fixed 0.05 m/s while retaining 20% standing commands. This gives the strict
 ToddlerBot velocity reward a measurable gradient from rest; command range is
 expanded only after the policy demonstrates positive forward motion.
@@ -268,14 +271,16 @@ complete metric dictionary is retained in `training_metrics.jsonl`. Known
 optional-Warp, Brax-maintenance, and XLA autotuning notices are suppressed;
 errors remain visible.
 
-The default optimizer remains Brax PPO for v0.13.0. ToddlerBot's RSL-RL path is
-not a drop-in optimizer flag: it adds PyTorch and RSL-RL, a JAX-to-Torch vector
-environment, a custom runner/checkpoint path, and a framework boundary on every
-environment step. ToddlerBot's checked-in Torch 2.3.1 pin also predates the RTX
-5070. WR2 will migrate only after a current-Torch prototype passes
-checkpoint/evaluation parity and shows no material throughput or peak-memory
-regression against Brax on the target GPU. This backend choice does not change
-the MJX environment, policy inputs, rewards, or domain randomization.
+The default optimizer is RSL-RL PPO, matching ToddlerBot's active path. It uses
+the same Normal residual policy and 512/256/128 actor/critic layout, with
+adaptive learning-rate scheduling around a desired KL of 0.01. The bridge keeps
+MJX dynamics in JAX and converts observations/actions through DLPack at each
+control step. Deterministic checkpoint evaluation copies only the actor MLP to
+JAX, so both backends use Brax's identical evaluator and metric aggregation.
+`--backend brax` remains available for measured A/B comparisons. WR2 uses Torch
+2.7--2.8 instead of ToddlerBot's 2.3.1 because the latter predates RTX 50-series
+CUDA support. This hardware compatibility exception does not change the MJX
+environment, policy inputs, rewards, or domain randomization.
 
 Before hardware deployment, complete the remaining gates:
 

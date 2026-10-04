@@ -122,6 +122,7 @@ class WalkingEnvConfig:
 
 @dataclass(frozen=True)
 class PPOConfig:
+    backend: str
     num_timesteps: int
     num_envs: int
     num_evals: int
@@ -138,6 +139,10 @@ class PPOConfig:
     num_minibatches: int
     num_updates_per_batch: int
     normalize_observations: bool
+    normalize_advantage: bool
+    value_loss_coef: float
+    desired_kl: float
+    learning_rate_schedule: str
     training_metrics_steps: int
 
 
@@ -463,12 +468,26 @@ def load_training_config(
         },
         **{
             name: _float(ppo_raw[name], f"ppo.{name}")
-            for name in ppo_fields - ppo_integer_fields - {"normalize_observations"}
+            for name in ppo_fields
+            - ppo_integer_fields
+            - {
+                "backend",
+                "normalize_observations",
+                "normalize_advantage",
+                "learning_rate_schedule",
+            }
         },
+        backend=str(ppo_raw["backend"]),
         normalize_observations=_bool(
             ppo_raw["normalize_observations"], "ppo.normalize_observations"
         ),
+        normalize_advantage=_bool(
+            ppo_raw["normalize_advantage"], "ppo.normalize_advantage"
+        ),
+        learning_rate_schedule=str(ppo_raw["learning_rate_schedule"]),
     )
+    if ppo.backend not in {"rsl_rl", "brax"}:
+        raise ValueError("ppo.backend must be rsl_rl or brax")
     if ppo.learning_rate <= 0.0:
         raise ValueError("ppo.learning_rate must be positive")
     if ppo.entropy_cost < 0.0:
@@ -481,6 +500,12 @@ def load_training_config(
         raise ValueError("ppo.clipping_epsilon must be positive")
     if ppo.max_grad_norm <= 0.0:
         raise ValueError("ppo.max_grad_norm must be positive")
+    if ppo.value_loss_coef < 0.0:
+        raise ValueError("ppo.value_loss_coef must be non-negative")
+    if ppo.desired_kl <= 0.0:
+        raise ValueError("ppo.desired_kl must be positive")
+    if ppo.learning_rate_schedule not in {"adaptive", "fixed"}:
+        raise ValueError("ppo.learning_rate_schedule must be adaptive or fixed")
     if ppo.evaluation_forward_command_m_s <= 0.0:
         raise ValueError("ppo.evaluation_forward_command_m_s must be positive")
     if not (

@@ -70,6 +70,10 @@ def evaluate_checkpoint(
 
         from wr2.locomotion.domain_randomization import make_domain_randomizer
         from wr2.locomotion.ppo import make_network_factory
+        from wr2.locomotion.rsl_rl_training import (
+            _jax_policy_factory,
+            load_rsl_actor_parameters,
+        )
         from wr2.locomotion.walking_env import WR2WalkingEnv
 
     if jax.default_backend() != "gpu" and not allow_cpu:
@@ -78,34 +82,43 @@ def evaluate_checkpoint(
             "for an intentional development evaluation"
         )
     checkpoint_path = checkpoint_path.resolve()
-    if not checkpoint_path.is_dir():
-        raise FileNotFoundError(
-            f"Checkpoint directory does not exist: {checkpoint_path}"
-        )
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint_path}")
 
     config = load_training_config(config_path)
+    rsl_checkpoint = checkpoint_path.is_file()
+    if rsl_checkpoint:
+        params = load_rsl_actor_parameters(checkpoint_path)
+        eval_policy_factory = _jax_policy_factory(config.network.activation)
+    else:
+        eval_environment_config = replace(
+            config.environment,
+            command_forward_range_m_s=(
+                config.ppo.evaluation_forward_command_m_s,
+                config.ppo.evaluation_forward_command_m_s,
+            ),
+            zero_command_probability=0.0,
+        )
+        network_environment = WR2WalkingEnv(
+            eval_environment_config, add_observation_noise=False
+        )
+        network_factory = make_network_factory(config.network)
+        preprocess = (
+            running_statistics.normalize
+            if config.ppo.normalize_observations
+            else types.identity_observation_preprocessor
+        )
+        networks = network_factory(
+            network_environment.observation_size,
+            network_environment.action_size,
+            preprocess_observations_fn=preprocess,
+        )
+        make_policy = ppo_networks.make_inference_fn(networks)
+        params = checkpoint.load(str(checkpoint_path))
+        eval_policy_factory = functools.partial(make_policy, deterministic=True)
     commands = tuple(
         forward_commands_m_s or (config.ppo.evaluation_forward_command_m_s,)
     )
-    eval_environment_config = replace(
-        config.environment,
-        command_forward_range_m_s=(commands[0], commands[0]),
-        zero_command_probability=0.0,
-    )
-    environment = WR2WalkingEnv(eval_environment_config, add_observation_noise=False)
-    network_factory = make_network_factory(config.network)
-    preprocess = (
-        running_statistics.normalize
-        if config.ppo.normalize_observations
-        else types.identity_observation_preprocessor
-    )
-    networks = network_factory(
-        environment.observation_size,
-        environment.action_size,
-        preprocess_observations_fn=preprocess,
-    )
-    make_policy = ppo_networks.make_inference_fn(networks)
-    params = checkpoint.load(str(checkpoint_path))
     randomizer = (
         make_domain_randomizer(config.environment.randomization)
         if config.environment.randomization.enabled
@@ -145,7 +158,7 @@ def evaluate_checkpoint(
             )
             evaluator = acting.Evaluator(
                 wrapped,
-                functools.partial(make_policy, deterministic=True),
+                eval_policy_factory,
                 num_eval_envs=num_envs,
                 episode_length=config.environment.episode_length,
                 action_repeat=1,
@@ -192,6 +205,7 @@ def evaluate_checkpoint(
     return {
         "schema_version": 1,
         "checkpoint": str(checkpoint_path),
+        "backend": "rsl_rl" if rsl_checkpoint else "brax",
         "config": str(config_path.resolve()),
         "commands_forward_m_s": list(commands),
         "num_envs_per_seed": num_envs,

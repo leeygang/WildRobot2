@@ -64,7 +64,9 @@ restrained hardware validation or the inclusive 80 C shutdown.
 uv run --extra training python -m wr2.agents.walking_training_agent
 ```
 
-Use `--resume-checkpoint PATH` to warm-start the first cycle. Brax checkpoints
+Use `--resume-checkpoint PATH` to warm-start the first cycle. The default RSL-RL
+`.pt` checkpoints contain policy, critic, optimizer, adaptive learning rate,
+training counters, and Torch RNG state. Legacy Brax checkpoint directories
 contain the observation normalizer, policy, and critic, but not optimizer
 state; cycle boundaries therefore restart Adam while preserving the learned
 networks.

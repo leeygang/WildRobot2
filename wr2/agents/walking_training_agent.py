@@ -425,14 +425,15 @@ def select_cycle_candidate(
     """Select the highest walking-score checkpoint satisfying hard invariants."""
     training = load_training_config(run_directory / "training_config.yaml")
     checkpoint_root = checkpoint_root or run_directory / "checkpoints"
+    checkpoint_suffix = ".pt" if training.ppo.backend == "rsl_rl" else ""
     candidates: list[Candidate] = []
     rejected: list[str] = []
     for row in _read_metric_rows(run_directory / "training_metrics.jsonl"):
         step = int(row.get("step", 0))
         if step <= 0:
             continue
-        checkpoint = checkpoint_root / f"{step:012d}"
-        if require_local_checkpoint and not checkpoint.is_dir():
+        checkpoint = checkpoint_root / f"{step:012d}{checkpoint_suffix}"
+        if require_local_checkpoint and not checkpoint.exists():
             rejected.append(f"step {step}: checkpoint missing")
             continue
         try:
@@ -567,7 +568,7 @@ def run_local(args: argparse.Namespace, config: WalkingAgentConfig) -> int:
     current_checkpoint = (
         Path(args.resume_checkpoint).resolve() if args.resume_checkpoint else None
     )
-    if current_checkpoint is not None and not current_checkpoint.is_dir():
+    if current_checkpoint is not None and not current_checkpoint.exists():
         raise WalkingAgentError(
             f"Initial checkpoint does not exist: {current_checkpoint}"
         )

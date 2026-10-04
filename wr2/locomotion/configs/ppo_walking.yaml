@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy and using a fixed-speed curriculum to acquire forward motion.
-version: "0.15.0"
-version_name: "WR2 fixed-speed forward gait acquisition"
+version: "0.16.0"
+version_name: "WR2 ToddlerBot-aligned RSL-RL gait acquisition"
 seed: 0
 
 environment:
@@ -143,6 +143,9 @@ domain_randomization:
   passive_active_ratio_scale: [1.0, 1.0]
 
 ppo:
+  # ToddlerBot's active training path uses RSL-RL/Torch. Keep `brax` as an
+  # explicit A/B baseline, not as the default optimizer.
+  backend: rsl_rl
   num_timesteps: 1000000000
   num_envs: 2048
   num_evals: 50
@@ -165,6 +168,11 @@ ppo:
   # Match ToddlerBot's active PPO configuration; all actor features already
   # have explicit physical scaling.
   normalize_observations: false
+  normalize_advantage: true
+  # ToddlerBot's active RSL-RL PPO optimizer settings.
+  value_loss_coef: 0.25
+  desired_kl: 0.01
+  learning_rate_schedule: adaptive
 
 network:
   policy_hidden_layer_sizes: [512, 256, 128]

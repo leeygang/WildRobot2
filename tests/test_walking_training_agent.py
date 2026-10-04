@@ -207,7 +207,9 @@ class WalkingTrainingAgentTest(unittest.TestCase):
                 encoding="utf-8",
             )
             for step in (100, 200):
-                (run / "checkpoints" / f"{step:012d}").mkdir(parents=True)
+                checkpoint = run / "checkpoints" / f"{step:012d}.pt"
+                checkpoint.parent.mkdir(parents=True, exist_ok=True)
+                checkpoint.touch()
 
             candidate = select_cycle_candidate(
                 run,
@@ -257,7 +259,9 @@ class WalkingTrainingAgentTest(unittest.TestCase):
                 encoding="utf-8",
             )
             for step in (100, 200):
-                (run / "checkpoints" / f"{step:012d}").mkdir(parents=True)
+                checkpoint = run / "checkpoints" / f"{step:012d}.pt"
+                checkpoint.parent.mkdir(parents=True, exist_ok=True)
+                checkpoint.touch()
 
             candidate = select_cycle_candidate(
                 run,

@@ -301,7 +301,9 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
 
         self.assertIsNotNone(candidate)
         assert candidate is not None
-        self.assertEqual(candidate.checkpoint, Path(str(remote_root / "000000000100")))
+        self.assertEqual(
+            candidate.checkpoint, Path(str(remote_root / "000000000100.pt"))
+        )
         self.assertTrue(report["selected"]["required_passed"])
 
     def test_confirmation_requires_every_command_and_seed(self):

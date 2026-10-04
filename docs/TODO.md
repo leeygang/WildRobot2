@@ -26,10 +26,11 @@ completed before treating a policy as deployment-qualified.
 - [ ] Warm-start v0.15.0 from the v0.14.0 12,042,240-step checkpoint and run a
   20M fixed-0.05-m/s acquisition canary. Require positive forward velocity
   before expanding the active command curriculum back toward 0.10 m/s.
-- [ ] Prototype the ToddlerBot RSL-RL path with a current RTX-5070-compatible
-  PyTorch build. Migrate from Brax only if checkpoint/evaluation behavior is
-  equivalent and measured throughput and peak GPU memory are not materially
-  worse on the target GPU.
+- [x] Implement the ToddlerBot RSL-RL path with adaptive-KL scheduling, a
+  current RTX-5070-compatible PyTorch build, full-state checkpoint resume, and
+  the same deterministic MJX evaluator/metrics used by Brax.
+- [ ] Measure RSL-RL throughput and peak GPU memory against the Brax baseline on
+  the RTX 5070 before committing the full one-billion-step acquisition run.
 - [x] Align acquisition and evaluation with ToddlerBot's active strict
   `exp(-1000 * velocity_error^2)` kernel (`sigma=0.0316 m/s`). Keep it fixed in
   the v0.11.x canaries so command sampling is the only new mechanism.

@@ -25,6 +25,10 @@ training = [
     "jax[cuda12]>=0.6,<0.7; sys_platform != 'darwin'",
     "mujoco>=3.3,<4",
     "mujoco-mjx>=3.3,<4",
+    "rsl-rl-lib==2.3.3",
+    # ToddlerBot pins 2.3.1, but RTX 50-series GPUs require newer Torch CUDA
+    # support. RSL-RL 2.3.3 supports the current 2.x API.
+    "torch>=2.7,<2.9",
     "wandb",
 ]
 hardware = [

@@ -518,12 +518,15 @@ def _acceptance_contract(config: WalkingAgentConfig) -> dict[str, Any]:
 
 
 def _training_compatibility(config: WalkingAgentConfig) -> dict[str, Any]:
-    """Identify changes that invalidate the existing Brax parameter tree."""
+    """Identify changes that invalidate the active PPO parameter tree."""
     training = load_training_config(config.base_training_config)
     ppo_source = (REPO_ROOT / "wr2/locomotion/ppo.py").read_bytes()
+    rsl_source = (REPO_ROOT / "wr2/locomotion/rsl_rl_training.py").read_bytes()
     return {
+        "backend": training.ppo.backend,
         "network": asdict(training.network),
         "ppo_source_sha256": hashlib.sha256(ppo_source).hexdigest(),
+        "rsl_source_sha256": hashlib.sha256(rsl_source).hexdigest(),
     }
 
 
@@ -1372,7 +1375,7 @@ def _run_campaign(args: argparse.Namespace) -> int:
                 if current_checkpoint:
                     checkpoint_status = _remote_output(
                         context,
-                        f"test -d {shlex.quote(current_checkpoint)} && printf present",
+                        f"test -e {shlex.quote(current_checkpoint)} && printf present",
                     )
                     if checkpoint_status != "present":
                         raise AutonomousWalkingError(
@@ -1414,7 +1417,7 @@ def _run_campaign(args: argparse.Namespace) -> int:
                 if candidate is not None:
                     remote_exists = _remote_output(
                         context,
-                        f"test -d {shlex.quote(str(candidate.checkpoint))} && "
+                        f"test -e {shlex.quote(str(candidate.checkpoint))} && "
                         "printf present",
                     )
                     if remote_exists != "present":

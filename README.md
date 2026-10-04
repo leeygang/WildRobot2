@@ -4,8 +4,9 @@ WildRobot2 is a clean, ToddlerBot-aligned software stack for the second
 WildRobot hardware generation.
 
 The repository contains the canonical WR2 MuJoCo model, a versioned
-action/observation contract, and the first flat-ground Brax/MJX walking
-environment. A bench-only HTD-45H qualification driver is included; full
+action/observation contract, and the first flat-ground MJX walking environment
+with ToddlerBot-aligned RSL-RL and Brax PPO backends. A bench-only HTD-45H
+qualification driver is included; full
 robot hardware drivers and policy deployment remain future phases.
 
 ## Architecture
@@ -114,3 +115,4 @@ directly below remote `results/` can be used as a result group; run with
 - [ToddlerBot project](https://toddlerbot.github.io/)
 - [ToddlerBot paper](https://arxiv.org/abs/2502.00893)
 - [ToddlerBot source](https://github.com/hshi74/toddlerbot)
+- [RSL-RL project](https://github.com/leggedrobotics/rsl_rl)
