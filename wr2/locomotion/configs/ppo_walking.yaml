@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
-# policy and using a fixed-speed curriculum to acquire forward motion.
-version: "0.16.1"
-version_name: "WR2 corrected ToddlerBot-aligned RSL-RL gait acquisition"
+# policy and using a forward-speed curriculum after gait acquisition.
+version: "0.17.0"
+version_name: "WR2 ToddlerBot-aligned RSL-RL forward curriculum"
 seed: 0
 
 environment:
@@ -21,13 +21,12 @@ environment:
   # domain-randomization path rather than unconditional reset noise.
   reset_joint_noise_rad: 0.0
   reset_velocity_noise_rad_s: 0.0
-  # The v0.14 canary acquired a stable bilateral gait but moved backward: its
-  # mixed 0.05--0.10 m/s commands often placed a cold policy outside the
-  # strict ToddlerBot velocity kernel's useful gradient. Hold active commands
-  # at 0.05 m/s until forward motion is acquired, then expand the curriculum.
+  # The v0.16.1 policy acquired robust 0.05 m/s forward walking from a cold
+  # start. Warm-start its best checkpoint and expand continuously to 0.10 m/s,
+  # matching the positive half of ToddlerBot's active command envelope.
   # Standing remains an explicit part of every episode through the zero-command
   # probability below.
-  command_forward_range_m_s: [0.05, 0.05]
+  command_forward_range_m_s: [0.05, 0.10]
   command_lateral_range_m_s: [0.0, 0.0]
   command_yaw_range_rad_s: [0.0, 0.0]
   zero_command_probability: 0.20
@@ -150,8 +149,8 @@ ppo:
   num_envs: 2048
   num_evals: 50
   num_eval_envs: 128
-  # Score this acquisition experiment at the same speed used for learning.
-  evaluation_forward_command_m_s: 0.05
+  # Select checkpoints at the new curriculum frontier.
+  evaluation_forward_command_m_s: 0.10
   learning_rate: 0.00003
   entropy_cost: 0.0005
   discounting: 0.97
