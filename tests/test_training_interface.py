@@ -225,7 +225,7 @@ class TrainingInterfaceTest(unittest.TestCase):
             self.training_config.environment.torque_exposure_time_constant_s, 0.0
         )
         environment = self.training_config.environment
-        self.assertEqual(environment.command_forward_range_m_s, (0.05, 0.10))
+        self.assertEqual(environment.command_forward_range_m_s, (0.10, 0.10))
         self.assertGreaterEqual(environment.command_forward_range_m_s[0], 0.0)
         self.assertEqual(environment.command_lateral_range_m_s, (0.0, 0.0))
         self.assertEqual(environment.command_yaw_range_rad_s, (0.0, 0.0))
