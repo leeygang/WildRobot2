@@ -15,6 +15,7 @@ DEFAULT_TRAINING_CONFIG_PATH = Path(__file__).with_name("ppo_walking.yaml")
 @dataclass(frozen=True)
 class RewardWeights:
     velocity_xy: float
+    forward_progress: float
     yaw_rate: float
     angular_velocity_xy: float
     upright: float

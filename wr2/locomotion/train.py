@@ -112,6 +112,25 @@ def _acquisition_checkpoint_score(
     )
 
 
+def _checkpoint_evaluation_commands(
+    command_range_m_s: tuple[float, float], primary_command_m_s: float
+) -> tuple[float, ...]:
+    """Return sorted range endpoints plus the configured primary command."""
+    values = (*command_range_m_s, primary_command_m_s)
+    commands: list[float] = []
+    for value in sorted(values):
+        if not commands or not math.isclose(value, commands[-1], abs_tol=1e-9):
+            commands.append(float(value))
+    return tuple(commands)
+
+
+def _worst_endpoint_score(scores: list[float | None]) -> float | None:
+    """Return the conservative score only when every endpoint was evaluated."""
+    if not scores or any(score is None for score in scores):
+        return None
+    return min(float(score) for score in scores if score is not None)
+
+
 def _validate_training_zmp_reference(
     training_config: TrainingConfig,
 ):
@@ -279,16 +298,32 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         training_config.environment,
         add_observation_noise=True,
     )
-    evaluation_environment = WR2WalkingEnv(
-        replace(
-            training_config.environment,
-            command_forward_range_m_s=(
-                training_config.ppo.evaluation_forward_command_m_s,
-                training_config.ppo.evaluation_forward_command_m_s,
+    evaluation_commands = _checkpoint_evaluation_commands(
+        training_config.environment.command_forward_range_m_s,
+        training_config.ppo.evaluation_forward_command_m_s,
+    )
+    evaluation_environments = tuple(
+        (
+            command,
+            WR2WalkingEnv(
+                replace(
+                    training_config.environment,
+                    command_forward_range_m_s=(command, command),
+                    zero_command_probability=0.0,
+                ),
+                add_observation_noise=False,
             ),
-            zero_command_probability=0.0,
-        ),
-        add_observation_noise=False,
+        )
+        for command in evaluation_commands
+    )
+    evaluation_environment = next(
+        environment
+        for command, environment in evaluation_environments
+        if math.isclose(
+            command,
+            training_config.ppo.evaluation_forward_command_m_s,
+            abs_tol=1e-9,
+        )
     )
     output_root = Path(training_config.output.root)
     if not output_root.is_absolute():
@@ -333,7 +368,9 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         "  Evaluation:   "
         f"{training_config.ppo.num_evals} evaluations x "
         f"{training_config.ppo.num_eval_envs} parallel episodes; "
-        f"fixed {training_config.ppo.evaluation_forward_command_m_s:.2f}m/s forward"
+        "fixed endpoints "
+        f"{[round(command, 3) for command in evaluation_commands]}m/s forward; "
+        f"primary={training_config.ppo.evaluation_forward_command_m_s:.2f}m/s"
     )
     print(
         "  Gait:         "
@@ -481,6 +518,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 f"Rollout [{_format_duration(elapsed_s)}] steps={step:,} | "
                 f"ep_len={rollout_show('length', '.0f')} "
                 f"vx={rollout_show('forward_velocity_m_s_per_step')} "
+                f"progress={rollout_show('forward_progress_per_step')} "
                 f"contact={rollout_show('contact_phase_match_per_step', '.1%')} "
                 f"min_swing={minimum_swing_text} "
                 f"sat={rollout_show('action_saturation_fraction_per_step', '.1%')} "
@@ -538,6 +576,91 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 contact_match=contact_match,
                 double_support=double_support,
             )
+        endpoint_evaluations = []
+        for endpoint_index, command in enumerate(evaluation_commands):
+            prefix = f"eval_endpoint_{endpoint_index}/"
+
+            def endpoint_metric(name: str) -> float | None:
+                return metric(f"{prefix}{name}")
+
+            endpoint_episode_length = endpoint_metric("avg_episode_length")
+            endpoint_velocity_error = endpoint_metric(
+                "episode_forward_velocity_error_m_s_per_step"
+            )
+            endpoint_contact_match = endpoint_metric(
+                "episode_contact_phase_match_per_step"
+            )
+            endpoint_double_support = endpoint_metric("episode_double_support_per_step")
+            endpoint_walking_score = None
+            if all(
+                value is not None
+                for value in (
+                    endpoint_episode_length,
+                    endpoint_velocity_error,
+                    endpoint_contact_match,
+                    endpoint_double_support,
+                )
+            ):
+                endpoint_walking_score = calculate_walking_score(
+                    episode_length=endpoint_episode_length,
+                    target_episode_length=(training_config.environment.episode_length),
+                    velocity_error_m_s=endpoint_velocity_error,
+                    velocity_sigma_m_s=(
+                        training_config.environment.velocity_tracking_sigma
+                    ),
+                    contact_match=endpoint_contact_match,
+                    double_support=endpoint_double_support,
+                )
+            endpoint_forward_velocity = endpoint_metric(
+                "episode_forward_velocity_m_s_per_step"
+            )
+            endpoint_fall_rate = endpoint_metric("episode_fall")
+            endpoint_action_saturation = endpoint_metric(
+                "episode_action_saturation_fraction_per_step"
+            )
+            endpoint_nonfinite = endpoint_metric("episode_nonfinite_state")
+            endpoint_peak_torque = endpoint_metric(
+                "episode_actuator_torque_peak_nm_per_step"
+            )
+            endpoint_acquisition_score = None
+            if all(
+                value is not None
+                for value in (
+                    endpoint_episode_length,
+                    endpoint_fall_rate,
+                    endpoint_forward_velocity,
+                    endpoint_contact_match,
+                    endpoint_double_support,
+                    endpoint_action_saturation,
+                    endpoint_nonfinite,
+                    endpoint_peak_torque,
+                )
+            ):
+                endpoint_acquisition_score = _acquisition_checkpoint_score(
+                    episode_length=endpoint_episode_length,
+                    target_episode_length=(training_config.environment.episode_length),
+                    fall_rate=endpoint_fall_rate,
+                    command_forward_m_s=command,
+                    forward_velocity_m_s=endpoint_forward_velocity,
+                    contact_match=endpoint_contact_match,
+                    double_support=endpoint_double_support,
+                    action_saturation=endpoint_action_saturation,
+                    nonfinite_state=endpoint_nonfinite,
+                    mean_step_peak_torque_nm=endpoint_peak_torque,
+                )
+            endpoint_evaluations.append(
+                {
+                    "command_forward_m_s": command,
+                    "episode_length": endpoint_episode_length,
+                    "fall_rate": endpoint_fall_rate,
+                    "forward_velocity_m_s": endpoint_forward_velocity,
+                    "velocity_error_m_s": endpoint_velocity_error,
+                    "contact_match": endpoint_contact_match,
+                    "double_support": endpoint_double_support,
+                    "walking_score": endpoint_walking_score,
+                    "acquisition_score": endpoint_acquisition_score,
+                }
+            )
         with metrics_path.open("a") as stream:
             stream.write(
                 json.dumps(
@@ -548,6 +671,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                         "elapsed_s": elapsed_s,
                         "eta_s": eta_s,
                         "walking_score": walking_score,
+                        "endpoint_evaluations": endpoint_evaluations,
                         "metrics": serializable_metrics,
                     }
                 )
@@ -580,10 +704,20 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             f"cmd_vx={show(metric('eval/episode_command_forward_m_s_per_step'))} "
             f"vx={show(metric('eval/episode_forward_velocity_m_s_per_step'))} "
             f"|vx-cmd|={show(metric('eval/episode_forward_velocity_error_m_s_per_step'))} "
+            f"progress={show(metric('eval/episode_forward_progress_per_step'))} "
             f"vy={show(metric('eval/episode_lateral_velocity_m_s_per_step'))} "
             f"yaw_err={show(metric('eval/episode_yaw_rate_error_rad_s_per_step'))}",
             flush=True,
         )
+        if endpoint_evaluations:
+            endpoint_text = " | ".join(
+                f"{endpoint['command_forward_m_s']:.2f}:"
+                f"vx={show(endpoint['forward_velocity_m_s'])},"
+                f"fall={show(endpoint['fall_rate'], '.1%')},"
+                f"score={show(endpoint['acquisition_score'])}"
+                for endpoint in endpoint_evaluations
+            )
+            print(f"  └─ endpoints: {endpoint_text}", flush=True)
         tilt_rad = metric("eval/episode_torso_tilt_rad_per_step")
         left_contact = metric("eval/episode_left_foot_contact_per_step")
         right_contact = metric("eval/episode_right_foot_contact_per_step")
@@ -677,10 +811,17 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 nonfinite_state=nonfinite_state,
                 mean_step_peak_torque_nm=mean_step_peak_torque,
             )
+        selection_metric = training_config.checkpoints.selection_metric
+        endpoint_selection_score = _worst_endpoint_score(
+            [endpoint[f"{selection_metric}_score"] for endpoint in endpoint_evaluations]
+        )
+        primary_selection_score = (
+            acquisition_score if selection_metric == "acquisition" else walking_score
+        )
         selection_score = (
-            acquisition_score
-            if training_config.checkpoints.selection_metric == "acquisition"
-            else walking_score
+            endpoint_selection_score
+            if endpoint_selection_score is not None
+            else primary_selection_score
         )
         if training_config.checkpoints.keep_best and selection_score is not None:
             candidate = {
@@ -688,7 +829,13 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 "eval_episode_reward": episode_return,
                 "walking_score": walking_score,
                 "acquisition_score": acquisition_score,
-                "selection_metric": training_config.checkpoints.selection_metric,
+                "endpoint_evaluations": endpoint_evaluations,
+                "selection_metric": selection_metric,
+                "selection_scope": (
+                    "worst_endpoint"
+                    if endpoint_selection_score is not None
+                    else "primary_command"
+                ),
                 "selection_score": selection_score,
                 "evaluation": progress_index,
             }
@@ -712,7 +859,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
 
         train_rsl_ppo(
             environment,
-            evaluation_environment,
+            evaluation_environments,
             training_config,
             output=output,
             restore_checkpoint=args.restore_checkpoint,

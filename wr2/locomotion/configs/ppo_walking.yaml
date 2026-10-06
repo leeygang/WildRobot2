@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
-# policy and using a fixed frontier speed for gait acquisition.
-version: "0.18.0"
-version_name: "WR2 ToddlerBot-aligned 0.10 m/s gait acquisition"
+# policy with a temporary signed-progress scaffold for gait acquisition.
+version: "0.19.0"
+version_name: "WR2 signed-progress forward-range acquisition"
 seed: 0
 
 environment:
@@ -21,14 +21,12 @@ environment:
   # domain-randomization path rather than unconditional reset noise.
   reset_joint_noise_rad: 0.0
   reset_velocity_noise_rad_s: 0.0
-  # The v0.17.0 range curriculum produced a robust 0.10 m/s gait candidate at
-  # 20M steps, but later optimized reward while losing net forward speed. Use
-  # that checkpoint to acquire the 0.10 m/s frontier before consolidating the
-  # continuous command range. This is the same staged acquisition that made
-  # 0.05 m/s learnable; reward and policy semantics remain ToddlerBot-aligned.
+  # Two fixed-speed continuations plateaued below 0.06 m/s and destabilized the
+  # previously acquired 0.05 m/s gait. Restore the last range-stable checkpoint
+  # and train both endpoints together with the temporary progress term below.
   # Standing remains an explicit part of every episode through the zero-command
   # probability below.
-  command_forward_range_m_s: [0.10, 0.10]
+  command_forward_range_m_s: [0.05, 0.10]
   command_lateral_range_m_s: [0.0, 0.0]
   command_yaw_range_rad_s: [0.0, 0.0]
   zero_command_probability: 0.20
@@ -77,6 +75,11 @@ environment:
 
 reward_weights:
   velocity_xy: 2.0
+  # Temporary WR2 acquisition exception: bounded signed progress supplies
+  # linear credit for net displacement while the unchanged ToddlerBot Gaussian
+  # term retains precise velocity tracking. Set this back to 0.0 after the
+  # held-out 0.10 m/s policy reaches at least 0.07 m/s.
+  forward_progress: 1.0
   yaw_rate: 1.5
   angular_velocity_xy: -1.0
   upright: 2.5

@@ -13,7 +13,9 @@ from wr2.locomotion.configs import load_training_config
 from wr2.locomotion.ppo import make_network_factory
 from wr2.locomotion.train import (
     _acquisition_checkpoint_score,
+    _checkpoint_evaluation_commands,
     _create_run_directory,
+    _worst_endpoint_score,
 )
 from wr2.locomotion.walking_env import (
     WR2WalkingEnv,
@@ -21,6 +23,7 @@ from wr2.locomotion.walking_env import (
     feet_lateral_distance,
     feet_orientation_error,
     normalized_action_rate_cost,
+    normalized_signed_forward_progress,
     support_contact_active,
     torso_height_unhealthy,
 )
@@ -36,6 +39,20 @@ from wr2.sim import (
 
 
 class TrainingInterfaceTest(unittest.TestCase):
+    def test_checkpoint_evaluation_covers_both_command_endpoints(self):
+        self.assertEqual(
+            _checkpoint_evaluation_commands((0.05, 0.10), 0.10),
+            (0.05, 0.10),
+        )
+        self.assertEqual(
+            _checkpoint_evaluation_commands((0.10, 0.10), 0.10),
+            (0.10,),
+        )
+
+    def test_checkpoint_selection_uses_worst_complete_endpoint(self):
+        self.assertEqual(_worst_endpoint_score([0.8, 0.6]), 0.6)
+        self.assertIsNone(_worst_endpoint_score([0.8, None]))
+
     def test_acquisition_checkpoint_ranking_prefers_safe_motion_over_standing(self):
         common = {
             "episode_length": 1000.0,
@@ -66,6 +83,25 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
         self.assertGreater(walking, standing)
         self.assertEqual(unsafe, -math.inf)
+
+    def test_signed_progress_rewards_net_motion_and_disables_while_standing(self):
+        command = jp.asarray(0.10)
+        self.assertAlmostEqual(
+            float(normalized_signed_forward_progress(0.05, command, True)),
+            0.5,
+        )
+        self.assertAlmostEqual(
+            float(normalized_signed_forward_progress(-0.02, command, True)),
+            -0.2,
+        )
+        self.assertEqual(
+            float(normalized_signed_forward_progress(1.0, command, True)),
+            1.0,
+        )
+        self.assertEqual(
+            float(normalized_signed_forward_progress(0.05, 0.0, False)),
+            0.0,
+        )
 
     def test_walking_score_rejects_stationary_double_support(self):
         walking = walking_score(
@@ -225,7 +261,7 @@ class TrainingInterfaceTest(unittest.TestCase):
             self.training_config.environment.torque_exposure_time_constant_s, 0.0
         )
         environment = self.training_config.environment
-        self.assertEqual(environment.command_forward_range_m_s, (0.10, 0.10))
+        self.assertEqual(environment.command_forward_range_m_s, (0.05, 0.10))
         self.assertGreaterEqual(environment.command_forward_range_m_s[0], 0.0)
         self.assertEqual(environment.command_lateral_range_m_s, (0.0, 0.0))
         self.assertEqual(environment.command_yaw_range_rad_s, (0.0, 0.0))
@@ -252,6 +288,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertAlmostEqual(environment.velocity_reward_sigma**-2, 1000.0)
         self.assertAlmostEqual(environment.velocity_tracking_sigma**-2, 1000.0)
         self.assertEqual(environment.rewards.velocity_xy, 2.0)
+        self.assertEqual(environment.rewards.forward_progress, 1.0)
         self.assertEqual(environment.rewards.feet_phase, 7.5)
         self.assertEqual(environment.rewards.action_rate, -2.0)
         self.assertEqual(environment.rewards.pose, -0.5)

@@ -66,6 +66,17 @@ def normalized_action_rate_cost(
     return jp.sum(jp.square(action - previous_action))
 
 
+def normalized_signed_forward_progress(
+    forward_velocity_m_s: jax.Array,
+    command_forward_m_s: jax.Array,
+    is_walking: jax.Array,
+) -> jax.Array:
+    """Return bounded command-normalized progress for temporary acquisition."""
+    command_scale = jp.maximum(jp.abs(command_forward_m_s), 1e-6)
+    progress = jp.clip(forward_velocity_m_s / command_scale, -1.0, 1.0)
+    return jp.where(is_walking, progress, 0.0)
+
+
 def torso_height_unhealthy(
     torso_height_m: jax.Array,
     minimum_height_m: float,
@@ -820,6 +831,8 @@ class WR2WalkingEnv(PipelineEnv):
             "reward_per_step": zero,
             "velocity_xy": zero,
             "velocity_tracking_per_step": zero,
+            "forward_progress": zero,
+            "forward_progress_per_step": zero,
             "yaw_rate": zero,
             "yaw_tracking_per_step": zero,
             "angular_velocity_xy": zero,
@@ -1003,6 +1016,9 @@ class WR2WalkingEnv(PipelineEnv):
             -jp.sum(jp.square(linear_velocity[:2] - command[:2]))
             / self.config.velocity_reward_sigma**2
         )
+        forward_progress = normalized_signed_forward_progress(
+            linear_velocity[0], command[0], is_walking
+        )
         yaw_rate = jp.exp(
             -jp.square(angular_velocity[2] - command[2])
             / self.config.yaw_tracking_sigma**2
@@ -1088,6 +1104,7 @@ class WR2WalkingEnv(PipelineEnv):
         weights = self.config.rewards
         reward_rate = (
             weights.velocity_xy * velocity_xy
+            + weights.forward_progress * forward_progress
             + weights.yaw_rate * yaw_rate
             + weights.angular_velocity_xy * angular_velocity_xy_cost
             + weights.upright * upright
@@ -1229,6 +1246,8 @@ class WR2WalkingEnv(PipelineEnv):
             "reward_per_step": reward,
             "velocity_xy": velocity_xy,
             "velocity_tracking_per_step": velocity_xy,
+            "forward_progress": forward_progress,
+            "forward_progress_per_step": forward_progress,
             "yaw_rate": yaw_rate,
             "yaw_tracking_per_step": yaw_rate,
             "angular_velocity_xy": -angular_velocity_xy_cost,

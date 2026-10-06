@@ -240,6 +240,32 @@ def _jax_policy_factory(activation: str):
     return make_policy
 
 
+class _MultiCommandEvaluator:
+    """Evaluate fixed command endpoints and preserve primary eval metric names."""
+
+    def __init__(self, evaluators, *, primary_index: int) -> None:
+        self.evaluators = tuple(evaluators)
+        self.primary_index = primary_index
+
+    def run_evaluation(self, parameters, training_metrics):
+        merged = {}
+        for index, evaluator in enumerate(self.evaluators):
+            metrics = evaluator.run_evaluation(
+                parameters,
+                training_metrics if index == self.primary_index else {},
+            )
+            merged.update(
+                {
+                    f"eval_endpoint_{index}/{name.removeprefix('eval/')}": value
+                    for name, value in metrics.items()
+                    if name.startswith("eval/")
+                }
+            )
+            if index == self.primary_index:
+                merged.update(metrics)
+        return merged
+
+
 class RSLPPOTrainer:
     """Small PPO-only runner matching ToddlerBot's active RSL-RL settings."""
 
@@ -476,7 +502,7 @@ class RSLPPOTrainer:
 
 def train_rsl_ppo(
     environment,
-    evaluation_environment,
+    evaluation_environments,
     training_config,
     *,
     output: Path,
@@ -527,17 +553,36 @@ def train_rsl_ppo(
         episode_length=training_config.environment.episode_length,
         randomization_fn=vector_randomizer,
     )
-    wrapped_evaluation = env_training.wrap(
-        evaluation_environment,
-        episode_length=training_config.environment.episode_length,
+    policy_factory = _jax_policy_factory(training_config.network.activation)
+    command_evaluators = tuple(
+        (
+            command,
+            acting.Evaluator(
+                env_training.wrap(
+                    evaluation_environment,
+                    episode_length=training_config.environment.episode_length,
+                ),
+                policy_factory,
+                num_eval_envs=ppo.num_eval_envs,
+                episode_length=training_config.environment.episode_length,
+                action_repeat=1,
+                key=evaluation_rng,
+            ),
+        )
+        for command, evaluation_environment in evaluation_environments
     )
-    evaluator = acting.Evaluator(
-        wrapped_evaluation,
-        _jax_policy_factory(training_config.network.activation),
-        num_eval_envs=ppo.num_eval_envs,
-        episode_length=training_config.environment.episode_length,
-        action_repeat=1,
-        key=evaluation_rng,
+    primary_index = next(
+        index
+        for index, (command, _) in enumerate(command_evaluators)
+        if math.isclose(
+            command,
+            ppo.evaluation_forward_command_m_s,
+            abs_tol=1e-9,
+        )
+    )
+    evaluator = _MultiCommandEvaluator(
+        (evaluator for _, evaluator in command_evaluators),
+        primary_index=primary_index,
     )
     rsl_environment = RSLRLWrapper(
         wrapped_environment,

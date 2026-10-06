@@ -9,6 +9,7 @@ from rsl_rl.modules import ActorCritic
 
 from wr2.locomotion.rsl_rl_training import (
     _EpisodeMetrics,
+    _MultiCommandEvaluator,
     _actor_parameters_for_jax,
     _diagonal_gaussian_kl,
     _jax_policy_factory,
@@ -21,6 +22,25 @@ from wr2.locomotion.rsl_rl_training import (
 
 
 class RSLRLTrainingTest(unittest.TestCase):
+    def test_multi_command_evaluator_preserves_primary_and_endpoint_metrics(self):
+        class FakeEvaluator:
+            def __init__(self, value):
+                self.value = value
+
+            def run_evaluation(self, _parameters, training_metrics):
+                return {**training_metrics, "eval/value": self.value}
+
+        evaluator = _MultiCommandEvaluator(
+            (FakeEvaluator(0.05), FakeEvaluator(0.10)),
+            primary_index=1,
+        )
+        metrics = evaluator.run_evaluation(None, {"training/loss": 3.0})
+
+        self.assertEqual(metrics["eval_endpoint_0/value"], 0.05)
+        self.assertEqual(metrics["eval_endpoint_1/value"], 0.10)
+        self.assertEqual(metrics["eval/value"], 0.10)
+        self.assertEqual(metrics["training/loss"], 3.0)
+
     def test_iteration_and_evaluation_cadence_matches_requested_steps(self):
         iterations = learning_iterations(1_000_000_000, 2048, 20)
         self.assertEqual(iterations, 24_415)
