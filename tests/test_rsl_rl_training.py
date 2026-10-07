@@ -3,8 +3,10 @@ import unittest
 from pathlib import Path
 
 import jax
+import jax.numpy as jp
 import numpy as np
 import torch
+from brax.envs.base import State
 from rsl_rl.modules import ActorCritic
 
 from wr2.locomotion.rsl_rl_training import (
@@ -14,6 +16,7 @@ from wr2.locomotion.rsl_rl_training import (
     _diagonal_gaussian_kl,
     _jax_policy_factory,
     _training_rng_keys,
+    RSLRLWrapper,
     evaluation_iterations,
     learning_iterations,
     load_rsl_actor_parameters,
@@ -22,6 +25,45 @@ from wr2.locomotion.rsl_rl_training import (
 
 
 class RSLRLTrainingTest(unittest.TestCase):
+    def test_wrapper_forwards_brax_truncation_as_rsl_timeout(self):
+        class FakeEnvironment:
+            action_size = 1
+
+            def reset(self, keys):
+                count = keys.shape[0]
+                zeros = jp.zeros((count,))
+                observations = jp.zeros((count, 1))
+                return State(
+                    pipeline_state=None,
+                    obs={"state": observations, "privileged_state": observations},
+                    reward=zeros,
+                    done=zeros,
+                    metrics={},
+                    info={},
+                )
+
+            def step(self, state, _actions):
+                ones = jp.ones_like(state.done)
+                info = {
+                    "episode_metrics": {"length": ones},
+                    "episode_done": ones,
+                    "truncation": ones,
+                }
+                return state.replace(reward=ones, done=ones, info=info)
+
+        wrapper = RSLRLWrapper(
+            FakeEnvironment(),
+            device=torch.device("cpu"),
+            num_envs=2,
+            episode_length=5,
+            reset_rng=jax.random.PRNGKey(5),
+        )
+
+        _, _, dones, infos = wrapper.step(torch.zeros((2, 1)))
+
+        torch.testing.assert_close(dones, torch.ones(2))
+        torch.testing.assert_close(infos["time_outs"], torch.ones(2))
+
     def test_multi_command_evaluator_preserves_primary_and_endpoint_metrics(self):
         class FakeEvaluator:
             def __init__(self, value):

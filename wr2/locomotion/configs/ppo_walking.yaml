@@ -1,7 +1,7 @@
 # WR2 direct-PPO walking configuration, aligned with ToddlerBot's phase-guided
 # policy and strict Gaussian velocity tracking.
-version: "0.20.0"
-version_name: "WR2 ToddlerBot-aligned velocity refinement"
+version: "0.20.1"
+version_name: "WR2 timeout-bootstrap velocity refinement"
 seed: 0
 
 environment:

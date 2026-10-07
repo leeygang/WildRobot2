@@ -1135,7 +1135,8 @@ class WR2WalkingEnv(PipelineEnv):
         )
         nonfinite = ~jp.all(jp.isfinite(pipeline_state.q))
         timeout = step_count >= self.config.episode_length
-        done = (unhealthy | nonfinite | timeout).astype(jp.float32)
+        terminal = unhealthy | nonfinite
+        done = terminal.astype(jp.float32)
         active_count = float(self.action_size)
         action_abs_mean = jp.mean(jp.abs(action))
         action_max_abs = jp.max(jp.abs(action))
@@ -1213,7 +1214,7 @@ class WR2WalkingEnv(PipelineEnv):
                 self._privileged_single_observation_size,
             ),
         }
-        reset_episode = done.astype(jp.bool_)
+        reset_episode = terminal | timeout
 
         def reset_if_done(current, reset):
             return jp.where(reset_episode, reset, current)

@@ -40,6 +40,33 @@ from wr2.sim import (
 
 
 class TrainingInterfaceTest(unittest.TestCase):
+    def _assert_wr2_episode_state_reset(self, state, environment):
+        info = state.info
+        np.testing.assert_allclose(info["command"], info["reset_command"], atol=1e-7)
+        np.testing.assert_allclose(
+            info["gait_phase"], info["reset_gait_phase"], atol=1e-7
+        )
+        np.testing.assert_allclose(
+            info["previous_action"],
+            np.broadcast_to(np.asarray(environment.home_action), (2, 10)),
+            atol=1e-7,
+        )
+        np.testing.assert_allclose(
+            info["previous_target"], info["reset_target"], atol=1e-7
+        )
+        for actual, expected in zip(
+            jax.tree.leaves(info["imu_state"]),
+            jax.tree.leaves(info["reset_imu_state"]),
+            strict=True,
+        ):
+            np.testing.assert_allclose(actual, expected, atol=1e-7)
+        np.testing.assert_allclose(
+            info["torque_exposure"],
+            np.zeros((2, environment.robot.actuator_count)),
+            atol=1e-7,
+        )
+        np.testing.assert_array_equal(info["step_count"], [0, 0])
+
     def test_checkpoint_evaluation_covers_both_command_endpoints(self):
         self.assertEqual(
             _checkpoint_evaluation_commands((0.05, 0.10), 0.10),
@@ -657,6 +684,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         step = jax.jit(wrapped.step)
 
         done_history = []
+        truncation_history = []
         step_count_history = []
         completed_lengths = []
         completed_previous_actions = []
@@ -665,8 +693,12 @@ class TrainingInterfaceTest(unittest.TestCase):
             jax.block_until_ready(state.done)
             done = np.asarray(state.done)
             done_history.append(done.copy())
+            truncation_history.append(
+                np.asarray(state.info["truncation"]).copy()
+            )
             step_count_history.append(np.asarray(state.info["step_count"]).copy())
             if np.any(done):
+                self._assert_wr2_episode_state_reset(state, environment)
                 completed_lengths.extend(
                     np.asarray(state.info["episode_metrics"]["length"])[done > 0]
                 )
@@ -676,6 +708,10 @@ class TrainingInterfaceTest(unittest.TestCase):
 
         np.testing.assert_array_equal(
             np.asarray(done_history)[:, 0],
+            [0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0],
+        )
+        np.testing.assert_array_equal(
+            np.asarray(truncation_history)[:, 0],
             [0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0],
         )
         np.testing.assert_array_equal(
@@ -693,6 +729,32 @@ class TrainingInterfaceTest(unittest.TestCase):
             np.broadcast_to(np.asarray(commanded_action), (2, 10)),
             atol=1e-7,
         )
+
+    def test_training_wrapper_keeps_fall_as_terminal_not_truncated(self):
+        environment_config = replace(
+            self.training_config.environment,
+            episode_length=5,
+            terminate_height_m=0.5,
+            terminate_max_height_m=1.0,
+            reset_joint_noise_rad=0.0,
+            reset_velocity_noise_rad_s=0.0,
+        )
+        environment = WR2WalkingEnv(environment_config, add_observation_noise=False)
+        wrapped = env_training.wrap(
+            environment,
+            episode_length=environment_config.episode_length,
+            action_repeat=1,
+        )
+        state = wrapped.reset(jax.random.split(jax.random.PRNGKey(11), 2))
+        action = jp.broadcast_to(environment.home_action, (2, environment.action_size))
+
+        state = jax.jit(wrapped.step)(state, action)
+        jax.block_until_ready(state.done)
+
+        np.testing.assert_array_equal(np.asarray(state.done), [1, 1])
+        np.testing.assert_array_equal(np.asarray(state.info["truncation"]), [0, 0])
+        np.testing.assert_array_equal(np.asarray(state.metrics["fall"]), [1, 1])
+        self._assert_wr2_episode_state_reset(state, environment)
 
     def test_velocity_reward_matches_tb_strict_tracking_score(self):
         command_error_m_s = 0.10

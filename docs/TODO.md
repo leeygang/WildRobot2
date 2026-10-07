@@ -29,6 +29,12 @@ completed before treating a policy as deployment-qualified.
 - [x] Implement the ToddlerBot RSL-RL path with adaptive-KL scheduling, a
   current RTX-5070-compatible PyTorch build, full-state checkpoint resume, and
   the same deterministic MJX evaluator/metrics used by Brax.
+- [x] Verify that a 1000-step horizon is reported as a Brax truncation and is
+  forwarded to RSL-RL as `time_outs=1` for value bootstrapping.
+- [x] Verify that a true unhealthy-state fall remains a terminal transition
+  with `truncation=0`.
+- [x] Verify that WR2's command, action, target, IMU, torque-exposure, and step
+  state reset after both timeout and fall without changing truncation semantics.
 - [ ] Measure RSL-RL throughput and peak GPU memory against the Brax baseline on
   the RTX 5070 before committing the full one-billion-step acquisition run.
 - [x] Align acquisition and evaluation with ToddlerBot's active strict
