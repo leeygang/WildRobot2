@@ -1,6 +1,7 @@
 import math
 import tempfile
 import unittest
+from types import SimpleNamespace
 from dataclasses import replace
 from pathlib import Path
 
@@ -21,6 +22,8 @@ from wr2.locomotion.train import (
 from wr2.locomotion.walking_env import (
     WR2WalkingEnv,
     _rotate_vector_by_rotvec,
+    heading_features,
+    torso_orientation_error,
     feet_lateral_distance,
     feet_orientation_error,
     normalized_action_rate_cost,
@@ -34,12 +37,126 @@ from wr2.sensing.imu import canonicalize_sensor_sample
 from wr2.sim import (
     RobotDescription,
     RobotObservation,
-    build_wr2_proprio_v3,
+    build_wr2_proprio_v4,
     update_wr2_observation_history,
 )
 
 
 class TrainingInterfaceTest(unittest.TestCase):
+    def test_heading_observation_and_rotation_reward_match_tb(self):
+        from scipy.spatial.transform import Rotation
+
+        reference = Rotation.from_euler("xyz", [0.1, -0.2, 0.3])
+        actual = Rotation.from_euler("xyz", [-0.2, 0.1, 0.7])
+
+        def wxyz(rotation):
+            return jp.asarray(np.roll(rotation.as_quat(), 1))
+
+        expected_angle = (actual * reference.inv()).magnitude()
+        for sign in (-1, 1):
+            angle = float(torso_orientation_error(sign * wxyz(actual), wxyz(reference)))
+            self.assertAlmostEqual(angle, expected_angle, places=6)
+            self.assertAlmostEqual(
+                np.exp(-20 * angle**2), np.exp(-20 * expected_angle**2), places=6
+            )
+        yaw = jp.asarray([np.cos(0.15), 0, 0, np.sin(0.15)])
+        np.testing.assert_allclose(
+            heading_features(yaw, 0.0), [np.sin(0.3), np.cos(0.3)], atol=1e-6
+        )
+        np.testing.assert_allclose(heading_features(yaw, 0.3), [0, 1], atol=1e-6)
+
+    def test_motion_metrics_use_world_displacement_and_conditional_counts(self):
+        environment = object.__new__(WR2WalkingEnv)
+        environment._root_link_index = 0
+        environment.config = SimpleNamespace(command_active_threshold_m_s=0.05)
+        quaternion = jp.asarray([np.sqrt(0.5), 0, 0, np.sqrt(0.5)])
+
+        def pipeline(position):
+            return SimpleNamespace(
+                x=SimpleNamespace(pos=jp.asarray([position]), rot=quaternion[None]),
+                xd=SimpleNamespace(
+                    vel=jp.asarray([[0.0, 0.10, 0.0]]), ang=jp.zeros((1, 3))
+                ),
+            )
+
+        metrics = environment._motion_metrics(
+            pipeline([0.0, 0.0, 0.0]),
+            pipeline([0.0, 0.002, 0.0]),
+            jp.asarray([0.1, 0, 0]),
+            jp.asarray(0.1),
+            np.pi / 2,
+            0,
+        )
+        self.assertAlmostEqual(
+            float(metrics["path_forward_displacement_m"]), 0.002, places=7
+        )
+        self.assertAlmostEqual(
+            float(metrics["path_lateral_displacement_m"]), 0, places=7
+        )
+        self.assertEqual(float(metrics["start_sample_count"]), 1)
+        self.assertEqual(float(metrics["stop_sample_count"]), 0)
+        self.assertEqual(float(metrics["phase0_sample_count"]), 1)
+        self.assertAlmostEqual(
+            float(metrics["phase0_velocity_sum"]), 0.1, places=6
+        )
+
+    def test_v4_hardware_heading_frame_matches_simulation(self):
+        quaternion = np.array([np.cos(0.2), 0.0, 0.0, np.sin(0.2)], dtype=np.float32)
+        observation = RobotObservation(
+            time_s=0.0,
+            joint_position_rad=np.zeros(17, dtype=np.float32),
+            joint_velocity_rad_s=np.zeros(17, dtype=np.float32),
+            torso_to_world_quat_wxyz=quaternion,
+            angular_velocity_torso_rad_s=np.zeros(3, dtype=np.float32),
+        )
+        frame = build_wr2_proprio_v4(
+            observation,
+            reference_heading_rad=0.1,
+            gait_phase_rad=0.0,
+            home_position_rad=self.robot.home_position_rad,
+            previous_active_action=np.zeros(10),
+            active_indices=self.robot.active_actuator_indices(),
+            command_velocity=np.zeros(3),
+        )
+        np.testing.assert_allclose(
+            frame[-2:], heading_features(jp.asarray(quaternion), 0.1), atol=1e-6
+        )
+
+    def test_historical_config_keeps_v3_shapes_and_tilt_semantics(self):
+        import yaml
+        from wr2.locomotion.configs import training_config_to_dict
+
+        data = training_config_to_dict(self.training_config)
+        del data["environment"]["heading_observation"]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "old.yaml"
+            path.write_text(yaml.safe_dump(data))
+            config = load_training_config(path)
+        self.assertFalse(config.environment.heading_observation)
+        environment = WR2WalkingEnv(config.environment, add_observation_noise=False)
+        self.assertEqual(environment._single_observation_size, 55)
+        self.assertEqual(environment._privileged_single_observation_size, 96)
+
+    def test_transition_schedule_exposes_the_command_before_it_is_applied(self):
+        from wr2.locomotion.evaluate import transition_environment
+
+        environment = transition_environment(
+            self.training_config.environment, add_observation_noise=False
+        )
+        command = jp.zeros(3)
+        for step, expected in (
+            (149, 0),
+            (150, 1),
+            (449, 1),
+            (450, 0),
+            (600, 1),
+            (850, 0),
+        ):
+            result = environment._next_command(
+                jp.asarray(step), command, jax.random.PRNGKey(0)
+            )
+            self.assertEqual(bool(environment._is_walking(result)), bool(expected))
+
     def _assert_wr2_episode_state_reset(self, state, environment):
         info = state.info
         np.testing.assert_allclose(info["command"], info["reset_command"], atol=1e-7)
@@ -66,6 +183,10 @@ class TrainingInterfaceTest(unittest.TestCase):
             atol=1e-7,
         )
         np.testing.assert_array_equal(info["step_count"], [0, 0])
+        np.testing.assert_allclose(
+            info["reference_heading"], info["reset_reference_heading"]
+        )
+        np.testing.assert_array_equal(info["command_age_steps"], [25, 25])
 
     def test_checkpoint_evaluation_covers_both_command_endpoints(self):
         self.assertEqual(
@@ -186,11 +307,11 @@ class TrainingInterfaceTest(unittest.TestCase):
     def test_robot_description_matches_canonical_model(self):
         self.assertEqual(self.robot.actuator_count, 17)
         self.assertEqual(self.robot.actuator_names[0], "waist_yaw_drive")
-        self.assertEqual(self.robot.single_observation_size, 55)
+        self.assertEqual(self.robot.single_observation_size, 57)
         self.assertEqual(self.robot.observation_history_frames, 15)
-        self.assertEqual(self.robot.observation_size, 825)
+        self.assertEqual(self.robot.observation_size, 855)
         self.assertEqual(
-            self.robot.config["observation"]["layout_id"], "wr2_proprio_v3"
+            self.robot.config["observation"]["layout_id"], "wr2_proprio_v4"
         )
         self.assertEqual(self.robot.control_period_s, 0.02)
         self.assertEqual(self.robot.simulation_timestep_s, 0.005)
@@ -418,10 +539,11 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
         state = jax.jit(environment.reset)(jax.random.PRNGKey(29))
         state = jax.jit(environment.step)(state, environment.home_action)
-        actor_frame = np.asarray(state.obs["state"][:55])
+        actor_frame = np.asarray(state.obs["state"][:57])
 
         self.assertTrue(np.isfinite(actor_frame).all())
-        self.assertAlmostEqual(np.linalg.norm(actor_frame[-3:]), 1.0, places=5)
+        self.assertAlmostEqual(np.linalg.norm(actor_frame[52:55]), 1.0, places=5)
+        self.assertAlmostEqual(np.linalg.norm(actor_frame[55:57]), 1.0, places=5)
         self.assertEqual(
             set(state.info["imu_state"]),
             {"gyro_colored", "gyro_bias", "gravity_colored", "gravity_bias"},
@@ -527,18 +649,18 @@ class TrainingInterfaceTest(unittest.TestCase):
             add_observation_noise=False,
         )
         state = environment.reset(jax.random.PRNGKey(29))
-        privileged_frame = np.asarray(state.obs["privileged_state"][:96])
+        privileged_frame = np.asarray(state.obs["privileged_state"][:98])
         _, _, linear_velocity, _ = environment._kinematic_observation(
             state.pipeline_state
         )
 
         np.testing.assert_allclose(
-            privileged_frame[72:75],
+            privileged_frame[74:77],
             2.0 * np.asarray(linear_velocity),
             atol=1e-7,
         )
         np.testing.assert_allclose(
-            privileged_frame[75:92],
+            privileged_frame[77:94],
             0.1 * np.asarray(state.pipeline_state.actuator_force),
             atol=1e-7,
         )
@@ -592,11 +714,11 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
 
         state = environment.reset(jax.random.PRNGKey(41))
-        frame = np.asarray(state.obs["privileged_state"][:96])
+        frame = np.asarray(state.obs["privileged_state"][:98])
         joint_position = np.asarray(
             state.pipeline_state.q[environment._joint_qpos_indices]
         )
-        np.testing.assert_allclose(frame[55:72], joint_position - home, atol=1e-7)
+        np.testing.assert_allclose(frame[57:74], joint_position - home, atol=1e-7)
         np.testing.assert_allclose(
             np.asarray(state.obs["state"][:55])[5:22],
             joint_position - home,
@@ -605,7 +727,7 @@ class TrainingInterfaceTest(unittest.TestCase):
 
         next_state = jax.jit(environment.step)(state, environment.home_action)
         jax.block_until_ready(next_state.obs)
-        next_frame = np.asarray(next_state.obs["privileged_state"][:96])
+        next_frame = np.asarray(next_state.obs["privileged_state"][:98])
         next_joint_position = np.asarray(
             next_state.pipeline_state.q[environment._joint_qpos_indices]
         )
@@ -618,7 +740,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
         self.assertFalse(np.allclose(next_reference, home))
         np.testing.assert_allclose(
-            next_frame[55:72],
+            next_frame[57:74],
             next_joint_position - next_reference,
             atol=1e-7,
         )
@@ -772,7 +894,7 @@ class TrainingInterfaceTest(unittest.TestCase):
 
     def test_policy_distribution_matches_tb_unbounded_residual(self):
         networks = make_network_factory(self.training_config.network)(
-            {"state": self.robot.observation_size, "privileged_state": 1440},
+            {"state": self.robot.observation_size, "privileged_state": 1470},
             10,
         )
         distribution = networks.parametric_action_distribution
@@ -808,23 +930,23 @@ class TrainingInterfaceTest(unittest.TestCase):
         from brax.training.acme import running_statistics, specs
 
         networks = make_network_factory(self.training_config.network)(
-            {"state": self.robot.observation_size, "privileged_state": 1440},
+            {"state": self.robot.observation_size, "privileged_state": 1470},
             10,
         )
         normalizer = running_statistics.init_state(
             {
                 "state": specs.Array((self.robot.observation_size,), jp.float32),
-                "privileged_state": specs.Array((1440,), jp.float32),
+                "privileged_state": specs.Array((1470,), jp.float32),
             }
         )
         actor = jp.zeros((1, self.robot.observation_size))
         observations = {
             "state": actor,
-            "privileged_state": jp.zeros((1, 1440)),
+            "privileged_state": jp.zeros((1, 1470)),
         }
         changed_privileged = {
             **observations,
-            "privileged_state": jp.ones((1, 1440)),
+            "privileged_state": jp.ones((1, 1470)),
         }
 
         policy_parameters = networks.policy_network.init(jax.random.PRNGKey(43))
@@ -1000,25 +1122,27 @@ class TrainingInterfaceTest(unittest.TestCase):
             angular_velocity_torso_rad_s=np.zeros(3, dtype=np.float32),
         )
         active = self.robot.active_actuator_indices(("leg",))
-        actor_observation = build_wr2_proprio_v3(
+        actor_observation = build_wr2_proprio_v4(
             observation,
+            reference_heading_rad=0.0,
             gait_phase_rad=np.pi / 2.0,
             home_position_rad=self.robot.home_position_rad,
             previous_active_action=np.zeros(active.size),
             active_indices=active,
             command_velocity=np.zeros(3),
         )
-        self.assertEqual(actor_observation.shape, (55,))
+        self.assertEqual(actor_observation.shape, (57,))
         np.testing.assert_allclose(actor_observation[:2], [1, 0], atol=1e-6)
-        np.testing.assert_allclose(actor_observation[-3:], [0, 0, -1])
+        np.testing.assert_allclose(actor_observation[52:55], [0, 0, -1])
+        np.testing.assert_allclose(actor_observation[55:], [0, 1])
 
         history = update_wr2_observation_history(
             actor_observation,
             history_frames=self.robot.observation_history_frames,
         )
         self.assertEqual(history.shape, (self.robot.observation_size,))
-        np.testing.assert_array_equal(history[:55], actor_observation)
-        np.testing.assert_array_equal(history[55:], np.zeros(55 * 14))
+        np.testing.assert_array_equal(history[:57], actor_observation)
+        np.testing.assert_array_equal(history[57:], np.zeros(57 * 14))
 
         next_frame = actor_observation + 1.0
         history = update_wr2_observation_history(
@@ -1026,8 +1150,8 @@ class TrainingInterfaceTest(unittest.TestCase):
             history_frames=self.robot.observation_history_frames,
             previous_history=history,
         )
-        np.testing.assert_array_equal(history[:55], next_frame)
-        np.testing.assert_array_equal(history[55:110], actor_observation)
+        np.testing.assert_array_equal(history[:57], next_frame)
+        np.testing.assert_array_equal(history[57:114], actor_observation)
 
     def test_imu_mounting_rotation_is_removed(self):
         mount = np.asarray(self.robot.imu_sensor_to_torso_quat_wxyz)

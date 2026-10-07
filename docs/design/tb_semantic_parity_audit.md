@@ -97,15 +97,17 @@ orientation signal.
 | Position scale | 1.0 | 1.0 | Aligned |
 | Velocity scale | 0.05 | 0.05 | Aligned |
 | Angular-velocity scale | 1.0 | 1.0 | Aligned |
-| Orientation | full quaternion | projected gravity | Intentional yaw-invariant deployment contract |
+| Orientation | full quaternion | projected gravity plus heading-error sin/cos | Six-axis IMU adaptation; heading observable |
 | Actor linear velocity | absent | absent | Aligned |
 | Critic position error | motor minus ZMP reference | motor minus WR2 ZMP reference | Aligned architecture; morphology-specific trajectory |
 | Critic linear velocity | local, x2.0 | local, x2.0 | Corrected/aligned |
 | Critic actuator force | x0.1 | x0.1 | Corrected/aligned |
 | Critic contact/reference contact | two plus two | two plus two | Aligned analytic meaning |
 
-Projected gravity intentionally avoids magnetometer heading and quaternion yaw
-drift. The actor still receives local yaw rate and the commanded yaw rate.
+WR2 v0.21 adds heading error relative to the integrated commanded path and uses
+ToddlerBot's full torso orientation reward. Hardware can reproduce this with a
+six-axis/game rotation vector initialized at zero heading, without a
+magnetometer. Drift remains a measured deployment gap, not a yaw-free contract.
 WR2's current acquisition command has zero lateral and yaw components.
 
 ## Commands, phase, and foot guidance
@@ -140,7 +142,7 @@ All terms below are integrated over the 20 ms control period.
 | XY velocity | `2 exp(-1000 ||v-c||^2)` | same | Aligned |
 | Yaw rate | `1.5 exp(-4 (w-c)^2)` | same | Aligned |
 | Roll/pitch rate | `-sum(w_xy^2)` | same | Aligned |
-| Torso orientation | `2.5 exp(-20 angle_to_ref^2)` | `2.5 exp(-20 tilt^2)` | Yaw-invariant WR2 adaptation |
+| Torso orientation | `2.5 exp(-20 angle_to_ref^2)` | same | Aligned; actor observes heading error |
 | Alive | `1.0` | `1.0` | Aligned |
 | Action rate | `-2 sum((a_t-a_t-1)^2)` | same | Corrected/aligned |
 | Weighted pose | `-0.5 sum(weight * q_error^2)` | same, mapped to ten WR2 leg DOFs | Aligned by morphology |

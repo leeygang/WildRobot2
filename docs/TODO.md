@@ -7,6 +7,13 @@ completed before treating a policy as deployment-qualified.
 
 ## Walking training
 
+- [ ] Run v0.21.0 heading-aware 20M refinement from the retained v0.20.1 best
+  checkpoint after explicit input migration. Check speed MAE, heading/path drift,
+  phase-binned speed fluctuation and scripted standing/walking survival against
+  the parent; retain Gaussian reward, servo model and command range unchanged.
+- [ ] Confirm the accepted policy at 0.05/0.075/0.10 m/s on held-out randomized
+  seeds and with `evaluate --transitions` before expanding command speeds.
+
 - [x] Replace the WR1/static actuator midpoint with the held-out-validated
   unit-A low-load fit. Training now uses `kp_sim=24.1574`, `kv_sim=0.5`, joint
   `damping=0.173622`, `frictionloss=0.465471`, and `armature=0.020951`. The
@@ -284,6 +291,11 @@ common clock or a measured synchronization offset.
   drift, projected-gravity error, sample-age distribution, stale/drop rate, and
   end-to-end latency. Validate the fitted observation/delay model on held-out
   motions before changing training ranges.
+- [ ] For v4 heading input, validate the BNO085 six-axis/game rotation vector in
+  a zero-initial-heading frame, measure yaw drift during stationary and walking
+  motion over deployment-duration windows, and verify commanded heading
+  integration/reset matches simulation. Do not claim magnetometer-free means
+  drift-free; fit the heading noise only from installed measurements.
 
 ### Required fitted outputs
 

@@ -21,10 +21,93 @@ from wr2.locomotion.rsl_rl_training import (
     learning_iterations,
     load_rsl_actor_parameters,
     rsl_minibatch_size,
+    expand_heading_inputs,
 )
+from wr2.tools.migrate_heading_checkpoint import migrate_checkpoint
 
 
 class RSLRLTrainingTest(unittest.TestCase):
+    def test_heading_checkpoint_migration_preserves_actions_values_and_adam(self):
+        from wr2.locomotion.configs import load_training_config
+        from wr2.locomotion.rsl_rl_training import RSLPPOTrainer
+        from types import SimpleNamespace
+
+        old = ActorCritic(
+            825,
+            1440,
+            10,
+            actor_hidden_dims=[512, 256, 128],
+            critic_hidden_dims=[512, 256, 128],
+            noise_std_type="log",
+        )
+        optimizer = torch.optim.Adam(old.parameters(), lr=2.25e-5)
+        sum(parameter.sum() for parameter in old.parameters()).backward()
+        optimizer.step()
+        source_state = {
+            "backend": "rsl_rl",
+            "model_state_dict": old.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "iteration": 5862,
+            "total_steps": 240107520,
+            "learning_rate": 2.25e-5,
+        }
+        with tempfile.TemporaryDirectory() as folder:
+            source, output = Path(folder) / "old.pt", Path(folder) / "new.pt"
+            torch.save(source_state, source)
+            migrate_checkpoint(source, output)
+            with self.assertRaises(FileExistsError):
+                migrate_checkpoint(source, output)
+            env = SimpleNamespace(
+                device=torch.device("cpu"),
+                num_envs=2,
+                num_actions=10,
+                get_observations=lambda: (
+                    torch.zeros(2, 855),
+                    {"observations": {"critic": torch.zeros(2, 1470)}},
+                ),
+            )
+            trainer = RSLPPOTrainer(
+                env,
+                load_training_config(),
+                output=Path(folder),
+                restore_checkpoint=output,
+                progress_fn=lambda *args: None,
+                policy_params_fn=lambda *args: None,
+                evaluator=None,
+            )
+        for name, frame_size, network in (
+            ("actor", 55, old.actor),
+            ("critic", 96, old.critic),
+        ):
+            old_input = torch.randn(2, frame_size * 15)
+            frames = old_input.reshape(2, 15, frame_size)
+            new_input = torch.cat(
+                [frames[:, :, :55], torch.randn(2, 15, 2), frames[:, :, 55:]], dim=2
+            ).flatten(1)
+            torch.testing.assert_close(
+                getattr(trainer.policy, name)(new_input), network(old_input)
+            )
+        self.assertEqual(trainer.completed_iterations, 5862)
+        self.assertEqual(trainer.algorithm.learning_rate, 2.25e-5)
+        torch.testing.assert_close(trainer.policy.log_std, old.log_std)
+        before = optimizer.state_dict()["state"]
+        after = trainer.algorithm.optimizer.state_dict()["state"]
+        for index, values in before.items():
+            for name, value in values.items():
+                expected = (
+                    expand_heading_inputs(value, value.shape[1] // 15)
+                    if value.ndim == 2 and value.shape[1] in (825, 1440)
+                    else value
+                )
+                torch.testing.assert_close(after[index][name], expected)
+        # A restored Adam update must accept the expanded moment tensors.
+        trainer.algorithm.optimizer.zero_grad()
+        (
+            trainer.policy.actor(torch.randn(2, 855)).sum()
+            + trainer.policy.critic(torch.randn(2, 1470)).sum()
+        ).backward()
+        trainer.algorithm.optimizer.step()
+
     def test_wrapper_forwards_brax_truncation_as_rsl_timeout(self):
         class FakeEnvironment:
             action_size = 1
@@ -82,6 +165,13 @@ class RSLRLTrainingTest(unittest.TestCase):
         self.assertEqual(metrics["eval_endpoint_1/value"], 0.10)
         self.assertEqual(metrics["eval/value"], 0.10)
         self.assertEqual(metrics["training/loss"], 3.0)
+        with_transition = _MultiCommandEvaluator(
+            (FakeEvaluator(.05), FakeEvaluator(.10)), primary_index=1,
+            transition_evaluator=FakeEvaluator(.25),
+        ).run_evaluation(None, {"training/loss": 3.0})
+        self.assertEqual(with_transition['eval_transition/value'], .25)
+        self.assertEqual(with_transition['eval/value'], .10)
+        self.assertEqual(with_transition['eval_endpoint_1/value'], .10)
 
     def test_iteration_and_evaluation_cadence_matches_requested_steps(self):
         iterations = learning_iterations(1_000_000_000, 2048, 20)

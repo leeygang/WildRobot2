@@ -87,6 +87,7 @@ class ZMPReferenceConfig:
 @dataclass(frozen=True)
 class WalkingEnvConfig:
     episode_length: int
+    heading_observation: bool
     active_groups: tuple[str, ...]
     pose_weights: tuple[float, ...]
     policy_action_scale_rad: float
@@ -300,6 +301,8 @@ def load_training_config(
         raise ValueError("domain_randomization.backlash_rad must be non-negative")
 
     env_raw = _mapping(root["environment"], "environment")
+    # Historical snapshots retain their v3 observation/reward contract.
+    env_raw = {"heading_observation": False, **env_raw}
     nested_env_fields = {
         "observation_noise",
         "rewards",
@@ -314,7 +317,7 @@ def load_training_config(
         "command_yaw_range_rad_s",
     }
     integer_fields = {"episode_length", "action_delay_steps", "command_resample_steps"}
-    boolean_fields = {"randomize_gait_phase_on_reset"}
+    boolean_fields = {"randomize_gait_phase_on_reset", "heading_observation"}
     vector_fields = {"pose_weights"}
     float_fields = (
         env_fields
@@ -344,6 +347,9 @@ def load_training_config(
         },
     )
     environment = WalkingEnvConfig(
+        heading_observation=_bool(
+            env_raw["heading_observation"], "environment.heading_observation"
+        ),
         episode_length=_positive_int(
             env_raw["episode_length"], "environment.episode_length"
         ),

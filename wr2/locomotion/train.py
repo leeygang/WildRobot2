@@ -723,6 +723,43 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             f"yaw_err={show(metric('eval/episode_yaw_rate_error_rad_s_per_step'))}",
             flush=True,
         )
+        heading_error = metric("eval/episode_heading_error_rad_per_step")
+        print(
+            "  └─ path  : "
+            f"heading_err={show(None if heading_error is None else math.degrees(heading_error), '.1f')}deg "
+            f"forward={show(metric('eval/episode_path_forward_displacement_m'))}m "
+            f"lateral={show(metric('eval/episode_path_lateral_displacement_m'))}m",
+            flush=True,
+        )
+        phase_errors = []
+        for index in range(4):
+            fraction = metric(f"eval/episode_phase{index}_sample_count")
+            error_sum = metric(f"eval/episode_phase{index}_velocity_error_sum")
+            phase_errors.append(
+                show(
+                    error_sum / fraction if fraction and error_sum is not None else None
+                )
+            )
+        print(f"  └─ phase : speed_MAE_by_quarter={phase_errors}m/s", flush=True)
+        if "eval_transition/avg_episode_length" in metrics:
+            text = []
+            for category in ("standing", "walking", "start", "stop"):
+                fraction = metric(
+                    f"eval_transition/episode_{category}_sample_count"
+                )
+                error_sum = metric(
+                    f"eval_transition/episode_{category}_velocity_error_sum"
+                )
+                text.append(
+                    f"{category}={show(error_sum / fraction if fraction and error_sum is not None else None)}"
+                )
+            print(
+                "  └─ switch: "
+                f"ep_len={show(metric('eval_transition/avg_episode_length'), '.0f')} "
+                f"fall={show(metric('eval_transition/episode_fall'), '.1%')} "
+                f"speed_MAE {' '.join(text)}m/s",
+                flush=True,
+            )
         if endpoint_evaluations:
             endpoint_text = " | ".join(
                 f"{endpoint['command_forward_m_s']:.2f}:"

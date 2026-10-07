@@ -2,6 +2,24 @@
 
 ## 2026-10-07
 
+- Reviewed v0.20.1 `wr2_ppo_20261007_084251_seed0`: no evaluated update beat
+  the restored policy. Worst-endpoint nominal score changed 0.492 -> 0.437;
+  0.10 m/s speed remained 0.0905 m/s but MAE increased to 0.0270 m/s. Independent
+  randomized final-policy confirmation covered 3 speeds x 3 seeds x 128
+  environments: all 1152 episodes survived without target clipping, while
+  speed MAE worsened versus the parent at every speed. The value-loss spike
+  persisted after B1; it cannot be attributed solely to missing bootstrapping.
+- Prepared v0.21.0: ToddlerBot full orientation-to-path reward, observable
+  six-axis-IMU-relative heading sin/cos, explicit action-preserving v3-to-v4
+  checkpoint/Adam migration, path and phase diagnostics, and separate scripted
+  standing/walking evaluation. Gaussian velocity reward, actuator envelope,
+  dynamics randomization and PPO hyperparameters remain unchanged. Actor/critic
+  input shapes are 855/1470; installed heading drift remains unqualified.
+- Validation: 121 tests pass, including quaternion parity, hardware heading
+  input, historical v3 loading, timeout/fall resets, migration/Adam update, and
+  transition metric isolation. MJX smoke, an 80-step restored CPU PPO run, and
+  a two-environment 1000-step scripted transition evaluation also passed.
+
 - Completed the 20M-step v0.20.0 RSL-RL velocity-refinement continuation
   (`wr2_ppo_20261006_205755_seed0`). The restored step-0 policy remained best:
   at a 0.10 m/s command it achieved 0.0902 m/s forward velocity, 0.0247 m/s

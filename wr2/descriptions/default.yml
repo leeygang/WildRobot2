@@ -19,7 +19,7 @@ action:
 # force, and base velocity are excluded from this deployment layout and used
 # only by the asymmetric critic and rewards during training.
 observation:
-    layout_id: wr2_proprio_v3
+    layout_id: wr2_proprio_v4
     fields:
         - {name: gait_phase, size: 2, units: "sin,cos"}
         - {name: command_velocity, size: 3, frame: torso, units: "m/s,m/s,rad/s"}
@@ -28,6 +28,7 @@ observation:
         - {name: previous_active_action, size: 10, units: normalized}
         - {name: torso_angular_velocity, size: 3, frame: torso, units: rad/s}
         - {name: projected_gravity, size: 3, frame: torso, units: normalized}
+        - {name: heading_error, size: 2, units: "sin,cos"}
     scales:
         gait_phase: 1.0
         command_velocity: [1.0, 1.0, 1.0]
@@ -36,6 +37,7 @@ observation:
         previous_active_action: 1.0
         torso_angular_velocity: 1.0
         projected_gravity: 1.0
+        heading_error: 1.0
     # Match ToddlerBot's active walking policy: newest frame first, followed by
     # 14 prior 50 Hz observations (300 ms total temporal context).
     history_frames: 15

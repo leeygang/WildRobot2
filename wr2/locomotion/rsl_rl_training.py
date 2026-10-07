@@ -213,6 +213,19 @@ def load_rsl_actor_parameters(
     return _actor_parameters_from_state_dict(checkpoint["model_state_dict"])
 
 
+def expand_heading_inputs(weight, old_frame_size: int):
+    """Insert zero-weight heading channels after v3 proprio in each frame."""
+    import torch
+
+    if weight.ndim != 2 or weight.shape[1] != old_frame_size * 15:
+        raise ValueError("Expected a 15-frame v3 actor or critic input layer")
+    frames = weight.reshape(weight.shape[0], 15, old_frame_size)
+    zeros = torch.zeros(
+        (*frames.shape[:2], 2), dtype=weight.dtype, device=weight.device
+    )
+    return torch.cat([frames[:, :, :55], zeros, frames[:, :, 55:]], dim=2).flatten(1)
+
+
 def _jax_policy_factory(activation: str):
     """Create the deterministic evaluator used by Brax's metric pipeline."""
     import jax.nn as jnn
@@ -243,9 +256,12 @@ def _jax_policy_factory(activation: str):
 class _MultiCommandEvaluator:
     """Evaluate fixed command endpoints and preserve primary eval metric names."""
 
-    def __init__(self, evaluators, *, primary_index: int) -> None:
+    def __init__(
+        self, evaluators, *, primary_index: int, transition_evaluator=None
+    ) -> None:
         self.evaluators = tuple(evaluators)
         self.primary_index = primary_index
+        self.transition_evaluator = transition_evaluator
 
     def run_evaluation(self, parameters, training_metrics):
         merged = {}
@@ -263,6 +279,15 @@ class _MultiCommandEvaluator:
             )
             if index == self.primary_index:
                 merged.update(metrics)
+        if self.transition_evaluator is not None:
+            metrics = self.transition_evaluator.run_evaluation(parameters, {})
+            merged.update(
+                {
+                    f"eval_transition/{name.removeprefix('eval/')}": value
+                    for name, value in metrics.items()
+                    if name.startswith("eval/")
+                }
+            )
         return merged
 
 
@@ -349,6 +374,9 @@ class RSLPPOTrainer:
             "total_steps": self.total_steps,
             "learning_rate": self.algorithm.learning_rate,
             "torch_rng_state": self.torch.get_rng_state(),
+            "observation_layout": "wr2_proprio_v4"
+            if self.config.environment.heading_observation
+            else "wr2_proprio_v3",
         }
         if self.torch.cuda.is_available():
             state["torch_cuda_rng_state_all"] = self.torch.cuda.get_rng_state_all()
@@ -366,6 +394,15 @@ class RSLPPOTrainer:
         )
         if checkpoint.get("backend", "rsl_rl") != "rsl_rl":
             raise ValueError(f"Not an RSL-RL checkpoint: {path}")
+        for name in ("actor.0.weight", "critic.0.weight"):
+            if (
+                checkpoint["model_state_dict"][name].shape
+                != self.policy.state_dict()[name].shape
+            ):
+                raise ValueError(
+                    "Checkpoint observation shape differs; migrate a v3 checkpoint "
+                    "with python -m wr2.tools.migrate_heading_checkpoint before v4 training"
+                )
         self.policy.load_state_dict(checkpoint["model_state_dict"])
         self.algorithm.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.completed_iterations = int(
@@ -536,9 +573,7 @@ def train_rsl_ppo(
             "RSL-RL requires a Torch CUDA device; pass --allow-cpu only for a "
             "deliberate CPU test"
         )
-    device_name = (
-        torch.cuda.get_device_name(device) if device.type == "cuda" else "CPU"
-    )
+    device_name = torch.cuda.get_device_name(device) if device.type == "cuda" else "CPU"
     print(f"  Torch device: {device} ({device_name})")
 
     reset_rng, randomization_rng, evaluation_rng = _training_rng_keys(
@@ -583,6 +618,9 @@ def train_rsl_ppo(
     evaluator = _MultiCommandEvaluator(
         (evaluator for _, evaluator in command_evaluators),
         primary_index=primary_index,
+        transition_evaluator=_make_transition_evaluator(
+            training_config, policy_factory, evaluation_rng
+        ),
     )
     rsl_environment = RSLRLWrapper(
         wrapped_environment,
@@ -607,3 +645,30 @@ def train_rsl_ppo(
     final_path = trainer.learn()
     print(f"Saved full RSL-RL state to {final_path}")
     return final_path
+
+
+def _make_transition_evaluator(config, policy_factory, rng):
+    from brax.envs import training as env_training
+    from brax.training import acting
+    from wr2.locomotion.evaluate import transition_environment
+    from dataclasses import replace
+
+    if config.environment.episode_length != 1000:
+        return None
+    environment = transition_environment(
+        replace(
+            config.environment,
+            command_forward_range_m_s=(config.ppo.evaluation_forward_command_m_s,) * 2,
+        ),
+        add_observation_noise=False,
+    )
+    return acting.Evaluator(
+        env_training.wrap(
+            environment, episode_length=config.environment.episode_length
+        ),
+        policy_factory,
+        num_eval_envs=config.ppo.num_eval_envs,
+        episode_length=config.environment.episode_length,
+        action_repeat=1,
+        key=rng,
+    )

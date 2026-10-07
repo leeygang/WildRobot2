@@ -19,6 +19,32 @@ from wr2.locomotion.train import (
 from wr2.locomotion.walking_metrics import walking_score
 
 
+def transition_environment(config, *, add_observation_noise):
+    """Repeat standing -> walking -> standing at deterministic command times."""
+    import jax.numpy as jp
+    from wr2.locomotion.walking_env import WR2WalkingEnv
+
+    if config.episode_length != 1000:
+        raise ValueError("The standing/walking schedule requires episode_length=1000")
+
+    class TransitionEnvironment(WR2WalkingEnv):
+        def _next_command(self, step_count, command, rng):
+            # 3 s stand, 6 s walk, 3 s stand, 5 s walk, 3 s stand.
+            walking = ((step_count >= 150) & (step_count < 450)) | (
+                (step_count >= 600) & (step_count < 850)
+            )
+            return jp.where(
+                walking,
+                jp.asarray([config.command_forward_range_m_s[0], 0.0, 0.0]),
+                jp.zeros(3),
+            )
+
+    return TransitionEnvironment(
+        replace(config, zero_command_probability=1.0),
+        add_observation_noise=add_observation_noise,
+    )
+
+
 def _parse_seeds(value: str) -> tuple[int, ...]:
     try:
         seeds = tuple(int(item.strip()) for item in value.split(",") if item.strip())
@@ -57,6 +83,7 @@ def evaluate_checkpoint(
     forward_commands_m_s: Sequence[float] | None,
     num_envs: int,
     allow_cpu: bool,
+    transitions: bool = False,
 ) -> dict:
     """Evaluate one checkpoint independently for every requested seed."""
     _configure_backend_logging()
@@ -141,6 +168,11 @@ def evaluate_checkpoint(
             # sensor randomization when robustness is enabled.
             add_observation_noise=config.environment.randomization.enabled,
         )
+        if transitions:
+            environment = transition_environment(
+                environment.config,
+                add_observation_noise=config.environment.randomization.enabled,
+            )
         seed_results = []
         for seed in seeds:
             keyed_seed = int(seed) + 100_000 * command_index
@@ -187,7 +219,7 @@ def evaluate_checkpoint(
             }
             seed_results.append(result)
             print(
-                f"command={command_forward_m_s:.2f} seed={seed} "
+                f"command={command_forward_m_s:.3f} seed={seed} "
                 f"walking_score={score:.3f} "
                 f"episode_length={float(metrics['eval/avg_episode_length']):.1f} "
                 "velocity_error="
@@ -215,6 +247,9 @@ def evaluate_checkpoint(
             else "nominal"
         ),
         "seeds": list(seeds),
+        "command_schedule": "stand150_walk300_stand150_walk250_stand150"
+        if transitions
+        else "fixed",
         "command_results": command_results,
     }
 
@@ -228,6 +263,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--num-envs", type=int, default=128)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--allow-cpu", action="store_true")
+    parser.add_argument(
+        "--transitions",
+        action="store_true",
+        help="Evaluate scripted standing/walking transitions over 1000 steps",
+    )
     return parser.parse_args(argv)
 
 
@@ -242,6 +282,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         forward_commands_m_s=args.commands,
         num_envs=args.num_envs,
         allow_cpu=args.allow_cpu,
+        transitions=args.transitions,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(

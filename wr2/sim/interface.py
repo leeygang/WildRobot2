@@ -298,6 +298,25 @@ def build_wr2_proprio_v3(
     )
 
 
+def build_wr2_proprio_v4(
+    observation: RobotObservation,
+    *,
+    reference_heading_rad: float,
+    **kwargs,
+) -> FloatArray:
+    """Append IMU-relative heading error to the v3 walking frame.
+
+    Hardware uses a six-axis/game rotation vector in a frame whose initial
+    heading is zero, and integrates commanded yaw in the same frame.
+    """
+    if not np.isfinite(reference_heading_rad):
+        raise ValueError("reference_heading_rad must be finite")
+    frame = build_wr2_proprio_v3(observation, **kwargs)
+    heading = rotate_vector_wxyz(observation.torso_to_world_quat_wxyz, [1, 0, 0])
+    error = np.arctan2(heading[1], heading[0]) - reference_heading_rad
+    return np.concatenate([frame, [np.sin(error), np.cos(error)]]).astype(np.float32)
+
+
 def update_wr2_observation_history(
     observation_frame: npt.ArrayLike,
     *,
