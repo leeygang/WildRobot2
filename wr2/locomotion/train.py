@@ -131,6 +131,20 @@ def _worst_endpoint_score(scores: list[float | None]) -> float | None:
     return min(float(score) for score in scores if score is not None)
 
 
+def _worst_endpoint_selection_score(
+    endpoint_evaluations: list[dict[str, float | None]],
+    selection_metric: str,
+) -> float | None:
+    """Select the configured score from every fixed-command evaluation."""
+    score_key = {
+        "acquisition": "acquisition_score",
+        "walking_score": "walking_score",
+    }[selection_metric]
+    return _worst_endpoint_score(
+        [endpoint[score_key] for endpoint in endpoint_evaluations]
+    )
+
+
 def _validate_training_zmp_reference(
     training_config: TrainingConfig,
 ):
@@ -812,8 +826,9 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 mean_step_peak_torque_nm=mean_step_peak_torque,
             )
         selection_metric = training_config.checkpoints.selection_metric
-        endpoint_selection_score = _worst_endpoint_score(
-            [endpoint[f"{selection_metric}_score"] for endpoint in endpoint_evaluations]
+        endpoint_selection_score = _worst_endpoint_selection_score(
+            endpoint_evaluations,
+            selection_metric,
         )
         primary_selection_score = (
             acquisition_score if selection_metric == "acquisition" else walking_score

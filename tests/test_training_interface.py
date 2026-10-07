@@ -16,6 +16,7 @@ from wr2.locomotion.train import (
     _checkpoint_evaluation_commands,
     _create_run_directory,
     _worst_endpoint_score,
+    _worst_endpoint_selection_score,
 )
 from wr2.locomotion.walking_env import (
     WR2WalkingEnv,
@@ -52,6 +53,18 @@ class TrainingInterfaceTest(unittest.TestCase):
     def test_checkpoint_selection_uses_worst_complete_endpoint(self):
         self.assertEqual(_worst_endpoint_score([0.8, 0.6]), 0.6)
         self.assertIsNone(_worst_endpoint_score([0.8, None]))
+        endpoints = [
+            {"acquisition_score": 0.8, "walking_score": 0.4},
+            {"acquisition_score": 0.6, "walking_score": 0.7},
+        ]
+        self.assertEqual(
+            _worst_endpoint_selection_score(endpoints, "acquisition"),
+            0.6,
+        )
+        self.assertEqual(
+            _worst_endpoint_selection_score(endpoints, "walking_score"),
+            0.4,
+        )
 
     def test_acquisition_checkpoint_ranking_prefers_safe_motion_over_standing(self):
         common = {
@@ -288,7 +301,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertAlmostEqual(environment.velocity_reward_sigma**-2, 1000.0)
         self.assertAlmostEqual(environment.velocity_tracking_sigma**-2, 1000.0)
         self.assertEqual(environment.rewards.velocity_xy, 2.0)
-        self.assertEqual(environment.rewards.forward_progress, 1.0)
+        self.assertEqual(environment.rewards.forward_progress, 0.0)
         self.assertEqual(environment.rewards.feet_phase, 7.5)
         self.assertEqual(environment.rewards.action_rate, -2.0)
         self.assertEqual(environment.rewards.pose, -0.5)
@@ -332,7 +345,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertTrue(self.training_config.checkpoints.save_every_evaluation)
         self.assertTrue(self.training_config.checkpoints.keep_best)
         self.assertEqual(
-            self.training_config.checkpoints.selection_metric, "acquisition"
+            self.training_config.checkpoints.selection_metric, "walking_score"
         )
         self.assertEqual(self.training_config.output.root, "results/wr2_walking")
 
