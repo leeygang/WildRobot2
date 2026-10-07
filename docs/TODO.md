@@ -198,6 +198,76 @@ alone. The fitted result must include raw-capture references, calibration
 records, coverage by operating quadrant, held-out replay error, uncertainty,
 and an explicit conservative margin.
 
+#### Handoff contract for the three actuator qualification campaigns
+
+The next agent should treat torque-speed, braking, and backlash/hysteresis as
+three separate campaigns. The existing `capture.py` and YAML plans support only
+the servo bus and the gravity-loaded BAM. They must not be relabeled as
+dynamometer or isolated-backlash tests. `campaign.py` intentionally rejects
+plans that declare unsupported instruments, so new powered plans must wait
+until each required instrument has a tested adapter, calibration record,
+timestamp mapping, and preflight-only dry run.
+
+Common requirements for all three campaigns:
+
+- Start with a written fixture diagram, signal/clock diagram, instrument ranges,
+  calibration procedure, automatic abort path, and conservative initial limits.
+  Keep the reachable independent power cutoff and inclusive 80 C shutdown.
+- Record raw, synchronized command, servo telemetry, external encoder, measured
+  torque, supply voltage/current, temperature, limit state, and monotonic time.
+  Preserve unmodified raw samples; derived values belong in a separate report.
+- Validate signs, units, zero, scale, clock offset/drift, automatic unload, and
+  abort behavior with the servo disabled before any powered identification run.
+- Use labeled servos and complete-session splits: fitting and held-out replay
+  must come from different sessions, and deployment qualification requires at
+  least three servos. Report uncertainty and direction/temperature dependence.
+- An analyzer may emit a proposed model/config patch, but it must never edit
+  `robot.yml`, `default.yml`, or PPO ranges automatically. Adoption requires a
+  reviewed evidence record and a conservative deployment margin.
+
+**Campaign T1 -- motoring torque versus speed**
+
+- Required setup: guarded bidirectional dynamometer, inline torque transducer,
+  independent output encoder, programmable current-logging supply, rigid
+  coupling/counter-bearing, and hardware over-current/torque/speed protection.
+- Cover both shaft directions, multiple steady speeds and loads, the 9.6 V,
+  11.1 V, and 12.6 V operating points, and cold/warmed conditions. Begin at a
+  low-energy point; do not approach the vendor stall bound until lower points,
+  unloading, and every abort path have passed.
+- Definition of done: held-out replay bounds the measured torque-speed surface;
+  the report proposes plateau torque, taper onset, torque at maximum speed,
+  maximum speed, voltage/temperature terms, direction asymmetry, uncertainty,
+  and the corresponding simulator fields. No endpoint may be called continuous
+  torque without a separate thermal-equilibrium result.
+
+**Campaign T2 -- active and passive/reverse braking**
+
+- Use the same guarded dynamometer and measure all four torque/velocity
+  quadrants. Include commanded deceleration, speed reversals, steady externally
+  back-driven points, and repeated ramps in both directions; do not infer
+  braking torque from position error alone.
+- Separate actively commanded opposing torque from passive/back-driven drag and
+  record regeneration or supply-current behavior where the hardware permits.
+- Definition of done: held-out sessions support conservative
+  `brake_torque_limit_nm` and `passive_active_ratio` proposals, including speed,
+  direction, voltage, and temperature dependence. Automatic unload and abort
+  tests must pass before the result can affect training randomization.
+
+**Campaign T3 -- bidirectional backlash and loaded hysteresis**
+
+- Required setup: external output encoder with resolution materially better
+  than the servo's 0.24-degree telemetry step, synchronized torque/load sensing,
+  and a truly unloaded or counterbalanced condition in addition to loaded BAM
+  conditions. Repeat at representative angles and cold/warmed temperatures.
+- Approach every measurement point from both directions and retain complete
+  slow forward/reverse trajectories. Report deadband, center loop width, zero
+  shift, repeatability, load dependence, and direction asymmetry separately.
+- Definition of done: held-out sessions distinguish isolated mechanical
+  backlash from controller/friction/compliance hysteresis. Before changing
+  `backlash_rad`, decide whether each observed effect belongs in physics,
+  actuator target bias, or encoder observation noise, then demonstrate replay
+  improvement without double-counting the fitted friction/controller model.
+
 #### Installed-robot BNO085 reference setup
 
 The servo fixture does not qualify the installed IMU. Rigidly secure the
