@@ -7,10 +7,14 @@ completed before treating a policy as deployment-qualified.
 
 ## Walking training
 
-- [ ] Run v0.21.0 heading-aware 20M refinement from the retained v0.20.1 best
-  checkpoint after explicit input migration. Check speed MAE, heading/path drift,
-  phase-binned speed fluctuation and scripted standing/walking survival against
-  the parent; retain Gaussian reward, servo model and command range unchanged.
+- [x] Run v0.21.0 heading-aware 20M refinement and matched heading/stance/slip/
+  clipping diagnostics. The starting checkpoint remains best; the final policy
+  learns heading correction but worsens speed tracking and standing left-knee
+  clipping. See [the evidence and reproduction command](design/walking_diagnostics_20261007.md).
+- [ ] Before the next training change, address the measured standing-only
+  left-knee target overrun separately from uneven steady-stride propulsion.
+  Preserve the CAD knee limits, heading observation/reward and fitted servo
+  nominal; do not infer gross slip or a dead foot from phase-speed averages.
 - [ ] Confirm the accepted policy at 0.05/0.075/0.10 m/s on held-out randomized
   seeds and with `evaluate --transitions` before expanding command speeds.
 

@@ -2,6 +2,22 @@
 
 ## 2026-10-07
 
+- Reviewed v0.21.0 `wr2_ppo_20261007_152924_seed0`: the starting checkpoint
+  remained best. Final 0.10 m/s MAE worsened 0.0247 -> 0.0411 m/s despite
+  heading improving 4.16 -> 3.41 degrees; scripted-transition saturation
+  increased 1.19% -> 3.93%. Do not promote the final policy.
+- Added and ran paired heading/stance-force/contact-slip/joint-target
+  diagnostics on Mac: 48 twenty-second episodes, no falls or non-finite states.
+  The final policy corrects added heading errors but retains uneven propulsion;
+  established-stance slip is not a gross foot-support failure. Active clipping
+  is isolated to left-knee extension, predominantly during standing, with
+  requests as high as +8.91 degrees against the correct 0-degree boundary.
+  See [the diagnostic report](docs/design/walking_diagnostics_20261007.md).
+  Training rewards, PPO, joint bounds, and servo settings are unchanged.
+- Diagnostic validation: 126 tests and 12 subtests pass, including contact
+  force sign, point-velocity slip, delayed target traces, conditional metrics,
+  and heading injection with preserved reference/observation history.
+
 - Reviewed v0.20.1 `wr2_ppo_20261007_084251_seed0`: no evaluated update beat
   the restored policy. Worst-endpoint nominal score changed 0.492 -> 0.437;
   0.10 m/s speed remained 0.0905 m/s but MAE increased to 0.0270 m/s. Independent
