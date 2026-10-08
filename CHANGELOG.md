@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-08
+
+- Added `scp_from_remote.sh --results <folder>` to recursively download any
+  custom folder or subtree under remote `results/` to the matching local path.
+  Existing local-only files are preserved; remote deletions are not mirrored.
+  Validation covers nested runs, rsync/scp fallback, dry-run, missing folders,
+  path traversal rejection and the existing transfer commands.
+
 ## 2026-10-07
 
 - Added matched Newton solver-budget overrides to training, held-out evaluation

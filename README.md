@@ -100,6 +100,11 @@ directory. JSON/NPZ servo captures with the same stem are treated as one run.
 ./scripts/scp_from_remote.sh --latest training 2
 ./scripts/scp_from_remote.sh --list servo_sysid
 
+# Copy a whole custom results folder, including all nested runs
+./scripts/scp_from_remote.sh --results wr2_solver_ab
+# Or copy just one subtree
+./scripts/scp_from_remote.sh --results wr2_solver_ab/newton10_seed0
+
 # GPU/training host through its public address
 ./scripts/scp_from_remote.sh --linux-pc --latest training
 

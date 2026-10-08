@@ -10,6 +10,7 @@
 #   ./scripts/scp_from_remote.sh --latest walking_agent
 #   ./scripts/scp_from_remote.sh --list servo_sysid
 #   ./scripts/scp_from_remote.sh --copy servo_sysid htd45h-unit-a
+#   ./scripts/scp_from_remote.sh --results wr2_solver_ab
 #   ./scripts/scp_from_remote.sh results/servo_sysid/deployment_spec.json
 
 set -euo pipefail
@@ -35,12 +36,17 @@ Usage:
   ./scripts/scp_from_remote.sh --list [group [N]]
   ./scripts/scp_from_remote.sh --groups
   ./scripts/scp_from_remote.sh --copy <group> <name>
+  ./scripts/scp_from_remote.sh --results <folder>
   ./scripts/scp_from_remote.sh <repository-relative-path>
 
 Result groups live below results/ on both machines. Aliases:
   training -> wr2_walking
   walking_agent -> wr2_walking_agent
   sysid    -> servo_sysid
+
+--results copies an entire directory, including all nested runs.
+The folder is relative to results/ (for example wr2_solver_ab or
+wr2_solver_ab/newton10_seed0), and keeps the same local results/ path.
 
 Connection options may appear anywhere:
   --linux-pc            Use LINUX_PUBLIC_IP and optional LINUX_PUBLIC_PORT
@@ -63,6 +69,8 @@ Examples:
   ./scripts/scp_from_remote.sh --latest training 2
   ./scripts/scp_from_remote.sh --latest walking_agent
   ./scripts/scp_from_remote.sh --copy servo_sysid htd45h-unit-a
+  ./scripts/scp_from_remote.sh --results wr2_solver_ab
+  ./scripts/scp_from_remote.sh --results wr2_solver_ab/newton10_seed0
   ./scripts/scp_from_remote.sh --host gpu-box --latest contact_tests 4
 EOF
 }
@@ -442,6 +450,14 @@ case "$1" in
         [ "$#" -eq 3 ] || fail "usage: --copy <group> <name>"
         group="$(resolve_group "$2")"
         copy_named_result "$group" "$3"
+        ;;
+    --results)
+        [ "$#" -eq 2 ] || fail "usage: --results <folder-relative-to-results>"
+        folder="${2%/}"
+        validate_relative_path "$folder"
+        remote_ssh "[ -d '$REMOTE_BASE/results/$folder' ]" 2>/dev/null || \
+            fail "missing remote result folder: $REMOTE_BASE/results/$folder"
+        copy_relative_path "results/$folder"
         ;;
     --*)
         fail "unknown option '$1'"

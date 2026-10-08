@@ -187,6 +187,8 @@ the usual `training` result-group alias):
 ```bash
 ./scripts/scp_from_remote.sh --copy wr2_solver_ab newton1_seed0
 ./scripts/scp_from_remote.sh --copy wr2_solver_ab newton10_seed0
+# Alternatively, copy the whole experiment tree in one command:
+./scripts/scp_from_remote.sh --results wr2_solver_ab
 ```
 
 For confirmation, repeat the pair with `--seed 1` and separate `seed1` output
