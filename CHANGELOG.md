@@ -2,6 +2,14 @@
 
 ## 2026-10-07
 
+- Added pre-training model/reference symmetry, all-history actor reflection,
+  half-cycle stride and full-physics-substep contact-impulse verification.
+  Diagnostic-only solver convergence and mirrored-action projection probes
+  run on Mac/GPU without changing training rewards, model files or checkpoints.
+  Validation: 134 tests pass, with model/actor reflection, physical target
+  replay, momentum reference points and integrated-impulse regression coverage.
+  See [the verification report](docs/design/walking_symmetry_verification_20261007.md).
+
 - Reviewed v0.21.0 `wr2_ppo_20261007_152924_seed0`: the starting checkpoint
   remained best. Final 0.10 m/s MAE worsened 0.0247 -> 0.0411 m/s despite
   heading improving 4.16 -> 3.41 degrees; scripted-transition saturation

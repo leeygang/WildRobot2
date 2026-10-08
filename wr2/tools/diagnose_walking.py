@@ -110,10 +110,9 @@ def rotate_heading(env, state, angle):
     return state.replace(pipeline_state=pipeline, obs=observation)
 
 
-def sample_step(env, before, after, action):
-    """Trace the delayed request, quantization, limits and applied servo target."""
+def target_trace(env, before, action):
+    """Reconstruct the exact delayed, biased, bounded and slew-limited target."""
     import jax.numpy as jp
-    from wr2.locomotion.walking_env import torso_heading
 
     applied = (
         before.info["previous_action"] if env.config.action_delay_steps else action
@@ -128,6 +127,21 @@ def sample_step(env, before, after, action):
     )
     lower = (requested < env._ctrl_lower - 1e-7) | (rounded < env._ctrl_lower - 1e-7)
     upper = (requested > env._ctrl_upper + 1e-7) | (rounded > env._ctrl_upper + 1e-7)
+    return (
+        requested,
+        target,
+        lower,
+        upper,
+        jp.abs(delta) > env._max_command_step_rad + 1e-7,
+    )
+
+
+def sample_step(env, before, after, action):
+    """Trace the delayed request, quantization, limits and applied servo target."""
+    import jax.numpy as jp
+    from wr2.locomotion.walking_env import torso_heading
+
+    requested, target, lower, upper, slew = target_trace(env, before, action)
     force, slip, counts = foot_contact_samples(env, after.pipeline_state)
     heading = before.info["reference_heading"]
     c, s = jp.cos(heading), jp.sin(heading)
@@ -155,7 +169,7 @@ def sample_step(env, before, after, action):
         / jp.pi,
         "clip_lower": lower,
         "clip_upper": upper,
-        "slew_limited": jp.abs(delta) > env._max_command_step_rad + 1e-7,
+        "slew_limited": slew,
         "fall": metrics["fall"],
         "nonfinite": metrics["nonfinite_state"],
         "torque_rms_nm": metrics["actuator_torque_rms_nm_per_step"],

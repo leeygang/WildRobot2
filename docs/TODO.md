@@ -11,10 +11,28 @@ completed before treating a policy as deployment-qualified.
   clipping diagnostics. The starting checkpoint remains best; the final policy
   learns heading correction but worsens speed tracking and standing left-knee
   clipping. See [the evidence and reproduction command](design/walking_diagnostics_20261007.md).
-- [ ] Before the next training change, address the measured standing-only
-  left-knee target overrun separately from uneven steady-stride propulsion.
+- [ ] Track the measured standing-only left-knee target overrun separately
+  from uneven steady-stride propulsion. A target-overrun cost is optional and
+  deferred until the physics-convergence experiment, not a training prerequisite.
   Preserve the CAD knee limits, heading observation/reward and fitted servo
   nominal; do not infer gross slip or a dead foot from phase-speed averages.
+- [x] Verify model/reference mirroring, all-history actor reflection, paired
+  half-cycle stepping and contact impulses over all physics substeps. No gross
+  reference/mapping defect was found. The final policy is asymmetric, while
+  one Newton iteration leaves substantial momentum-balance residuals; ten
+  iterations converge closely to twenty in the checked scenarios. See
+  [the verification and evidence](design/walking_symmetry_verification_20261007.md).
+- [ ] Prepare a physics-only convergence experiment before adding symmetry
+  loss: use ten Newton iterations, preserve the current 5 ms/four-substep
+  timing, rewards, action mapping and servo fit, and restore the retained best
+  checkpoint. Confirm 0.05/0.075/0.10 m/s, heading and standing/walking
+  transitions under held-out randomization before a bounded 20M run. Measure
+  GPU throughput; no full-billion-step run is justified by the diagnostic alone.
+- [ ] Reconsider actor mirror loss after converged-physics training. WR1's
+  coordinate signs cannot be copied; the verified WR2 actor reflection covers
+  all history, heading and phase. The diagnostic action projection improved
+  the final policy but worsened retained-policy tracking at 0.10 m/s, so it
+  is not a deployment adapter or evidence to combine multiple changes now.
 - [ ] Confirm the accepted policy at 0.05/0.075/0.10 m/s on held-out randomized
   seeds and with `evaluate --transitions` before expanding command speeds.
 

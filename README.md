@@ -67,6 +67,8 @@ contract, and remaining hardware gates. The tracked training and hardware work
 is in [`docs/TODO.md`](docs/TODO.md). See
 [`the heading, stance/slip and clipping diagnostic review`](docs/design/walking_diagnostics_20261007.md)
 for the current pre-training evidence and reproducible Mac/GPU checks. See
+[`the model/reference, actor-symmetry and solver-convergence verification`](docs/design/walking_symmetry_verification_20261007.md)
+for the full-substep impulse checks and physics-first next experiment. See
 [`docs/design/servo_model.md`](docs/design/servo_model.md) for the evidence and
 limitations behind the initial HTD-45H model.
 Training values are defined in
