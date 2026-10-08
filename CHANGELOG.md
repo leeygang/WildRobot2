@@ -2,6 +2,19 @@
 
 ## 2026-10-07
 
+- Added matched Newton solver-budget overrides to training, held-out evaluation
+  and heading/contact diagnostics, plus a diagnostic all-history heading-input
+  ablation. Historical/default physics remains one iteration; no symmetry loss,
+  reward or servo change is enabled. Runs now record the effective physics
+  budget/timing/model hash and restore-checkpoint hash for controlled comparisons.
+  Regression coverage checks legacy defaults, override isolation, TB orientation
+  noise composition, unchanged old input features and physics, and reward-only
+  orientation changes. See [the audit and A/B handoff](docs/design/walking_regression_ab_20261007.md).
+  Validation: 139 tests, 200 twenty-second Mac diagnostic episodes without
+  falls/non-finite states, and an 80-transition restored RSL-RL smoke pass.
+  GPU causal comparison remains pending; development checks do not qualify
+  the source policy for deployment or prove the solver caused its asymmetry.
+
 - Added pre-training model/reference symmetry, all-history actor reflection,
   half-cycle stride and full-physics-substep contact-impulse verification.
   Diagnostic-only solver convergence and mirrored-action projection probes

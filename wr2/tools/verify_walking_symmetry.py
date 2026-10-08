@@ -72,6 +72,12 @@ def mirror_actor(observation, source, signs, active, *, heading=True):
     return mirrored.reshape(observation.shape)
 
 
+def ablate_heading(observation):
+    """Diagnostic only: hide relative heading in every v4 actor history frame."""
+    frames = observation.reshape((*observation.shape[:-1], 15, 57))
+    return frames.at[..., 55:57].set(jp.asarray([0.0, 1.0])).reshape(observation.shape)
+
+
 def summarize_error(values):
     values = np.asarray(values)
     return {
@@ -460,6 +466,7 @@ def run_verification(
     *,
     solver_iterations=None,
     project_actor=False,
+    heading_ablation=False,
     summarize_only=False,
 ):
     from wr2.locomotion.configs import load_training_config
@@ -476,7 +483,10 @@ def run_verification(
         seeds = tuple(previous["seeds"])
         solver_iterations = previous.get("solver_iterations", 1)
         project_actor = previous.get("actor_projection", False)
+        heading_ablation = previous.get("heading_ablation", False)
     config = load_training_config(run_dir / "training_config.yaml")
+    if heading_ablation and not config.environment.heading_observation:
+        raise ValueError("Heading ablation requires a v4 heading-aware policy")
     commands = (0.05, 0.075, 0.10)
     environment = replace(config.environment, zero_command_probability=0.0)
     env = WR2WalkingEnv(environment, add_observation_noise=False)
@@ -502,6 +512,7 @@ def run_verification(
         "mode": "nominal_model_configured_reset_variation_no_observation_noise",
         "solver_iterations": int(env.sys.opt.iterations),
         "actor_projection": project_actor,
+        "heading_ablation": heading_ablation,
         "model_reference": verify_model_reference(env, model, source, signs),
         "policies": {},
     }
@@ -533,9 +544,14 @@ def run_verification(
                 name: value.at[:, 2:5].set(command) for name, value in state.obs.items()
             }
             state = state.replace(info=info, obs=observation)
-            action, _ = policy(state.obs, None)
+            policy_observation = state.obs
+            if heading_ablation:
+                policy_observation = {
+                    **state.obs, "state": ablate_heading(state.obs["state"])
+                }
+            action, _ = policy(policy_observation, None)
             mirrored = mirror_actor(
-                state.obs["state"],
+                policy_observation["state"],
                 source_jax,
                 signs_jax,
                 active,
@@ -636,6 +652,10 @@ def main():
         action="store_true",
         help="Diagnostic mirror projection, without training or checkpoint writes",
     )
+    parser.add_argument(
+        "--ablate-heading", action="store_true",
+        help="Diagnostic only: hide learned heading inputs without changing reward or physics",
+    )
     args = parser.parse_args()
     seeds = tuple(int(value) for value in args.seeds.split(","))
     if not seeds or len(set(seeds)) != len(seeds):
@@ -648,6 +668,7 @@ def main():
         seeds,
         solver_iterations=args.solver_iterations,
         project_actor=args.project_actor,
+        heading_ablation=args.ablate_heading,
         summarize_only=args.summarize_only,
     )
 

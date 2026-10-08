@@ -6,6 +6,9 @@ seed: 0
 
 environment:
   episode_length: 1000
+  # TB-compatible control arm. Override to 10 for the matched convergence test;
+  # this is a solver budget, not the physics timestep or control substeps.
+  solver_iterations: 1
   # IMU-relative heading makes TB's full orientation reward observable.
   # No magnetometer input; initial heading defines the local world frame.
   heading_observation: true

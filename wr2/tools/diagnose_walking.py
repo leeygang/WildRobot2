@@ -304,7 +304,8 @@ def summarize(trace, names, dt, *, injection_step=150, active_indices=None):
 
 
 def run_diagnostics(
-    run_dir: Path, output: Path, seeds: tuple[int, ...], *, summarize_only=False
+    run_dir: Path, output: Path, seeds: tuple[int, ...], *, summarize_only=False,
+    solver_iterations=None,
 ):
     _configure_backend_logging()
     with _filter_optional_backend_import_messages():
@@ -320,12 +321,19 @@ def run_diagnostics(
 
     if not seeds or len(set(seeds)) != len(seeds):
         raise ValueError("Seeds must be nonempty and unique")
+    if summarize_only:
+        previous = json.loads((output / "summary.json").read_text())
+        solver_iterations = previous.get("solver_iterations", 1)
     if not summarize_only and (output / "summary.json").exists():
         raise FileExistsError(
             f"Refusing to overwrite existing diagnostic run: {output}"
         )
     output.mkdir(parents=True, exist_ok=True)
     config = load_training_config(run_dir / "training_config.yaml")
+    if solver_iterations is not None:
+        config = replace(
+            config, environment=replace(config.environment, solver_iterations=solver_iterations)
+        )
     environment_config = replace(
         config.environment,
         command_forward_range_m_s=(0.10, 0.10),
@@ -335,6 +343,7 @@ def run_diagnostics(
         "run": str(run_dir.resolve()),
         "seeds": seeds,
         "command_m_s": 0.10,
+        "solver_iterations": config.environment.solver_iterations,
         "evaluation_mode": "nominal_dynamics_with_configured_reset_actuator_and_pose_variation",
         "observation_noise": False,
         "force_sampling": "last_physics_substep_not_impulse",
@@ -464,15 +473,19 @@ def main():
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seeds", default="101,202,303,404")
+    parser.add_argument("--solver-iterations", type=int)
     parser.add_argument(
         "--summarize-only",
         action="store_true",
         help="Recompute summaries from existing traces without simulation",
     )
     args = parser.parse_args()
+    if args.solver_iterations is not None and args.solver_iterations < 1:
+        parser.error("solver iterations must be positive")
     seeds = tuple(int(value) for value in args.seeds.split(","))
     run_diagnostics(
-        args.run_dir, args.output, seeds, summarize_only=args.summarize_only
+        args.run_dir, args.output, seeds, summarize_only=args.summarize_only,
+        solver_iterations=args.solver_iterations,
     )
 
 

@@ -84,6 +84,7 @@ def evaluate_checkpoint(
     num_envs: int,
     allow_cpu: bool,
     transitions: bool = False,
+    solver_iterations: int | None = None,
 ) -> dict:
     """Evaluate one checkpoint independently for every requested seed."""
     _configure_backend_logging()
@@ -113,6 +114,13 @@ def evaluate_checkpoint(
         raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint_path}")
 
     config = load_training_config(config_path)
+    if solver_iterations is not None:
+        if solver_iterations < 1:
+            raise ValueError("solver_iterations must be positive")
+        config = replace(
+            config,
+            environment=replace(config.environment, solver_iterations=solver_iterations),
+        )
     rsl_checkpoint = checkpoint_path.is_file()
     if rsl_checkpoint:
         params = load_rsl_actor_parameters(checkpoint_path)
@@ -239,6 +247,7 @@ def evaluate_checkpoint(
         "checkpoint": str(checkpoint_path),
         "backend": "rsl_rl" if rsl_checkpoint else "brax",
         "config": str(config_path.resolve()),
+        "solver_iterations": config.environment.solver_iterations,
         "commands_forward_m_s": list(commands),
         "num_envs_per_seed": num_envs,
         "evaluation_mode": (
@@ -263,6 +272,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--num-envs", type=int, default=128)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--allow-cpu", action="store_true")
+    parser.add_argument("--solver-iterations", type=int)
     parser.add_argument(
         "--transitions",
         action="store_true",
@@ -283,6 +293,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         num_envs=args.num_envs,
         allow_cpu=args.allow_cpu,
         transitions=args.transitions,
+        solver_iterations=args.solver_iterations,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(

@@ -1,4 +1,5 @@
 import math
+import argparse
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -14,6 +15,7 @@ from wr2.locomotion.configs import load_training_config
 from wr2.locomotion.ppo import make_network_factory
 from wr2.locomotion.train import (
     _acquisition_checkpoint_score,
+    _apply_cli_overrides,
     _checkpoint_evaluation_commands,
     _create_run_directory,
     _worst_endpoint_score,
@@ -43,6 +45,125 @@ from wr2.sim import (
 
 
 class TrainingInterfaceTest(unittest.TestCase):
+    def test_solver_override_changes_only_the_iteration_ceiling(self):
+        from wr2.locomotion.evaluate import transition_environment
+
+        baseline = self.training_config.environment
+        accurate = replace(baseline, solver_iterations=10)
+        environments = (
+            WR2WalkingEnv(baseline, add_observation_noise=False),
+            WR2WalkingEnv(accurate, add_observation_noise=False),
+            transition_environment(accurate, add_observation_noise=False),
+        )
+        for environment, expected in zip(environments, (1, 10, 10), strict=True):
+            self.assertEqual(int(environment.sys.opt.iterations), expected)
+            self.assertEqual(int(environment.sys.opt.solver), 2)
+            self.assertEqual(int(environment.sys.opt.ls_iterations), 4)
+            self.assertAlmostEqual(float(environment.sys.opt.timestep), .005)
+            self.assertEqual(environment._n_frames, 4)
+            self.assertEqual(environment.observation_size, environments[0].observation_size)
+            np.testing.assert_array_equal(environment._home_ctrl, environments[0]._home_ctrl)
+
+    def test_solver_config_defaults_validation_and_cli_isolation(self):
+        import yaml
+        from wr2.locomotion.configs import training_config_to_dict
+
+        data = training_config_to_dict(self.training_config)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "config.yaml"
+            del data["environment"]["solver_iterations"]
+            path.write_text(yaml.safe_dump(data))
+            self.assertEqual(load_training_config(path).environment.solver_iterations, 1)
+            for invalid in (0, -1, 1.5, True):
+                data["environment"]["solver_iterations"] = invalid
+                path.write_text(yaml.safe_dump(data))
+                with self.assertRaises(ValueError):
+                    load_training_config(path)
+        args = argparse.Namespace(**dict.fromkeys((
+            "num_timesteps", "num_envs", "num_evals", "num_eval_envs", "unroll_length",
+            "batch_size", "num_minibatches", "num_updates_per_batch", "learning_rate",
+            "entropy_cost", "discounting", "backend", "episode_length", "output_root",
+            "seed",
+        )), solver_iterations=10, no_domain_randomization=False)
+        changed = _apply_cli_overrides(self.training_config, args)
+        self.assertEqual(changed.environment.solver_iterations, 10)
+        self.assertEqual(
+            replace(changed.environment, solver_iterations=1), self.training_config.environment
+        )
+        self.assertEqual(changed.ppo, self.training_config.ppo)
+        args.solver_iterations = 0
+        with self.assertRaises(ValueError):
+            _apply_cli_overrides(self.training_config, args)
+
+    def test_heading_addition_preserves_old_features_and_uses_tb_noise_rotation(self):
+        from scipy.spatial.transform import Rotation
+
+        env = WR2WalkingEnv(self.training_config.environment, add_observation_noise=True)
+        legacy = WR2WalkingEnv(
+            replace(env.config, heading_observation=False), add_observation_noise=True
+        )
+        state = env.reset(jax.random.PRNGKey(41))
+        rng = jax.random.PRNGKey(42)
+        command, phase, reference = jp.asarray([.1, 0, 0]), jp.asarray(.7), .1
+        arguments = (
+            state.pipeline_state, state.info["previous_action"], command, phase, rng,
+            state.info["imu_state"], state.info["backlash"], jp.asarray([1, 0]),
+            jp.asarray([1, 0]),
+        )
+        observed, imu = env._observation(*arguments, reference_heading=reference)
+        old_observed, _ = legacy._observation(*arguments, reference_heading=reference)
+        np.testing.assert_array_equal(observed["state"][:55], old_observed["state"])
+        np.testing.assert_array_equal(
+            jp.concatenate([observed["privileged_state"][:55], observed["privileged_state"][57:]]),
+            old_observed["privileged_state"],
+        )
+        noise = env.config.observation_noise
+        amplitude = jax.random.uniform(
+            jax.random.split(rng, 10)[9], (3,),
+            minval=noise.projected_gravity_amplitude_min,
+            maxval=noise.projected_gravity_amplitude_max,
+        )
+        rotvec = np.asarray(amplitude * (imu["gravity_colored"] + imu["gravity_bias"]))
+        true = np.asarray(state.pipeline_state.x.rot[env._root_link_index])
+        rotation = Rotation.from_rotvec(rotvec) * Rotation.from_quat(np.roll(true, -1))
+        measured = jp.asarray(np.roll(rotation.as_quat(), 1))
+        np.testing.assert_allclose(
+            observed["state"][55:57], heading_features(measured, reference), atol=1e-6
+        )
+        np.testing.assert_allclose(
+            observed["state"][52:55], rotation.inv().apply([0, 0, -1]), atol=1e-6
+        )
+
+    def test_heading_reward_change_is_only_full_orientation_on_identical_motion(self):
+        modern = WR2WalkingEnv(self.training_config.environment, add_observation_noise=False)
+        legacy = WR2WalkingEnv(
+            replace(modern.config, heading_observation=False), add_observation_noise=False
+        )
+        quaternion = jp.asarray([np.cos(.15), 0, 0, np.sin(.15)])
+
+        def after_one_step(env):
+            state = env.reset(jax.random.PRNGKey(43))
+            pipeline = env.pipeline_init(
+                state.pipeline_state.q.at[3:7].set(quaternion), state.pipeline_state.qd
+            )
+            state = state.replace(pipeline_state=pipeline)
+            return env.step(state, jp.zeros(10))
+
+        current, old = jax.jit(lambda: after_one_step(modern))(), jax.jit(
+            lambda: after_one_step(legacy)
+        )()
+        np.testing.assert_array_equal(current.pipeline_state.q, old.pipeline_state.q)
+        for name in current.metrics:
+            if name not in {"upright", "upright_per_step", "reward", "reward_per_step"}:
+                np.testing.assert_array_equal(
+                    current.metrics[name], old.metrics[name], err_msg=name
+                )
+        expected = (
+            modern.config.rewards.upright * modern.robot.control_period_s
+            * (current.metrics["upright"] - old.metrics["upright"])
+        )
+        self.assertAlmostEqual(float(current.reward - old.reward), float(expected), places=6)
+
     def test_heading_observation_and_rotation_reward_match_tb(self):
         from scipy.spatial.transform import Rotation
 

@@ -228,6 +228,7 @@ class WR2WalkingEnv(PipelineEnv):
                 f"Missing {scene_path}; run python -m wr2.tools.post_process"
             )
         mj_model = mujoco.MjModel.from_xml_path(str(scene_path))
+        mj_model.opt.iterations = self.config.solver_iterations
         key_id = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_KEY, "walk_home")
         if key_id < 0:
             raise ValueError("MJX model is missing the walk_home keyframe")

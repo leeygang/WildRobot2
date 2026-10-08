@@ -87,6 +87,7 @@ class ZMPReferenceConfig:
 @dataclass(frozen=True)
 class WalkingEnvConfig:
     episode_length: int
+    solver_iterations: int
     heading_observation: bool
     active_groups: tuple[str, ...]
     pose_weights: tuple[float, ...]
@@ -302,7 +303,9 @@ def load_training_config(
 
     env_raw = _mapping(root["environment"], "environment")
     # Historical snapshots retain their v3 observation/reward contract.
-    env_raw = {"heading_observation": False, **env_raw}
+    env_raw = {"heading_observation": False, "solver_iterations": 1, **env_raw}
+    if isinstance(env_raw["solver_iterations"], bool):
+        raise ValueError("environment.solver_iterations must be an integer")
     nested_env_fields = {
         "observation_noise",
         "rewards",
@@ -316,7 +319,9 @@ def load_training_config(
         "command_lateral_range_m_s",
         "command_yaw_range_rad_s",
     }
-    integer_fields = {"episode_length", "action_delay_steps", "command_resample_steps"}
+    integer_fields = {
+        "episode_length", "solver_iterations", "action_delay_steps", "command_resample_steps"
+    }
     boolean_fields = {"randomize_gait_phase_on_reset", "heading_observation"}
     vector_fields = {"pose_weights"}
     float_fields = (
@@ -352,6 +357,9 @@ def load_training_config(
         ),
         episode_length=_positive_int(
             env_raw["episode_length"], "environment.episode_length"
+        ),
+        solver_iterations=_positive_int(
+            env_raw["solver_iterations"], "environment.solver_iterations"
         ),
         action_delay_steps=int(env_raw["action_delay_steps"]),
         command_resample_steps=_positive_int(

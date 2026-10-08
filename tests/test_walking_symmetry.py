@@ -10,6 +10,7 @@ from wr2.locomotion.configs import load_training_config
 from wr2.locomotion.walking_env import WR2WalkingEnv
 from wr2.tools.verify_walking_symmetry import (
     joint_reflection,
+    ablate_heading,
     conditional_mean,
     contact_impulses,
     mirror_actor,
@@ -139,6 +140,15 @@ class WalkingSymmetryTest(unittest.TestCase):
                 reflected[..., start : start + 17],
                 original[..., start + self.source] * self.signs,
             )
+
+    def test_heading_ablation_preserves_every_other_history_feature(self):
+        values = jp.arange(2 * 855, dtype=jp.float32).reshape(2, 855)
+        hidden = jax.jit(ablate_heading)(values)
+        original, changed = values.reshape(2, 15, 57), hidden.reshape(2, 15, 57)
+        np.testing.assert_array_equal(changed[..., :55], original[..., :55])
+        np.testing.assert_array_equal(changed[..., 55], 0)
+        np.testing.assert_array_equal(changed[..., 56], 1)
+        np.testing.assert_array_equal(ablate_heading(hidden), hidden)
 
     def test_substep_replay_preserves_training_physics(self):
         state = jax.jit(self.env.reset)(jax.random.PRNGKey(0))

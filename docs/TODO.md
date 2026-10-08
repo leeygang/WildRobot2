@@ -22,12 +22,17 @@ completed before treating a policy as deployment-qualified.
   one Newton iteration leaves substantial momentum-balance residuals; ten
   iterations converge closely to twenty in the checked scenarios. See
   [the verification and evidence](design/walking_symmetry_verification_20261007.md).
-- [ ] Prepare a physics-only convergence experiment before adding symmetry
-  loss: use ten Newton iterations, preserve the current 5 ms/four-substep
-  timing, rewards, action mapping and servo fit, and restore the retained best
-  checkpoint. Confirm 0.05/0.075/0.10 m/s, heading and standing/walking
-  transitions under held-out randomization before a bounded 20M run. Measure
-  GPU throughput; no full-billion-step run is justified by the diagnostic alone.
+- [x] Prepare matched one-versus-ten-iteration training/evaluation overrides,
+  keeping historical/default budgets at one and all reward/action/servo/timing
+  settings unchanged. Audit actual migrated weights/Adam/RNG and heading-input
+  ablation; hiding heading does not recover the final policy's tracking.
+  See [the audit, evidence and GPU commands](design/walking_regression_ab_20261007.md).
+- [ ] Run both 20M solver arms from the same retained v4 checkpoint, confirm
+  the direction with a second training seed, and evaluate both under common
+  ten-iteration physics and held-out commands/transitions/heading disturbances.
+  Measure GPU throughput. Reduced asymmetry alone is not success; do not claim
+  solver causality without reproducible tracking benefit. No training job was
+  launched remotely; GPU SSH was unavailable during the Mac verification.
 - [ ] Reconsider actor mirror loss after converged-physics training. WR1's
   coordinate signs cannot be copied; the verified WR2 actor reflection covers
   all history, heading and phase. The diagnostic action projection improved

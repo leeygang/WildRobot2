@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import hashlib
 import json
 import math
 import os
@@ -379,6 +380,12 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         )
     print(f"  Episode:      {training_config.environment.episode_length} steps")
     print(
+        f"  Physics:      Newton iterations={int(environment.sys.opt.iterations)} "
+        f"line_search={int(environment.sys.opt.ls_iterations)}; "
+        f"{environment.robot.simulation_timestep_s * 1000:.0f}ms x "
+        f"{environment._n_frames} substeps"
+    )
+    print(
         "  Evaluation:   "
         f"{training_config.ppo.num_evals} evaluations x "
         f"{training_config.ppo.num_eval_envs} parallel episodes; "
@@ -434,6 +441,20 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         "policy_action_scale_rad": (
             training_config.environment.policy_action_scale_rad
         ),
+        "restore_checkpoint_sha256": (
+            hashlib.sha256(args.restore_checkpoint.read_bytes()).hexdigest()
+            if args.restore_checkpoint is not None and args.restore_checkpoint.is_file()
+            else None
+        ),
+        "physics": {
+            "solver_iterations": int(environment.sys.opt.iterations),
+            "line_search_iterations": int(environment.sys.opt.ls_iterations),
+            "timestep_s": float(environment.sys.opt.timestep),
+            "control_substeps": environment._n_frames,
+            "model_sha256": hashlib.sha256(
+                (environment.robot.directory / "wr2_mjx.xml").read_bytes()
+            ).hexdigest(),
+        },
         "zmp_reference_validation": [asdict(result) for result in zmp_preflight],
     }
     (output / "run_config.json").write_text(
@@ -1003,6 +1024,10 @@ def _apply_cli_overrides(
     environment = training_config.environment
     if args.episode_length is not None:
         environment = replace(environment, episode_length=args.episode_length)
+    if args.solver_iterations is not None:
+        if args.solver_iterations < 1:
+            raise ValueError("--solver-iterations must be positive")
+        environment = replace(environment, solver_iterations=args.solver_iterations)
     if args.no_domain_randomization:
         environment = replace(
             environment,
@@ -1041,6 +1066,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-evals", type=int, default=None)
     parser.add_argument("--num-eval-envs", type=int, default=None)
     parser.add_argument("--episode-length", type=int, default=None)
+    parser.add_argument(
+        "--solver-iterations", type=int, default=None,
+        help="Override the Newton solver iteration ceiling for a matched physics A/B test",
+    )
     parser.add_argument("--unroll-length", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--num-minibatches", type=int, default=None)

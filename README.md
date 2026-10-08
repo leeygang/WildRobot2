@@ -68,6 +68,7 @@ is in [`docs/TODO.md`](docs/TODO.md). See
 [`the heading, stance/slip and clipping diagnostic review`](docs/design/walking_diagnostics_20261007.md)
 for the current pre-training evidence and reproducible Mac/GPU checks. See
 [`the model/reference, actor-symmetry and solver-convergence verification`](docs/design/walking_symmetry_verification_20261007.md)
+and [`the latest regression audit and controlled solver A/B plan`](docs/design/walking_regression_ab_20261007.md)
 for the full-substep impulse checks and physics-first next experiment. See
 [`docs/design/servo_model.md`](docs/design/servo_model.md) for the evidence and
 limitations behind the initial HTD-45H model.
