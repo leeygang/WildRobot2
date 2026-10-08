@@ -173,6 +173,50 @@ def _scalar(metrics: Mapping[str, Any], name: str) -> float:
     return result
 
 
+def evaluate_transition_goal(
+    metrics: Mapping[str, Any], goal: WalkingGoal
+) -> WalkingGoalResult:
+    """Gate recovery without letting standing samples dilute walking error.
+
+    Do not apply the fixed-command walking score, speed ratio or foot-use gates
+    to a mixed standing/walking episode. Reuse the stage's existing health,
+    tracking and actuator thresholds; this introduces no new acceptance values.
+    """
+    names = (
+        "episode_length",
+        "fall_rate",
+        "action_saturation_fraction",
+        "nonfinite_state",
+        "actuator_torque_rms_nm",
+        "mean_step_peak_torque_nm",
+        "sustained_torque_exposure",
+    )
+    values = {name: _scalar(metrics, name) for name in names}
+    count = float(metrics["eval/episode_walking_sample_count"])
+    error = float(metrics["eval/episode_walking_velocity_error_sum"])
+    if not math.isfinite(count) or count <= 0 or not math.isfinite(error) or error < 0:
+        raise ValueError(
+            "Transition evaluation requires finite walking samples and error"
+        )
+    values["forward_velocity_error_m_s"] = error / count
+    gates = {
+        "episode_length": values["episode_length"] >= goal.min_episode_length,
+        "fall_rate": values["fall_rate"] <= goal.max_fall_rate,
+        "forward_velocity_error": values["forward_velocity_error_m_s"]
+        <= goal.max_forward_velocity_error_m_s,
+        "action_saturation": values["action_saturation_fraction"]
+        <= goal.max_action_saturation_fraction,
+        "finite_state": values["nonfinite_state"] <= goal.max_nonfinite_state,
+        "torque_rms": values["actuator_torque_rms_nm"]
+        <= goal.max_actuator_torque_rms_nm,
+        "torque_peak": values["mean_step_peak_torque_nm"]
+        <= goal.max_mean_step_peak_torque_nm,
+        "torque_exposure": values["sustained_torque_exposure"]
+        <= goal.max_sustained_torque_exposure,
+    }
+    return WalkingGoalResult(all(gates.values()), 0.0, gates, values)
+
+
 def evaluate_walking_goal(
     metrics: Mapping[str, Any],
     goal: WalkingGoal,

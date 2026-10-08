@@ -4,11 +4,13 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import yaml
 
 from wr2.agents.walking_training_agent import (
     DEFAULT_AGENT_CONFIG,
+    _confirmation,
     _cycle_payload,
     load_agent_config,
     run_local,
@@ -18,7 +20,10 @@ from wr2.locomotion.configs import (
     load_training_config,
     training_config_to_dict,
 )
-from wr2.locomotion.walking_metrics import evaluate_walking_goal
+from wr2.locomotion.walking_metrics import (
+    evaluate_transition_goal,
+    evaluate_walking_goal,
+)
 
 
 def _good_metrics(**updates):
@@ -59,6 +64,73 @@ class WalkingTrainingAgentTest(unittest.TestCase):
             [stage.name for stage in self.agent_config.stages],
             ["gait_acquisition", "robust_walking"],
         )
+
+    def test_transition_gate_does_not_dilute_error_with_standing_samples(self):
+        metrics = _good_metrics(
+            **{
+                "eval/episode_forward_velocity_error_m_s_per_step": 0.01,
+                "eval/episode_walking_velocity_error_sum": 20.0,
+                "eval/episode_walking_sample_count": 550.0,
+            }
+        )
+        result = evaluate_transition_goal(metrics, self.agent_config.stages[-1].goal)
+        self.assertAlmostEqual(result.values["forward_velocity_error_m_s"], 20 / 550)
+        self.assertFalse(result.gates["forward_velocity_error"])
+        self.assertNotIn("forward_velocity_ratio", result.gates)
+        metrics["eval/episode_walking_sample_count"] = 0
+        with self.assertRaises(ValueError):
+            evaluate_transition_goal(metrics, self.agent_config.stages[-1].goal)
+
+    def test_confirmation_rejects_transition_failures_despite_good_fixed_walk(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "confirmation.json"
+
+            def evaluate(command, *, log_path):
+                metrics = _good_metrics()
+                if "--transitions" in command:
+                    metrics.update(
+                        {
+                            "eval/episode_fall": 4 / 128,
+                            "eval/episode_walking_velocity_error_sum": 5.0,
+                            "eval/episode_walking_sample_count": 550.0,
+                        }
+                    )
+                report = {
+                    "command_results": [
+                        {
+                            "command_forward_m_s": 0.15,
+                            "seed_results": [{"seed": 707, "metrics": metrics}],
+                        }
+                    ]
+                }
+                Path(command[command.index("--output") + 1]).write_text(
+                    json.dumps(report)
+                )
+                return 0
+
+            stage = self.agent_config.stages[-1]
+            with patch(
+                "wr2.agents.walking_training_agent._run_streamed", side_effect=evaluate
+            ) as mocked:
+                passed, report = _confirmation(
+                    checkpoint=root / "params.pt",
+                    cycle_config=self.agent_config.base_training_config,
+                    goal=stage.goal,
+                    required_gates=stage.required_gates,
+                    agent_config=self.agent_config,
+                    output=output,
+                    allow_cpu=True,
+                    dry_run=False,
+                )
+            self.assertEqual(mocked.call_count, 2)
+            self.assertFalse(passed)
+            self.assertTrue(report["goal_results"][0]["required_passed"])
+            self.assertFalse(
+                report["transition_confirmation"]["goal_results"][0]["gates"][
+                    "fall_rate"
+                ]
+            )
 
     def test_stage_override_does_not_change_policy_contract(self):
         base = load_training_config(self.agent_config.base_training_config)

@@ -2,6 +2,15 @@
 
 ## 2026-10-08
 
+- Added paired held-out replay with pre-autoreset physical traces, original
+  evaluation RNG streams, noise/dynamics ablations, restart timing probes and
+  diagnostic actor reflection. Local and remote walking-agent confirmation now
+  includes randomized standing/walking transitions, with walking-only tracking
+  denominators and existing stage/hard-safety thresholds. PPO, rewards and the
+  default solver budget are unchanged. Training-result conclusions remain
+  subject to review; see [the investigation](docs/design/walking_solver_followup_20261008.md).
+  Validation: 151 tests and 21 subtests pass.
+
 - Added `scp_from_remote.sh --results <folder>` to recursively download any
   custom folder or subtree under remote `results/` to the matching local path.
   Existing local-only files are preserved; remote deletions are not mirrored.

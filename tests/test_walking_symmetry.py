@@ -18,6 +18,7 @@ from wr2.tools.verify_walking_symmetry import (
     total_momentum,
     verify_model_reference,
 )
+from wr2.tools.investigate_walking import projected_policy
 
 
 class WalkingSymmetryTest(unittest.TestCase):
@@ -42,6 +43,31 @@ class WalkingSymmetryTest(unittest.TestCase):
         np.testing.assert_allclose(self.signs * self.signs[self.source], 1)
         home = np.asarray(self.env._home_ctrl)
         np.testing.assert_allclose(home[self.source] * self.signs, home)
+
+    def test_diagnostic_actor_projection_is_equivariant_for_all_history_frames(self):
+        observation = jax.random.normal(jax.random.PRNGKey(0), (2, 855))
+        weights = jp.linspace(-0.1, 0.1, 855 * 10).reshape(855, 10)
+
+        def actor(obs, key):
+            return obs["state"] @ weights + jp.arange(10), {}
+
+        policy = projected_policy(
+            actor, self.source, self.signs, self.active, heading=True
+        )
+        reflected = mirror_actor(
+            observation,
+            jp.asarray(self.source),
+            jp.asarray(self.signs),
+            jp.asarray(self.active),
+        )
+        action, _ = policy({"state": observation}, None)
+        other, _ = policy({"state": reflected}, None)
+        action_source = [
+            list(self.active).index(int(self.source[i])) for i in self.active
+        ]
+        np.testing.assert_allclose(
+            other, action[:, action_source] * self.signs[self.active], atol=1e-6
+        )
 
     def test_model_and_entire_reference_grid_are_nearly_mirrored(self):
         result = verify_model_reference(self.env, self.model, self.source, self.signs)

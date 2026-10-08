@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from argparse import Namespace
 from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import yaml
 
@@ -14,6 +16,7 @@ from wr2.agents.autonomous_walking_loop import (
     _analyze_cycle,
     _contract_snapshot,
     _score_confirmation,
+    _run_remote_confirmation,
     _select_status_root,
     _status_payload,
     _tail_progress,
@@ -306,6 +309,44 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
         )
         self.assertTrue(report["selected"]["required_passed"])
 
+    def test_remote_confirmation_runs_and_copies_both_evaluation_modes(self):
+        context = SimpleNamespace(
+            repository=PurePosixPath("/remote/WildRobot2"),
+            ssh_prefix=lambda: ["ssh", "gpu"],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory) / "confirmation.json"
+
+            def copy_result(context, remote, target):
+                target.write_text(json.dumps({"command_results": []}))
+
+            with (
+                patch(
+                    "wr2.agents.autonomous_walking_loop._run_streamed", return_value=0
+                ) as run,
+                patch(
+                    "wr2.agents.autonomous_walking_loop._copy_from_remote",
+                    side_effect=copy_result,
+                ) as copy,
+            ):
+                report = _run_remote_confirmation(
+                    context,
+                    config=self.config,
+                    remote_config=PurePosixPath("/remote/config.yaml"),
+                    checkpoint="/remote/params.pt",
+                    remote_output=PurePosixPath("/remote/confirmation.json"),
+                    local_output=local,
+                    log_path=local.with_suffix(".log"),
+                )
+            self.assertEqual(run.call_count, 2)
+            self.assertNotIn("--transitions", run.call_args_list[0].args[0][-1])
+            self.assertIn("--transitions", run.call_args_list[1].args[0][-1])
+            self.assertEqual(
+                copy.call_args_list[1].args[1],
+                PurePosixPath("/remote/confirmation_transitions.json"),
+            )
+            self.assertIn("transition_confirmation", report)
+
     def test_confirmation_requires_every_command_and_seed(self):
         command_results = []
         for command in (0.10, 0.15, 0.20):
@@ -327,14 +368,41 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
                     ],
                 }
             )
+        transition_results = json.loads(json.dumps(command_results))
+        for entry in transition_results:
+            for seed_result in entry["seed_results"]:
+                seed_result["metrics"].update(
+                    {
+                        "eval/episode_walking_velocity_error_sum": 5.0,
+                        "eval/episode_walking_sample_count": 550.0,
+                    }
+                )
         report = _score_confirmation(
-            {"command_results": command_results},
+            {
+                "command_results": command_results,
+                "transition_confirmation": {"command_results": transition_results},
+            },
             config_path=self.config.base_training_config,
             stage=self.config.stages[-1],
             agent_config=self.config,
         )
         self.assertTrue(report["passed"])
         self.assertEqual(len(report["goal_results"]), 9)
+        self.assertEqual(len(report["transition_confirmation"]["goal_results"]), 9)
+        transition_results[0]["seed_results"][0]["metrics"]["eval/episode_fall"] = (
+            4 / 128
+        )
+        transition_failed = _score_confirmation(
+            {
+                "command_results": command_results,
+                "transition_confirmation": {"command_results": transition_results},
+            },
+            config_path=self.config.base_training_config,
+            stage=self.config.stages[-1],
+            agent_config=self.config,
+        )
+        self.assertFalse(transition_failed["passed"])
+        self.assertTrue(transition_failed["goal_results"][0]["required_passed"])
         report["command_results"][0]["seed_results"][0]["metrics"][
             "eval/episode_fall"
         ] = 0.02

@@ -22,6 +22,7 @@ from wr2.locomotion.walking_metrics import (
     WALKING_GATE_NAMES,
     WalkingGoal,
     WalkingGoalResult,
+    evaluate_transition_goal,
     evaluate_walking_goal,
     walking_goal_to_dict,
 )
@@ -471,6 +472,38 @@ def _failed_gates(result: WalkingGoalResult, gates: Sequence[str]) -> list[str]:
     return [name for name in gates if not result.gates[name]]
 
 
+def _score_transition_confirmation(
+    report: dict[str, Any],
+    goal: WalkingGoal,
+    required_gates: Sequence[str],
+    hard_safety: HardSafetyConfig,
+) -> dict[str, Any]:
+    decisions = []
+    for command_result in report.get("command_results", []):
+        for seed_result in command_result["seed_results"]:
+            result = evaluate_transition_goal(seed_result["metrics"], goal)
+            applicable = tuple(name for name in required_gates if name in result.gates)
+            decisions.append(
+                {
+                    "command_forward_m_s": command_result["command_forward_m_s"],
+                    "seed": seed_result["seed"],
+                    **result.to_dict(),
+                    "required_gates": list(applicable),
+                    "hard_safe": _hard_safe(result, hard_safety),
+                    "required_passed": result.passes(applicable)
+                    and _hard_safe(result, hard_safety),
+                    "p1_warnings": _failed_gates(
+                        result, tuple(sorted(set(result.gates) - set(applicable)))
+                    ),
+                }
+            )
+    report["goal_results"] = decisions
+    report["passed"] = bool(decisions) and all(
+        decision["required_passed"] for decision in decisions
+    )
+    return report
+
+
 def _confirmation(
     *,
     checkpoint: Path,
@@ -539,7 +572,32 @@ def _confirmation(
     report["goal"] = walking_goal_to_dict(goal)
     report["required_gates"] = list(required_gates)
     report["goal_results"] = decisions
-    report["passed"] = all(decision["required_passed"] for decision in decisions)
+    transition_output = output.with_name(output.stem + "_transitions.json")
+    transition_command = command.copy()
+    transition_command[transition_command.index("--output") + 1] = str(
+        transition_output
+    )
+    transition_command.append("--transitions")
+    print(f"Transition confirmation: {shlex.join(transition_command)}")
+    return_code = _run_streamed(
+        transition_command, log_path=transition_output.with_suffix(".log")
+    )
+    if return_code:
+        raise WalkingAgentError(f"Transition confirmation exited with {return_code}")
+    transitions = json.loads(transition_output.read_text(encoding="utf-8"))
+    transitions = _score_transition_confirmation(
+        transitions,
+        goal,
+        required_gates,
+        agent_config.hard_safety,
+    )
+    _write_json_atomic(transition_output, transitions)
+    report["transition_confirmation"] = transitions
+    report["passed"] = (
+        bool(decisions)
+        and all(decision["required_passed"] for decision in decisions)
+        and transitions["passed"]
+    )
     _write_json_atomic(output, report)
     return bool(report["passed"]), report
 

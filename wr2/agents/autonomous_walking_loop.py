@@ -32,6 +32,7 @@ from wr2.agents.walking_training_agent import (
     _hard_safe,
     _read_metric_rows,
     _safe_agent_id,
+    _score_transition_confirmation,
     _write_json_atomic,
     load_agent_config,
     select_cycle_candidate,
@@ -654,8 +655,17 @@ def _score_confirmation(
     report["goal"] = walking_goal_to_dict(stage.goal)
     report["required_gates"] = list(stage.required_gates)
     report["goal_results"] = decisions
-    report["passed"] = bool(decisions) and all(
-        decision["required_passed"] for decision in decisions
+    transitions = _score_transition_confirmation(
+        report.get("transition_confirmation", {}),
+        stage.goal,
+        stage.required_gates,
+        agent_config.hard_safety,
+    )
+    report["transition_confirmation"] = transitions
+    report["passed"] = (
+        bool(decisions)
+        and all(decision["required_passed"] for decision in decisions)
+        and transitions["passed"]
     )
     return report
 
@@ -1025,6 +1035,28 @@ def _run_remote_confirmation(
     report = json.loads(local_output.read_text(encoding="utf-8"))
     if not isinstance(report, dict):
         raise AutonomousWalkingError("Confirmation output is not a JSON object")
+    transition_remote = remote_output.with_name(
+        remote_output.stem + "_transitions.json"
+    )
+    transition_local = local_output.with_name(local_output.stem + "_transitions.json")
+    arguments[arguments.index("--output") + 1] = str(transition_remote)
+    arguments.append("--transitions")
+    shell_command = (
+        f"cd {shlex.quote(str(context.repository))} && {shlex.join(arguments)}"
+    )
+    print("GPU: running randomized standing/walking confirmation...", flush=True)
+    return_code = _run_streamed(
+        [*context.ssh_prefix(), shell_command],
+        log_path=log_path.with_name(log_path.stem + "_transitions.log"),
+    )
+    if return_code:
+        raise AutonomousWalkingError(
+            f"GPU transition confirmation exited with {return_code}"
+        )
+    _copy_from_remote(context, transition_remote, transition_local)
+    report["transition_confirmation"] = json.loads(
+        transition_local.read_text(encoding="utf-8")
+    )
     return report
 
 
