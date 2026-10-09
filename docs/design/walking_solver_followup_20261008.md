@@ -199,7 +199,50 @@ policy. This fix changes validation, not training dynamics or PPO.
 
 ## Next controlled training experiment (not implemented here)
 
-The strongest next direction is RSL-RL's optional **actor mirror loss**, as
+Before training the proposed treatment, use `wr2.tools.check_walking_stance` to
+cross old/new controllers at the first (step 150) and second (step 600) starts.
+Only actor weights change. The complete ongoing simulator state, velocities,
+physics warm-start, sensor RNG/filter state, 15-frame observation history,
+phase and delayed commands are retained. The first new action still incurs the
+configured one-step delay. Exact donor-prefix checks and independent original
+self-replay controls must pass before interpreting counterfactual outcomes.
+This is a controller-from-donor-state test, not a geometry-only or phase-only
+intervention; policy handover can itself create a transient.
+
+For foot geometry, use **signed left-minus-right robot-forward x**, not the
+absolute stagger. Last-second standing means in seed 707 are:
+
+| Checkpoint | Before first start | Before second start |
+|---|---:|---:|
+| Source | +5.74 mm | -24.07 mm |
+| Ten-iteration 16M | +11.64 mm | +3.91 mm |
+
+Positive means left ahead of right. The newer mean does not reverse sign;
+the source does. Neither a sign change nor keeping the same sign proves a
+coordinate bug: the robot stops at different phases, and standing does not
+force its feet back to a symmetric reset pose. The newer second start actually
+has less absolute stagger, so increased foot stagger is not an established
+explanation of its failures.
+
+The diagnostic follows Brax's `training/acting.py::generate_unroll` key stream
+and uses WR2's existing TB-aligned continuous gait clock; it does not introduce
+a new standing controller or reset strategy. Reproduction command:
+
+```bash
+uv run python -m wr2.tools.check_walking_stance \
+  --checkpoints \
+    results/wr2_walking/wr2_ppo_20261007_152924_seed0/best_params.pt \
+    results/wr2_solver_ab/newton10_seed0/wr2_ppo_20261007_215905_seed0/best_params.pt \
+  --config results/wr2_solver_ab/newton10_seed0/wr2_ppo_20261007_215905_seed0/training_config.yaml \
+  --output results/wr2_walking_diagnostics/stance_cross_seed707 \
+  --reference-traces results/wr2_walking_diagnostics/investigation_20261008_full707_v2 \
+  --seeds 707 --allow-cpu
+```
+
+Review the crossed-state results before selecting a training intervention;
+they do not isolate physical posture from sensor/action history.
+
+The previously proposed next direction is RSL-RL's optional **actor mirror loss**, as
 exposed by ToddlerBot, rather than changing physics again, resetting phase or
 disabling noise/randomization. Keep the Gaussian velocity and orientation
 rewards, residual action map, 5 ms/four-substep timing and ten solver iterations.

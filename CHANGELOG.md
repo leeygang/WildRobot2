@@ -2,6 +2,15 @@
 
 ## 2026-10-08
 
+- Added matched pre-start controller handovers for old/new walking checkpoints.
+  The diagnostic changes actor weights only, retains complete physics, sensor,
+  history and command-delay state, checks untouched donor prefixes, and can
+  verify diagonal controls against the independent original replay. Foot offsets
+  now have an explicit signed left-minus-right robot-forward convention.
+  Training configuration, rewards, physics and checkpoint contents are unchanged.
+  Validation: 156 tests and 21 subtests pass; 2,304 paired diagnostic episodes
+  completed on Mac across three held-out seeds with verified donor prefixes.
+
 - Added paired held-out replay with pre-autoreset physical traces, original
   evaluation RNG streams, noise/dynamics ablations, restart timing probes and
   diagnostic actor reflection. Local and remote walking-agent confirmation now
