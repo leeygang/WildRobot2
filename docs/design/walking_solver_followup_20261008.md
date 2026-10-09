@@ -247,6 +247,10 @@ uv run python -m wr2.tools.check_walking_stance \
 Review the crossed-state results before selecting a training intervention;
 they do not isolate physical posture from sensor/action history.
 
+The subsequent [pre-restart recovery diagnostic](walking_restart_recovery_diagnostic.md)
+extends these handovers into the preceding stand, with both directions,
+explicit pre-restart failure accounting and the same held-out episodes.
+
 The previously proposed next direction is RSL-RL's optional **actor mirror loss**, as
 exposed by ToddlerBot, rather than changing physics again, resetting phase or
 disabling noise/randomization. Keep the Gaussian velocity and orientation

@@ -1,4 +1,4 @@
-"""Cross old/new actors at walking starts without replacing simulator state."""
+"""Cross old/new actors before walking starts without replacing simulator state."""
 
 from __future__ import annotations
 
@@ -88,6 +88,8 @@ def stance_summary(trace, start, dt):
     mask = valid[pre] & supported[pre]
     falls = (trace["fall"][window] > 0) & valid[window]
     nonfinite = (trace["nonfinite"][window] > 0) & valid[window]
+    earlier_falls = (trace["fall"][:start] > 0) & valid[:start]
+    earlier_nonfinite = (trace["nonfinite"][:start] > 0) & valid[:start]
     eligible = np.flatnonzero(valid[start])
 
     def pre_mean(values):
@@ -97,6 +99,13 @@ def stance_summary(trace, start, dt):
         "start_step": start,
         "time_s": start * dt,
         "alive_at_start_count": int(eligible.size),
+        "fall_count_before_start": int(np.count_nonzero(earlier_falls.any(axis=0))),
+        "fall_episode_indices_before_start": np.flatnonzero(
+            earlier_falls.any(axis=0)
+        ).tolist(),
+        "nonfinite_count_before_start": int(
+            np.count_nonzero(earlier_nonfinite.any(axis=0))
+        ),
         "phase_before_start_deg": float(
             np.rad2deg(trace["phase_rad"][start - 1, eligible[0]])
         )
@@ -120,6 +129,27 @@ def assert_matching_prefix(trace, reference, length):
             reference[name][:length],
             err_msg=f"Unmatched donor prefix: {name}",
         )
+
+
+def _parse_switch_steps(value):
+    try:
+        steps = tuple(int(item.strip()) for item in value.split(",") if item.strip())
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "switch-steps must be comma-separated integers"
+        ) from exc
+    if not steps or len(set(steps)) != len(steps) or any(
+        not 0 < step < 1000 for step in steps
+    ):
+        raise argparse.ArgumentTypeError("switch-steps must be unique and in 1..999")
+    return steps
+
+
+def handover_jobs(switch_steps):
+    """Self-replay controls plus both directions at every requested boundary."""
+    return [(0, 0, 150), (1, 1, 150)] + [
+        (donor, 1 - donor, start) for donor in (0, 1) for start in switch_steps
+    ]
 
 
 def run(args):
@@ -157,6 +187,8 @@ def run(args):
         "solver_iterations": args.solver_iterations,
         "num_envs": args.num_envs,
         "seeds": args.seeds,
+        "switch_steps": args.switch_steps,
+        "command_schedule": "stand150_walk300_stand150_walk250_stand150",
         "checkpoints": [str(path.resolve()) for path in args.checkpoints],
         "checkpoint_sha256": [
             hashlib.sha256(path.read_bytes()).hexdigest() for path in args.checkpoints
@@ -193,11 +225,9 @@ def run(args):
             return final.info["eval_metrics"], extras
 
         compiled = jax.jit(rollout)
-        # Diagonal controls first; crossing at 150/600 preserves each donor's
-        # exact first/second pre-start state. No qpos-only reconstruction.
-        jobs = [(0, 0, 150), (1, 1, 150)] + [
-            (donor, 1 - donor, start) for donor in (0, 1) for start in (150, 600)
-        ]
+        # Controls first; every crossing preserves its donor's exact pre-switch
+        # state, including handovers during standing. No qpos reconstruction.
+        jobs = handover_jobs(args.switch_steps)
         controls = {}
         for donor, receiver, start in jobs:
             label = f"donor{donor}_actor{receiver}_start{start}_seed{seed}"
@@ -258,6 +288,8 @@ def run(args):
                 "donor": donor,
                 "receiver": receiver,
                 "switch_step": start,
+                "seconds_before_second_restart": (600 - start)
+                * env.robot.control_period_s,
                 "seed": seed,
                 "original_replay_verified": reference_verified,
                 "donor_prefix_verified": donor != receiver,
@@ -290,6 +322,12 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--reference-traces", type=Path)
     parser.add_argument("--seeds", type=_parse_seeds, default=(707,))
+    parser.add_argument(
+        "--switch-steps",
+        type=_parse_switch_steps,
+        default=(150, 600),
+        help="controller handover steps; 450,550,585,600 probes pre-restart recovery",
+    )
     parser.add_argument("--num-envs", type=int, default=128)
     parser.add_argument("--command", type=float, default=0.10)
     parser.add_argument("--solver-iterations", type=int, default=10)

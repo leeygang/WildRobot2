@@ -1,3 +1,4 @@
+import argparse
 import unittest
 
 import jax
@@ -8,8 +9,10 @@ from brax.envs.base import Env, State
 from brax.training import acting
 
 from wr2.tools.check_walking_stance import (
+    _parse_switch_steps,
     assert_matching_prefix,
     foot_geometry,
+    handover_jobs,
     stance_summary,
     switched_unroll,
 )
@@ -88,6 +91,32 @@ def constant_policy(value):
 
 
 class WalkingStanceTest(unittest.TestCase):
+    def test_switch_steps_and_bidirectional_controls(self):
+        steps = _parse_switch_steps("450,550,585,600")
+        self.assertEqual(steps, (450, 550, 585, 600))
+        jobs = handover_jobs(steps)
+        self.assertEqual(jobs[:2], [(0, 0, 150), (1, 1, 150)])
+        self.assertEqual(len(jobs), 10)
+        for start in steps:
+            self.assertIn((0, 1, start), jobs)
+            self.assertIn((1, 0, start), jobs)
+        self.assertEqual(
+            handover_jobs((150, 600)),
+            [
+                (0, 0, 150),
+                (1, 1, 150),
+                (0, 1, 150),
+                (0, 1, 600),
+                (1, 0, 150),
+                (1, 0, 600),
+            ],
+        )
+        for invalid in ("", "x", "0", "1000", "-1", "450,450"):
+            with self.subTest(invalid=invalid), self.assertRaises(
+                argparse.ArgumentTypeError
+            ):
+                _parse_switch_steps(invalid)
+
     def test_signed_geometry_retains_which_foot_is_ahead_after_yaw_rotation(self):
         trace = {
             "qpos": np.array(
@@ -174,6 +203,10 @@ class WalkingStanceTest(unittest.TestCase):
         self.assertEqual(first["alive_at_start_count"], 2)
         self.assertEqual(first["fall_count_next_5s"], 1)
         self.assertEqual(second["alive_at_start_count"], 1)
+        self.assertEqual(first["fall_count_before_start"], 0)
+        self.assertEqual(second["fall_count_before_start"], 1)
+        self.assertEqual(second["fall_episode_indices_before_start"], [0])
+        self.assertEqual(second["nonfinite_count_before_start"], 0)
         self.assertEqual(second["fall_count_next_5s"], 0)
         self.assertAlmostEqual(second["pre_start_signed_left_minus_right_x_mm"], -24)
         self.assertAlmostEqual(second["pre_start_left_load_share"], 0.4)

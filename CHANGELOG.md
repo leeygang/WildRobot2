@@ -2,6 +2,14 @@
 
 ## 2026-10-08
 
+- Extended the matched-state diagnostic with configurable bidirectional
+  pre-restart actor handovers and explicit pre-restart fall/non-finite
+  accounting. Existing first/second-start defaults and full state/history
+  retention are unchanged. See the
+  [reproduction and diagnostic report](docs/design/walking_restart_recovery_diagnostic.md).
+  Validation: 166 tests and 30 subtests pass. No training/model/servo config
+  changes; the running actor mirror-loss experiment is unaffected.
+
 - Prepared a controlled 20M actor mirror-loss treatment using ToddlerBot's
   optional native RSL-RL loss (coefficient 1.0, no transition/critic augmentation).
   The dedicated `ppo_walking_mirror.yaml` retains the saved Newton-10 control's
