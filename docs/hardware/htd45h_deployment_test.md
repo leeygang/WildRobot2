@@ -231,9 +231,18 @@ uv run python -m wr2.tools.servo_sysid run \
   --execute --confirm-fixture-safe
 ```
 
-Reissuing the same command safely skips stages already recorded complete, so an
-interrupted campaign resumes without repeating accepted data. Use run01 only
-for fitting and run02 only for held-out replay and repeatability comparison.
+Reissuing the same command safely skips stages already recorded complete. If a
+stage was interrupted with partial output, add `--restart` to archive the entire
+incomplete campaign as `<run-dir>.archived-<UTC timestamp>` and start fresh at
+the same `--run-dir`. Raw files and the original manifest are preserved; the
+new manifest records the archive path and original manifest hash. Archiving
+requires hardware mode, fixture confirmation, successful preflight, a clean Git
+worktree, and the campaign lock. Preflight-only mode never archives anything.
+Completed campaigns cannot be restarted; use a new directory for another session.
+Normal resume requires the original Git revision; an explicit restart can use
+updated code because it creates a new campaign rather than mixing revisions.
+Use run01 only for fitting and run02 only for held-out replay and repeatability
+comparison.
 Apply the identical two-campaign process to unit C, changing both the physical
 servo and its label/run directory. A servo swap is an intentional operator
 checkpoint and is not automated. Use `--start-at` plus `--stop-after` only when

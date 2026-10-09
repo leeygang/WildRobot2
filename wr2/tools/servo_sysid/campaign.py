@@ -61,6 +61,11 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="Stable directory used to resume a versioned plan.",
     )
+    parser.add_argument(
+        "--restart",
+        action="store_true",
+        help="Archive an incomplete --run-dir and start a fresh campaign there.",
+    )
     parser.add_argument("--center-deg", type=float)
     parser.add_argument("--repeats", type=int)
     parser.add_argument("--prepare-speed-deg-s", type=float)
@@ -553,6 +558,14 @@ def _condition_output(
 def _validate_args(args: argparse.Namespace, plan: CampaignPlan) -> None:
     if not 0 <= args.servo_id <= 253:
         raise SystemExit("--servo-id must be between 0 and 253")
+    if args.restart:
+        if args.campaign_dir is None:
+            raise SystemExit("--restart requires --run-dir")
+        if args.campaign_dir.expanduser().is_symlink():
+            raise SystemExit("--restart refuses a symlink campaign directory")
+        directory = args.campaign_dir.expanduser().resolve()
+        if directory == REPO_ROOT or directory in REPO_ROOT.parents:
+            raise SystemExit("--restart refuses the repository or its parent directories")
     unsupported = sorted(set(plan.required_instruments) - {"servo_bus"})
     if unsupported:
         raise SystemExit(
@@ -599,6 +612,38 @@ def _condition_has_voltage_warning(record: dict[str, Any]) -> bool:
     )
 
 
+def _archive_campaign(
+    campaign_dir: Path, args: argparse.Namespace, plan: CampaignPlan, fixture_path: Path
+) -> dict[str, str]:
+    """Preserve an incomplete campaign while holding its existing runner lock."""
+    manifest_path = campaign_dir / "campaign_manifest.json"
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise SystemExit(f"cannot restart campaign without a manifest: {campaign_dir}")
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get("plan", {}).get("name") != plan.name:
+        raise SystemExit("cannot restart campaign with a different plan")
+    if (
+        manifest.get("servo_id") != args.servo_id
+        or manifest.get("servo_label") != args.servo_label
+    ):
+        raise SystemExit("cannot restart campaign with a different servo")
+    if manifest.get("fixture_sha256") != file_sha256(fixture_path):
+        raise SystemExit("cannot restart campaign with a different fixture model")
+    if manifest.get("status") in {"completed", "completed_with_warnings"}:
+        raise SystemExit("cannot restart a completed campaign; choose a new --run-dir")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    archive = campaign_dir.with_name(f"{campaign_dir.name}.archived-{timestamp}")
+    if archive.exists():
+        raise SystemExit(f"refusing to overwrite campaign archive: {archive}")
+    provenance = {
+        "directory": str(archive),
+        "manifest_sha256": file_sha256(manifest_path),
+    }
+    campaign_dir.rename(archive)
+    print(f"ARCHIVED {campaign_dir} -> {archive}", flush=True)
+    return provenance
+
+
 def _run_hardware_campaign(
     args: argparse.Namespace,
     plan: CampaignPlan,
@@ -608,6 +653,9 @@ def _run_hardware_campaign(
 ) -> int:
     manifest_path = campaign_dir / "campaign_manifest.json"
     fixture_path = args.fixture_mjcf.expanduser().resolve()
+    restarted_from = None
+    if args.restart and campaign_dir.exists():
+        restarted_from = _archive_campaign(campaign_dir, args, plan, fixture_path)
     if manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text())
         _validate_existing_manifest(manifest, args, plan, fixture_path, git_state)
@@ -618,6 +666,8 @@ def _run_hardware_campaign(
             )
         campaign_dir.mkdir(parents=True)
         manifest = _new_manifest(args, plan, fixture_path, git_state)
+        if restarted_from is not None:
+            manifest["restarted_from"] = restarted_from
         _write_manifest(manifest_path, manifest)
 
     completed = {
@@ -635,7 +685,8 @@ def _run_hardware_campaign(
         ):
             raise SystemExit(
                 f"incomplete condition output already exists: {output}; "
-                "inspect it before choosing a new campaign directory"
+                "use --restart to archive this campaign and start fresh, "
+                "or choose a new campaign directory"
             )
         print(f"\nRUN {condition.condition_id}: {condition.description}", flush=True)
         if condition.kind == "repeatability":
