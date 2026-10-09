@@ -10,6 +10,7 @@ Design:
 3. make the metrics accurate as the first step when analyzing the data.
 4. keep the design simple
 4. current design and implementations follows ToddlerBot(projects/ToddlerBot), if we have our own design or implementation, we should have explicit rationale. When design/implementation has to do with robot size, please reflect to WR's size ratio with TB, speed, and timing also needs to normalize.
+5. Prefer longer ToddlerBot-aligned training runs (200M steps is affordable) over WR2-specific local optimizations. Introduce a non-TB optimization only with strong evidence, after checking implementation correctness and a sufficient training budget. Retain and evaluate intermediate checkpoints rather than assuming the final checkpoint is best.
 
 
 Result Analysis:
