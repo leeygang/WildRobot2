@@ -147,6 +147,7 @@ class PPOConfig:
     desired_kl: float
     learning_rate_schedule: str
     training_metrics_steps: int
+    mirror_loss_coeff: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -463,6 +464,8 @@ def load_training_config(
         )
 
     ppo_raw = _mapping(root["ppo"], "ppo")
+    # Old checkpoints/config snapshots retain the mirror-disabled PPO path.
+    ppo_raw = {"mirror_loss_coeff": 0.0, **ppo_raw}
     ppo_fields = {field.name for field in fields(PPOConfig)}
     _expect_keys(ppo_raw, ppo_fields, "ppo")
     ppo_integer_fields = {
@@ -503,6 +506,10 @@ def load_training_config(
     )
     if ppo.backend not in {"rsl_rl", "brax"}:
         raise ValueError("ppo.backend must be rsl_rl or brax")
+    if ppo.mirror_loss_coeff < 0.0:
+        raise ValueError("ppo.mirror_loss_coeff must be non-negative")
+    if ppo.mirror_loss_coeff > 0.0 and ppo.backend != "rsl_rl":
+        raise ValueError("ppo.mirror_loss_coeff requires the rsl_rl backend")
     if ppo.learning_rate <= 0.0:
         raise ValueError("ppo.learning_rate must be positive")
     if ppo.entropy_cost < 0.0:

@@ -2,6 +2,19 @@
 
 ## 2026-10-08
 
+- Prepared a controlled 20M actor mirror-loss treatment using ToddlerBot's
+  optional native RSL-RL loss (coefficient 1.0, no transition/critic augmentation).
+  The dedicated `ppo_walking_mirror.yaml` retains the saved Newton-10 control's
+  rewards, servo limits, randomization and PPO settings. Historical/default
+  configs remain mirror-disabled. Shared model-derived reflection covers every
+  actor history frame; checkpoints retain action/Adam/LR/RNG compatibility and
+  logs include raw/weighted mirror MSE in the total loss. See
+  [the experiment and GPU command](docs/design/actor_mirror_loss_experiment.md).
+  Validation: 165 tests and 24 subtests pass; an 80-transition restored
+  MJX/Torch smoke completed the native loss update, with exact source
+  parameter/Adam/LR/counter/CPU-RNG restore and a finite saved model.
+  GPU treatment results remain pending.
+
 - Added matched pre-start controller handovers for old/new walking checkpoints.
   The diagnostic changes actor weights only, retains complete physics, sensor,
   history and command-delay state, checks untouched donor prefixes, and can

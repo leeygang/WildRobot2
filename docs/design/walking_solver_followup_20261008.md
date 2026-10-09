@@ -197,7 +197,12 @@ misapplied to a mixed-command schedule. Missing transition results fail closed.
 `best_params.pt` is still a nominal candidate, not a deployment-qualified
 policy. This fix changes validation, not training dynamics or PPO.
 
-## Next controlled training experiment (not implemented here)
+## Actor mirror-loss treatment
+
+The treatment is now prepared in the dedicated `ppo_walking_mirror.yaml`;
+see [the implementation, controls and GPU command](actor_mirror_loss_experiment.md).
+GPU treatment results remain pending; the investigation below is not a
+qualification claim.
 
 Before training the proposed treatment, use `wr2.tools.check_walking_stance` to
 cross old/new controllers at the first (step 150) and second (step 600) starts.

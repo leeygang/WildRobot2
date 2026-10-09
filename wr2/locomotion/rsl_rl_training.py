@@ -330,6 +330,23 @@ class RSLPPOTrainer:
             init_noise_std=network.init_noise_std,
             noise_std_type=network.noise_std_type,
         ).to(env.device)
+        symmetry_cfg = None
+        if ppo.mirror_loss_coeff > 0.0:
+            from wr2.locomotion.symmetry import ActorMirror
+
+            if ppo.normalize_observations:
+                raise ValueError(
+                    "Actor mirror requires raw, unnormalized WR2 observations"
+                )
+            symmetry_cfg = {
+                "use_data_augmentation": False,
+                "use_mirror_loss": True,
+                "mirror_loss_coeff": ppo.mirror_loss_coeff,
+                "data_augmentation_func": ActorMirror.from_environment(
+                    env.env.unwrapped, env.device
+                ),
+                "_env": env,
+            }
         self.algorithm = PPO(
             self.policy,
             num_learning_epochs=ppo.num_updates_per_batch,
@@ -346,6 +363,7 @@ class RSLPPOTrainer:
             desired_kl=ppo.desired_kl,
             device=env.device,
             normalize_advantage_per_mini_batch=not ppo.normalize_advantage,
+            symmetry_cfg=symmetry_cfg,
         )
         self.algorithm.init_storage(
             "rl",
@@ -374,6 +392,7 @@ class RSLPPOTrainer:
             "total_steps": self.total_steps,
             "learning_rate": self.algorithm.learning_rate,
             "torch_rng_state": self.torch.get_rng_state(),
+            "mirror_loss_coeff": self.config.ppo.mirror_loss_coeff,
             "observation_layout": "wr2_proprio_v4"
             if self.config.environment.heading_observation
             else "wr2_proprio_v3",
@@ -452,6 +471,12 @@ class RSLPPOTrainer:
         )
         if "kl_mean" in losses:
             metrics["training/kl_mean"] = float(losses["kl_mean"])
+        if "symmetry" in losses:
+            mirror_loss = float(losses["symmetry"])
+            weighted = self.config.ppo.mirror_loss_coeff * mirror_loss
+            metrics["training/mirror_loss"] = mirror_loss
+            metrics["training/mirror_loss_weighted"] = weighted
+            metrics["training/total_loss"] += weighted
         return metrics
 
     def _mean_action_std(self) -> float:

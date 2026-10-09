@@ -18,58 +18,11 @@ import jax.numpy as jp
 import mujoco
 import numpy as np
 
+from wr2.locomotion.symmetry import REFLECTION, joint_reflection, mirror_actor
 from wr2.tools.diagnose_walking import (
     foot_contact_samples,
     target_trace,
 )
-
-
-REFLECTION = np.diag([1.0, -1.0, 1.0])
-
-
-def joint_reflection(model, names):
-    """Derive coordinate signs from neutral world joint axes, not WR1 signs."""
-    data = mujoco.MjData(model)
-    mujoco.mj_forward(model, data)
-    indices = {name: index for index, name in enumerate(names)}
-    source, signs = [], []
-    for name in names:
-        partner = (
-            name.replace("left_", "right_", 1)
-            if name.startswith("left_")
-            else name.replace("right_", "left_", 1)
-        )
-        joint = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
-        other = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, partner)
-        source.append(indices[partner])
-        signs.append(
-            float(np.sign(data.xaxis[other] @ (-REFLECTION @ data.xaxis[joint])))
-        )
-    return np.asarray(source), np.asarray(signs)
-
-
-def mirror_actor(observation, source, signs, active, *, heading=True):
-    """Reflect every newest-first frame of WR2's actual actor input layout."""
-    frame_size = 55 + 2 * heading
-    frames = observation.reshape((*observation.shape[:-1], -1, frame_size))
-    mirrored = frames.at[..., :2].set(-frames[..., :2])  # half-cycle phase shift
-    mirrored = mirrored.at[..., 2:5].set(frames[..., 2:5] * jp.asarray([1, -1, -1]))
-    for start in (5, 22):
-        mirrored = mirrored.at[..., start : start + 17].set(
-            frames[..., start + source] * signs
-        )
-    active_lookup = (
-        jp.full(17, -1, dtype=jp.int32).at[active].set(jp.arange(len(active)))
-    )
-    active_source = active_lookup[source[active]]
-    mirrored = mirrored.at[..., 39:49].set(
-        frames[..., 39 + active_source] * signs[active]
-    )
-    mirrored = mirrored.at[..., 49:52].set(frames[..., 49:52] * jp.asarray([-1, 1, -1]))
-    mirrored = mirrored.at[..., 52:55].set(frames[..., 52:55] * jp.asarray([1, -1, 1]))
-    if heading:
-        mirrored = mirrored.at[..., 55:57].set(frames[..., 55:57] * jp.asarray([-1, 1]))
-    return mirrored.reshape(observation.shape)
 
 
 def ablate_heading(observation):

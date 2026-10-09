@@ -420,6 +420,11 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         f"desired_kl={training_config.ppo.desired_kl:.3f}"
     )
     print(f"  Randomized:   {training_config.environment.randomization.enabled}")
+    if training_config.ppo.mirror_loss_coeff > 0.0:
+        print(
+            "  Mirror loss:  actor-only "
+            f"coeff={training_config.ppo.mirror_loss_coeff:g}; no data augmentation"
+        )
     if args.restore_checkpoint is not None:
         print(f"  Restore:      {args.restore_checkpoint.resolve()}")
     print("=" * 72)
@@ -563,6 +568,8 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             )
             learning_rate = metric("training/learning_rate")
             if learning_rate is not None:
+                mirror_loss = metric("training/mirror_loss")
+                mirror_text = "" if mirror_loss is None else f"mirror={mirror_loss:.4f} "
                 cumulative_steps = metric("training/total_steps")
                 cumulative_steps_text = (
                     "n/a"
@@ -574,6 +581,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                     f"loss={rollout_show_loss(metric('training/total_loss'))} "
                     f"policy={rollout_show_loss(metric('training/policy_loss'))} "
                     f"value={rollout_show_loss(metric('training/v_loss'))} "
+                    f"{mirror_text}"
                     f"kl={rollout_show_loss(metric('training/kl_mean'))} "
                     f"std={rollout_show_loss(metric('training/mean_noise_std'))} "
                     f"lr={learning_rate:.2e} "
@@ -839,12 +847,15 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         )
         total_loss = metric("training/total_loss")
         if total_loss is not None:
+            mirror_loss = metric("training/mirror_loss")
+            mirror_text = "" if mirror_loss is None else f"mirror={mirror_loss:.4f} "
             print(
                 "  └─ ppo   : "
                 f"loss={show(total_loss, '.4f')} "
                 f"policy={show(metric('training/policy_loss'), '.4f')} "
                 f"value={show(metric('training/v_loss'), '.4f')} "
                 f"entropy={show(metric('training/entropy_loss'), '.4f')} "
+                f"{mirror_text}"
                 f"kl={show(metric('training/kl_mean'), '.5f')} "
                 f"std={show(metric('training/mean_noise_std'), '.3f')} "
                 f"total_steps={show(metric('training/total_steps'), ',.0f')}",
@@ -1020,6 +1031,8 @@ def _apply_cli_overrides(
     if args.backend is not None:
         ppo_overrides["backend"] = args.backend
     ppo_config = replace(training_config.ppo, **ppo_overrides)
+    if ppo_config.mirror_loss_coeff > 0.0 and ppo_config.backend != "rsl_rl":
+        raise ValueError("ppo.mirror_loss_coeff requires the rsl_rl backend")
 
     environment = training_config.environment
     if args.episode_length is not None:

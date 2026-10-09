@@ -154,6 +154,8 @@ ppo:
   # ToddlerBot's active training path uses RSL-RL/Torch. Keep `brax` as an
   # explicit A/B baseline, not as the default optimizer.
   backend: rsl_rl
+  # Optional ToddlerBot actor mirror loss; enabled only in the controlled trial.
+  mirror_loss_coeff: 0.0
   num_timesteps: 1000000000
   num_envs: 2048
   num_evals: 50
