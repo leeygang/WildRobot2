@@ -99,7 +99,13 @@ be separated reliably during fast motion.
 Before every powered campaign, verify the measured mass and center radius,
 rigid mounting, output-shaft counter-bearing, full commanded-path clearance,
 catcher, independent power cutoff, EEPROM limits, supply voltage, and the
-selected cooldown limit. The bounded low-load plan may then run all stages in
+selected cooldown limit. Set `--cooldown-target-c` explicitly for a reproducible
+baseline (for example, 32 C); it applies directly without a plan-level 30 C
+clamp, defaults to 35 C if omitted, and is recorded in the campaign manifest.
+Use consistent targets for fitting and held-out validation; changing the target
+on resume requires a new campaign or an explicit archive-and-restart. The
+low-load 55 C abort and independent power cutoff remain required.
+The bounded low-load plan may then run all stages in
 one command; it independently cools, returns to neutral, and unloads each stage
 and stops on the first blocking failure.
 

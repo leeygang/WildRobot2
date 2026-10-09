@@ -24,7 +24,6 @@ conditions:
     prepare_only: true
     prepare_speed_deg_s: 5.0
     settle_s: 3.0
-    cooldown_target_c: 30.0
     amplitudes_deg: "2"
     max_static_torque_nm: 0.7
     max_predicted_torque_nm: 0.7
@@ -37,7 +36,6 @@ conditions:
     prepare_only: true
     prepare_speed_deg_s: 5.0
     settle_s: 3.0
-    cooldown_target_c: 30.0
     amplitudes_deg: "2"
     max_static_torque_nm: 0.7
     max_predicted_torque_nm: 0.7
@@ -47,7 +45,6 @@ conditions:
     center_deg: 0.0
     amplitudes_deg: "2"
     chirp_end_hz: 4.0
-    cooldown_target_c: 30.0
     max_static_torque_nm: 0.2
     max_predicted_torque_nm: 0.6
     max_temperature_c: 55.0
@@ -56,7 +53,6 @@ conditions:
     center_deg: 10.0
     amplitudes_deg: "2"
     chirp_end_hz: 2.0
-    cooldown_target_c: 30.0
     max_static_torque_nm: 0.75
     max_predicted_torque_nm: 0.75
     max_temperature_c: 55.0
@@ -65,7 +61,6 @@ conditions:
     center_deg: -10.0
     amplitudes_deg: "2"
     chirp_end_hz: 2.0
-    cooldown_target_c: 30.0
     max_static_torque_nm: 0.75
     max_predicted_torque_nm: 0.75
     max_temperature_c: 55.0
@@ -74,7 +69,6 @@ conditions:
     center_deg: 10.0
     amplitudes_deg: "2"
     profile: hysteresis
-    cooldown_target_c: 30.0
     sweep_rate_deg_s: 1.0
     sweep_cycles: 3
     move_time_ms: 250
@@ -87,7 +81,6 @@ conditions:
     center_deg: -10.0
     amplitudes_deg: "2"
     profile: hysteresis
-    cooldown_target_c: 30.0
     sweep_rate_deg_s: 1.0
     sweep_cycles: 3
     move_time_ms: 250

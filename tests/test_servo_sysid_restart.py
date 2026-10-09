@@ -93,6 +93,22 @@ class CampaignRestartTest(unittest.TestCase):
         self.assertTrue((self.condition / "repeat_01.npz").is_file())
         self.assertEqual(list(self.root.glob("unit-c.archived-*")), [])
 
+    def test_resume_rejects_changed_cooldown_target(self):
+        original_hash = file_sha256(self.metadata)
+        with self.assertRaisesRegex(SystemExit, "different safety limits"):
+            self.run_campaign(["--cooldown-target-c", "32"])
+        self.assertEqual(file_sha256(self.metadata), original_hash)
+        self.assertTrue((self.condition / "repeat_01.npz").is_file())
+
+    def test_restart_records_changed_cooldown_target_without_changing_archive(self):
+        result, captures = self.run_campaign(["--restart", "--cooldown-target-c", "32"])
+        self.assertEqual((result, captures), (0, 1))
+        manifest = json.loads(self.metadata.read_text())
+        archive = Path(manifest["restarted_from"]["directory"])
+        original = json.loads((archive / "campaign_manifest.json").read_text())
+        self.assertEqual(original["safety_limits"]["cooldown_target_c"], 35.0)
+        self.assertEqual(manifest["safety_limits"]["cooldown_target_c"], 32.0)
+
     def test_restart_preserves_artifacts_and_records_archive_provenance(self):
         self.manifest["git"]["revision"] = "previous-revision"
         self.metadata.write_text(json.dumps(self.manifest))

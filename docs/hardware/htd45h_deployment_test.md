@@ -172,9 +172,11 @@ artifact hashes, and limitations are retained in the unit-A evidence index.
 
 The next test is an independent cold-start repetition of both signs. Run both
 conditions in one campaign so the second condition retains the same clean Git
-revision. The global 30 C target applies to H1, and H2 independently enforces
-the same target; the runner unloads the servo while waiting and stops without
-motion if either cooldown exceeds 15 minutes:
+revision. Set the starting-temperature ceiling explicitly with
+`--cooldown-target-c`; it applies directly to both conditions without a
+plan-level clamp. The 30 C value below reproduces the historical baseline, not
+a measured physical requirement. The runner unloads the servo while waiting
+and stops without motion if either cooldown exceeds 15 minutes:
 
 ```bash
 uv run python -m wr2.tools.servo_sysid run \
@@ -209,9 +211,18 @@ It contains only the current fixture's bounded low-load tests:
 3. Q4/Q5: signed 0.1--2 Hz loaded dynamics; and
 4. Q6/Q7: signed coarse loaded hysteresis.
 
-Every stage starts at or below 30 C, aborts at 55 C, and is preflight-capped at
-no more than 0.75 N m inferred fixture torque. Once the fixture is checked and
-the servo is correctly labeled, one command can run the complete campaign. The
+Every stage cools to the CLI-selected target, aborts at 55 C, and is
+preflight-capped at no more than 0.75 N m inferred fixture torque. The
+`--cooldown-target-c` value is used directly for every stage; if omitted, the
+CLI default is 35 C. A target above the effective abort temperature fails
+preflight. The example below selects 32 C; this is a procedural baseline, not
+an established thermal-equivalence or continuous-duty claim. Capture metadata
+preserves the target and temperature samples, and the campaign manifest records
+the target and rejects changes on resume. Use consistent targets for fit and
+held-out sessions and account for actual starting temperatures when comparing
+units A/B/C. Historical artifacts retain their original 30 C policy.
+Once the fixture is checked and the servo is correctly labeled, one command
+can run the complete campaign. The
 runner cools, tests, returns to neutral, and disables torque independently for
 every stage; it stops on the first blocking failure. An exclusive per-campaign
 lock rejects a duplicate command before it can move hardware. Unit B is
@@ -227,6 +238,7 @@ uv run python -m wr2.tools.servo_sysid run \
   --run-dir results/servo_sysid/unit-c-bam-low-load-fit-run01 \
   --measured-weight-kg 2.650 \
   --measured-com-radius-m 0.1204 \
+  --cooldown-target-c 32 \
   --run-all \
   --execute --confirm-fixture-safe
 ```

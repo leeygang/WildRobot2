@@ -70,7 +70,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--repeats", type=int)
     parser.add_argument("--prepare-speed-deg-s", type=float)
     parser.add_argument("--settle-s", type=float)
-    parser.add_argument("--cooldown-target-c", type=float, default=35.0)
+    parser.add_argument(
+        "--cooldown-target-c",
+        type=float,
+        default=35.0,
+        help="Starting-temperature ceiling in C; used directly for every condition (default: 35).",
+    )
     parser.add_argument(
         "--min-voltage-v",
         type=float,
@@ -181,11 +186,6 @@ def capture_command(
     execute: bool,
     condition_id: str | None = None,
 ) -> list[str]:
-    cooldown_target_c = (
-        args.cooldown_target_c
-        if condition.cooldown_target_c is None
-        else min(args.cooldown_target_c, condition.cooldown_target_c)
-    )
     command = [
         sys.executable,
         "-m",
@@ -227,7 +227,7 @@ def capture_command(
         "--sweep-cycles",
         str(condition.sweep_cycles),
         "--cooldown-target-c",
-        str(cooldown_target_c),
+        str(args.cooldown_target_c),
         "--min-voltage-v",
         str(args.min_voltage_v),
         "--hard-min-voltage-v",
@@ -341,6 +341,7 @@ def _same_number(left: object, right: float) -> bool:
 
 def _safety_limits(args: argparse.Namespace) -> dict[str, float]:
     return {
+        "cooldown_target_c": args.cooldown_target_c,
         "min_voltage_v": args.min_voltage_v,
         "hard_min_voltage_v": args.hard_min_voltage_v,
         "max_temperature_c": args.max_temperature_c,
@@ -735,6 +736,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"WR2 HTD-45H campaign plan={plan.name}", flush=True)
     print(f"mode={'HARDWARE' if args.execute else 'PREFLIGHT'}", flush=True)
     print(f"setup={plan.setup}", flush=True)
+    print(f"cooldown_target_c={args.cooldown_target_c:.1f} (CLI)", flush=True)
     for index, condition in enumerate(selected, start=1):
         output = Path("/tmp") / f"wr2_preflight_{condition.condition_id}.npz"
         print(

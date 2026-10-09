@@ -27,6 +27,7 @@ from wr2.tools.servo_sysid.analyze import analyze_campaigns
 from wr2.tools.servo_sysid.campaign import (
     CONDITIONS,
     _campaign_lock,
+    _parser as campaign_parser,
     capture_command,
     configured_plan,
     main as campaign_main,
@@ -56,20 +57,22 @@ class Htd45hProtocolTest(unittest.TestCase):
                 return 12.4
 
             def read_temperature_c(self, _servo_id):
-                return 30
+                return 31
 
         output = io.StringIO()
         with redirect_stdout(output):
             samples = _wait_for_cooldown(
                 FakeBus(),
                 100,
-                target_c=30.0,
+                target_c=32.0,
                 timeout_s=60.0,
                 poll_s=5.0,
                 min_voltage_v=9.6,
             )
 
         self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["temperature_c"], 31.0)
+        self.assertIn("temperature <= 32.0 C", output.getvalue())
         self.assertIn("COOLDOWN STATUS", output.getvalue())
         self.assertIn("COOLDOWN COMPLETE", output.getvalue())
 
@@ -456,7 +459,8 @@ class CampaignAnalysisTest(unittest.TestCase):
             Path("negative.npz"),
             execute=True,
         )
-        self.assertEqual(negative[negative.index("--cooldown-target-c") + 1], "30.0")
+        self.assertEqual(negative[negative.index("--cooldown-target-c") + 1], "35.0")
+        self.assertNotIn("cooldown_target_c:", load_plan("bam_hysteresis").path.read_text())
 
     def test_low_load_qualification_plan_covers_current_bam_matrix(self):
         plan = load_plan("bam_low_load_qualification")
@@ -472,9 +476,7 @@ class CampaignAnalysisTest(unittest.TestCase):
                 "Q7_loaded_hysteresis_minus10",
             ],
         )
-        self.assertTrue(
-            all(condition.cooldown_target_c == 30.0 for condition in plan.conditions)
-        )
+        self.assertNotIn("cooldown_target_c:", plan.path.read_text())
         self.assertTrue(
             all(condition.max_temperature_c == 55.0 for condition in plan.conditions)
         )
@@ -489,6 +491,66 @@ class CampaignAnalysisTest(unittest.TestCase):
             ),
             0.75,
         )
+
+    def test_cli_cooldown_target_reaches_every_bam_condition(self):
+        for plan_name in ("bam_low_load_qualification", "bam_hysteresis"):
+            for target_c in (28.0, 32.0):
+                with self.subTest(plan=plan_name, target_c=target_c):
+                    output = io.StringIO()
+                    with (
+                        redirect_stdout(output),
+                        patch("wr2.tools.servo_sysid.campaign._run", return_value=0) as run,
+                    ):
+                        result = campaign_main(
+                            [
+                                "--plan", plan_name,
+                                "--servo-id", "100",
+                                "--board-port", "unused",
+                                "--cooldown-target-c", str(target_c),
+                                "--max-temperature-c", "80",
+                            ]
+                        )
+                    self.assertEqual(result, 0)
+                    self.assertIn(f"cooldown_target_c={target_c:.1f} (CLI)", output.getvalue())
+                    self.assertEqual(run.call_count, len(load_plan(plan_name).conditions))
+                    for call in run.call_args_list:
+                        command = call.args[0]
+                        self.assertEqual(
+                            command[command.index("--cooldown-target-c") + 1],
+                            str(target_c),
+                        )
+                        self.assertEqual(
+                            command[command.index("--max-temperature-c") + 1], "55.0"
+                        )
+                        self.assertNotIn("--execute", command)
+
+    def test_cli_cooldown_target_keeps_existing_default(self):
+        args = campaign_parser().parse_args(
+            ["--servo-id", "100", "--board-port", "unused"]
+        )
+        self.assertEqual(args.cooldown_target_c, 35.0)
+
+    def test_cooldown_above_plan_abort_temperature_fails_before_hardware(self):
+        from wr2.tools.servo_sysid.capture import main as capture_main
+
+        with (
+            patch("wr2.tools.servo_sysid.capture.Htd45hBus") as bus,
+            patch(
+                "wr2.tools.servo_sysid.campaign._run",
+                side_effect=lambda command: capture_main(command[3:]),
+            ),
+        ):
+            with self.assertRaisesRegex(SystemExit, "must not exceed --max-temperature-c"):
+                campaign_main(
+                    [
+                        "--plan", "bam_low_load_qualification",
+                        "--servo-id", "100",
+                        "--board-port", "unused",
+                        "--cooldown-target-c", "56",
+                        "--max-temperature-c", "80",
+                    ]
+                )
+        bus.assert_not_called()
 
     def test_low_load_run_all_executes_complete_matrix(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -532,6 +594,8 @@ class CampaignAnalysisTest(unittest.TestCase):
                         "2.650",
                         "--measured-com-radius-m",
                         "0.1204",
+                        "--cooldown-target-c",
+                        "32",
                         "--run-all",
                         "--execute",
                         "--confirm-fixture-safe",
@@ -546,6 +610,7 @@ class CampaignAnalysisTest(unittest.TestCase):
         self.assertEqual(repeatability.call_count, 2)
         self.assertEqual(capture.call_count, 5)
         self.assertEqual(manifest["status"], "completed")
+        self.assertEqual(manifest["safety_limits"]["cooldown_target_c"], 32.0)
         self.assertEqual(len(manifest["conditions"]), 7)
 
     def test_bam_hardware_mode_requires_bounded_selection(self):
