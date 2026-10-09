@@ -3,6 +3,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import jax.numpy as jp
 import numpy as np
@@ -17,6 +18,7 @@ from wr2.sim.robot import RobotDescription
 
 
 TRIAL = Path("wr2/locomotion/configs/ppo_walking_mirror.yaml")
+FRESH = Path("wr2/locomotion/configs/ppo_walking_fresh.yaml")
 
 
 class ActorMirrorLossTest(unittest.TestCase):
@@ -100,6 +102,77 @@ class ActorMirrorLossTest(unittest.TestCase):
         )
         self.assertEqual(self.config, expected)
         self.assertEqual(base.ppo.mirror_loss_coeff, 0.0)
+
+    def test_fresh_config_changes_only_budget_cadence_and_run_labels(self):
+        from wr2.locomotion.train import _apply_cli_overrides, parse_args
+
+        fresh = load_training_config(FRESH)
+        expected = replace(
+            self.config,
+            version=fresh.version,
+            version_name=fresh.version_name,
+            ppo=replace(self.config.ppo, num_timesteps=1_000_000_000, num_evals=51),
+            output=replace(self.config.output, run_prefix="wr2_fresh"),
+        )
+        self.assertEqual(fresh, expected)
+        with patch("sys.argv", ["train", "--config", str(FRESH)]):
+            args = parse_args()
+        self.assertIsNone(args.restore_checkpoint)
+        self.assertIsNone(args.run_id)
+        self.assertEqual(_apply_cli_overrides(fresh, args), fresh)
+
+    def test_fresh_config_starts_native_policy_and_optimizer_from_zero(self):
+        fresh = load_training_config(FRESH)
+        env = SimpleNamespace(
+            env=SimpleNamespace(unwrapped=self.base_env),
+            device=torch.device("cpu"),
+            num_envs=4,
+            num_actions=10,
+            get_observations=lambda: (
+                torch.zeros(4, 855),
+                {"observations": {"critic": torch.zeros(4, 1470)}},
+            ),
+        )
+        with patch.object(RSLPPOTrainer, "load", side_effect=AssertionError):
+            trainer = RSLPPOTrainer(
+                env,
+                fresh,
+                output=Path("unused"),
+                restore_checkpoint=None,
+                progress_fn=lambda *args: None,
+                policy_params_fn=lambda *args: None,
+                evaluator=None,
+            )
+        state = trainer.checkpoint_state()
+        self.assertEqual(state["iteration"], 0)
+        self.assertEqual(state["total_steps"], 0)
+        self.assertEqual(state["optimizer_state_dict"]["state"], {})
+        self.assertEqual(state["learning_rate"], fresh.ppo.learning_rate)
+        self.assertEqual(state["mirror_loss_coeff"], 1.0)
+        torch.testing.assert_close(
+            trainer.policy.log_std.exp(), torch.full((10,), 0.5), rtol=0, atol=0
+        )
+
+    def test_fresh_config_saves_51_evaluations_across_one_billion_steps(self):
+        from wr2.locomotion.rsl_rl_training import (
+            evaluation_iterations,
+            learning_iterations,
+        )
+
+        ppo = load_training_config(FRESH).ppo
+        iterations = learning_iterations(
+            ppo.num_timesteps, ppo.num_envs, ppo.unroll_length
+        )
+        evaluations = sorted(evaluation_iterations(iterations, ppo.num_evals))
+        self.assertEqual(len(evaluations) + 1, 51)
+        self.assertEqual(evaluations[-1], iterations)
+        steps_per_iteration = ppo.num_envs * ppo.unroll_length
+        self.assertEqual(evaluations[0] * steps_per_iteration, 20_029_440)
+        self.assertEqual(iterations * steps_per_iteration, 1_000_038_400)
+        self.assertLess(
+            iterations * steps_per_iteration - ppo.num_timesteps,
+            steps_per_iteration,
+        )
 
     def test_legacy_configs_default_to_disabled_and_invalid_coefficients_fail(self):
         raw = training_config_to_dict(load_training_config())

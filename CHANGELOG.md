@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-09
+
+- Prepared a dedicated 1B fresh-start walking config with 51 evaluations and
+  generated `wr2_fresh_*` run IDs. It preserves the verified mirror treatment's
+  rewards, actions, physics, randomization, servo limits and PPO settings;
+  the original continuation config remains unchanged. Added regression checks
+  for config parity, empty native optimizer/zero counters, fresh exploration
+  and checkpoint cadence. See [the GPU command and setup](docs/design/fresh_walking_training.md).
+  Validation: 169 tests pass; an 80-transition fresh MJX/Torch PPO smoke verifies
+  zero initial counters, empty Adam state, exploration std 0.5, and a finite
+  optimizer update and saved final checkpoint. No GPU training was launched.
+
 ## 2026-10-08
 
 - Extended the matched-state diagnostic with configurable bidirectional

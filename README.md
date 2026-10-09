@@ -76,6 +76,9 @@ Training values are defined in
 [`wr2/locomotion/configs/ppo_walking.yaml`](wr2/locomotion/configs/ppo_walking.yaml);
 the trainer accepts explicit CLI overrides and snapshots the effective YAML in
 every run directory.
+For the controlled 1B fresh-start run, use
+[`ppo_walking_fresh.yaml`](wr2/locomotion/configs/ppo_walking_fresh.yaml)
+without a restore checkpoint; see [the GPU command and checks](docs/design/fresh_walking_training.md).
 The bounded train/evaluate/promote campaign and Mac-to-GPU command are described
 in [`docs/design/walking_training_agent.md`](docs/design/walking_training_agent.md).
 That guide also covers the autonomous Mac supervisor, which analyzes each GPU
