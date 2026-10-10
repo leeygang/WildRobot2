@@ -181,11 +181,17 @@ three sweep pairs under revision `9c0f84f`. Its signed center loop mean is
 -1.6062 degrees (absolute mean 1.6062, cycle std 0.0904 degree); profile
 temperature rose from 32 to 43 C, with no voltage warnings. The Q7-only
 manifest correctly remains `partial`, while the Q7 condition is `completed`.
-Independent Q7 validation run05 remains; all cycles in run04 are one session.
+Independent Q7 validation run05 now also completed all 1,808 profile samples
+and three pairs under the same collection revision. Its signed center mean is
+-1.6185 degrees (absolute mean 1.6185, cycle std 0.0348 degree), differing
+from run04 by +0.0123 degree in absolute mean; temperature again rose from
+32 to 43 C without warnings. Both Q7-only manifests remain `partial` by
+design. The independent-session negative-hysteresis checkpoint is complete;
+six cycles are clustered in two sessions, not six independent replicates.
 Existing low-load models predict 1.7145--1.7235 degrees center loop without
 added backlash, so no training backlash/nominal mapping was changed.
-Collect the independent Q7 session only after operator fixture inspection;
-do not restart the entire matrix or relax the 55 C cutoff to make Q6 pass. Three
+No third identical Q7 run is required for this checkpoint. Preserve both
+sessions; do not restart the matrix or relax the 55 C cutoff to make Q6 pass. Three
 low-load unit fits do not establish torque-speed, braking, thermal, or
 population deployment limits.
 

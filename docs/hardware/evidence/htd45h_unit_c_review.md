@@ -2,21 +2,23 @@
 
 The original two campaigns stopped at the inclusive **55 C cutoff in Q6**.
 Q1--Q5 completed in both sessions; neither original campaign executed Q7.
-Standalone negative-load Q7 run04 now completed all three sweep pairs, with
-1.6062 degrees mean center loop width. Independent Q7 validation remains
-pending. The valid repeatability and
-dynamic captures support a held-out low-load effective model. They do not
+Standalone negative-load Q7 run04 and independent run05 now both completed
+all three sweep pairs, with 1.6062/1.6185 degrees mean center loop width.
+The independent-session negative-hysteresis checkpoint is complete. The valid
+repeatability and dynamic captures support a held-out low-load effective model. They do not
 complete the seven-stage qualification or establish deployment limits.
 
 Exact values, the original 64 raw/derived artifact hashes plus the new Q7 and
 comparison-source hashes, calibration limitations,
 capture timing checks, and parameter mappings are retained in
 [htd45h_unit_c.json](htd45h_unit_c.json). Raw manifests and captures were not
-edited. Collection and analysis used Git revision
+edited. Original run01/run02 collection and dynamics analysis used Git revision
 `0b3ca04cf4f2e36586fc589b651e40eb630c2f3c`; the fit JSON itself does not embed
-that revision, so the evidence index records it separately. Q7 collection and
-the unchanged analysis used `9c0f84f90b97691d5b8244f3911fa00a8552c4b1`.
-The original evidence record is historical; the appended Q7 record does not
+that revision, so the evidence index records it separately. Both Q7 collections
+used `9c0f84f90b97691d5b8244f3911fa00a8552c4b1`; the run04 analysis used
+that revision, and the unchanged run05 analysis used
+`36e93d6a9927846997ca1720211dde49482be0fe`. The original evidence records
+are historical; the appended independent-validation record does not
 alter any original manifest, capture, fit, or status.
 
 ## Session and measurement audit
@@ -114,8 +116,8 @@ feedback. No nominal, randomization, or walking-training configuration changed.
 
 Three low-load unit fits now exist. Their extrema are observations, not a
 qualified population distribution: A/B and C used different starting-temperature
-policies, unit C lacks independent Q7 validation, and electrical/torque
-instruments are absent.
+policies, unit C's full-positive Q6 captures remain aborted, and
+electrical/torque instruments are absent.
 Replaying the same C held-out traces with the existing A/B/C models gives
 0.74143/0.74102/0.74075 degree mean RMSE. The unit-C fit improves over the
 current A nominal by only about 0.00068 degree. Different fitted damping and
@@ -191,7 +193,7 @@ still limits accuracy; averaging does not establish finer output resolution.
 |---|---:|
 | Unit A first / independent validation | 1.5877 / 1.6492 degrees |
 | Unit B fit / independent validation | 1.5754 / 1.6246 degrees |
-| Unit C standalone run04 | 1.6062 degrees |
+| Unit C run04 / independent run05 | 1.6062 / 1.6185 degrees |
 
 The C observation is consistent with A/B. Its contrast with positive Q6's
 0.4985/0.4246-degree pre-abort means is descriptive: those sessions were
@@ -210,6 +212,43 @@ Completed/null-error status is consistent with the code's controlled neutral
 return and torque-off readback, but their telemetry is not archived separately
 and independent power-cutoff operation is not evidenced.
 
+### Independent negative-load validation run05
+
+`unit-c-bam-hysteresis-minus10-validation-run05/07_Q7_loaded_hysteresis_minus10`
+completed independently, using the same servo, fixture/plan hashes, collection
+revision, motion settings, and safety limits. All 1,808 expected samples and
+segments match; all primary samples are finite, clocks increase, and no
+scheduled slot is missing. Maximum actual sample gap is 21.796 ms, with no
+gap above 30 ms. All six 201-sample sweep branches and the 101-sample
+final-center return completed. Its Q7-only manifest remains `partial` by
+design, with Q7 `completed`, return code zero, and a null error.
+
+| Metric | Reference run04 | Independent run05 |
+|---|---:|---:|
+| Signed center widths, increasing minus decreasing | -1.7169 / -1.4954 / -1.6062 degrees | -1.5692 / -1.6431 / -1.6431 degrees |
+| Absolute center loop mean | 1.6062 degrees | 1.6185 degrees |
+| Within-session cycle std (`ddof=0`) | 0.0904 degree | 0.0348 degree |
+| Within-session cycle range | 0.2215 degree | 0.0738 degree |
+| Profile temperature | 32--43 C | 32--43 C |
+| Minimum profile servo voltage | 12.169 V | 12.176 V |
+| Minimum preparation servo voltage | 12.107 V | 12.258 V |
+| Voltage warnings | 0 | 0 |
+
+Run05's absolute mean differs by +0.0123 degree (0.77%) from run04. The
+equal-session mean is 1.6123 degrees; this is a descriptive summary of **two
+sessions**, not six independent replicates or demonstrated sub-0.24-degree
+accuracy. Center unit 458, 13 samples per branch, and 18 matched command
+units per cycle are unchanged. Both sessions reproduce the approximately
+1.6-degree negative-load effect previously measured on A/B.
+
+Run05 spans 36.1388 s; its rising 15.2908 C/min integer-temperature slope
+uses that entire profile, not a full 60 s window. Mean inferred gravity torque
+is -0.54602 N m (range -0.61530 to -0.45706 N m). The temperature record
+does not establish equilibrium or continuous duty. Both preparation-neutral
+endpoints read -0.96 degree, but two history-dependent internal readings do
+not calibrate absolute output zero. There is still no external current,
+voltage, shaft angle/torque, ambient log, or traceable fixture uncertainty.
+
 ### Existing-model check: do not add the full loop as backlash
 
 Q7 was not used to fit any parameters or select a delay. The unchanged
@@ -225,9 +264,17 @@ it is not an external output-angle measurement.
 | B | 0.6675 degrees | 1.7235 degrees | +0.5974 degree |
 | C | 0.6651 degrees | 1.7231 degrees | +0.5950 degree |
 
+The independent run05 check, still without fitting or added backlash, gives:
+
+| Existing model | Run05 position RMSE | Predicted center loop | Position bias |
+|---|---:|---:|---:|
+| A (training nominal) | 0.6877 degrees | 1.7129 degrees | +0.6209 degree |
+| B | 0.6707 degrees | 1.7228 degrees | +0.6079 degree |
+| C | 0.6684 degrees | 1.7224 degrees | +0.6054 degree |
+
 Bias is predicted minus measured. Existing friction/controller dynamics
 already generate much of the observed loop: center-width differences are
-less than one telemetry step. Adding the full 1.6062-degree measured width as
+less than one telemetry step in both sessions. Adding the full measured width as
 encoder backlash could double-count these dynamics. This does not prove
 mechanical backlash is absent, nor does the remaining bias establish an
 absolute-zero correction. No training nominal, randomization, calibration,
@@ -235,9 +282,9 @@ braking, or thermal parameter was changed. ToddlerBot and WR1 also implement
 observation backlash separately; these data do not identify its amplitude or
 activation torque (see the source comparison and published references above).
 
-Verification: all 79 SHA256 entries (78 unique artifacts) match disk, and the
-original evidence record is unchanged. The documented C replay reproduces the
-reported metrics; the run05 preflight passes without opening hardware.
+Verification: all 89 SHA256 entries (82 unique artifacts) match disk, and both
+historical evidence records are unchanged. The documented C replay reproduces
+the reported run05 metrics. No hardware was opened during either review.
 `tests/test_servo_sysid.py` and `tests/test_servo_sysid_restart.py` pass all
 50 tests and six subtests. No collector/controller code was changed.
 
@@ -264,12 +311,13 @@ uv run --extra sysid python -m wr2.tools.servo_sysid hysteresis \
 ```
 
 Use new output names; the positive hysteresis command intentionally exits 2
-for the failed sessions. Reproduce the completed negative-loop summary with:
+for the failed sessions. Reproduce the two-session negative-loop summary with:
 
 ```bash
 uv run --extra sysid python -m wr2.tools.servo_sysid hysteresis \
   results/servo_sysid/unit-c-bam-hysteresis-minus10-run04/07_Q7_loaded_hysteresis_minus10.npz \
-  --output results/servo_sysid/htd45h-unit-c-hysteresis-minus10-recheck.json
+  results/servo_sysid/unit-c-bam-hysteresis-minus10-validation-run05/07_Q7_loaded_hysteresis_minus10.npz \
+  --output results/servo_sysid/htd45h-unit-c-hysteresis-minus10-validation-recheck.json
 ```
 
 Reproduce the unchanged unit-C model check without fitting or writing files:
@@ -282,7 +330,7 @@ import numpy as np
 from wr2.tools.servo_sysid.fit import Replay, ServoDynamics, load_trace
 from wr2.tools.servo_sysid.analysis.hysteresis import summarize_arrays
 
-capture = Path("results/servo_sysid/unit-c-bam-hysteresis-minus10-run04/07_Q7_loaded_hysteresis_minus10.npz")
+capture = Path("results/servo_sysid/unit-c-bam-hysteresis-minus10-validation-run05/07_Q7_loaded_hysteresis_minus10.npz")
 fit = json.loads(Path("results/servo_sysid/htd45h-unit-c-dynamics-fit-run03.json").read_text())
 trace = load_trace(capture)
 replay = Replay(Path("wr2/tools/servo_sysid/fixtures/htd45h_2650g.xml"), trace, sim_dt=0.002, force_limit_nm=4)
@@ -296,27 +344,11 @@ print(summarize_arrays(arrays, center_deg=-10)["aggregate"])
 PY
 ```
 
-Next collect Q7 in an independent session with the same fixture and safety
-settings. Do not rerun or overwrite run04, restart the full matrix, or raise
-the 55 C cutoff to make Q6 pass. Inspect fixture alignment, counter-bearing,
-clearance/catcher, power cutoff, and supply wiring before operator confirmation.
-Preflight the unused validation directory first:
-
-```bash
-uv run --extra sysid python -m wr2.tools.servo_sysid run \
-  --plan bam_low_load_qualification \
-  --servo-id 100 --servo-label htd45h-unit-c \
-  --board-port /dev/serial/by-id/usb-1a86_USB_Single_Serial_5C4C127022-if00 \
-  --run-dir results/servo_sysid/unit-c-bam-hysteresis-minus10-validation-run05 \
-  --measured-weight-kg 2.650 --measured-com-radius-m 0.1204 \
-  --cooldown-target-c 32 --max-temperature-c 55 \
-  --start-at Q7_loaded_hysteresis_minus10 \
-  --stop-after Q7_loaded_hysteresis_minus10
-```
-
-Only after explicit operator fixture confirmation, rerun with
-`--execute --confirm-fixture-safe`. All three run04 cycles remain one session,
-not three independent validation sessions. A completed full-positive condition
-needs a separately reviewed shorter thermal-budgeted procedure; none was added
-or powered during this review. T1/T2 and continuous-duty work remain blocked
-on the instrumented/guarded fixtures documented in the deployment test plan.
+The independent-session Q7 checkpoint is complete; no third identical Q7
+run is needed for this review. Preserve run04/run05. Do not restart the full
+matrix or raise the 55 C cutoff to make Q6 pass. A completed full-positive Q6
+condition needs a separately reviewed shorter thermal-budgeted procedure;
+none was added or powered during this review. Controlled unloaded/counterbalanced
+and cold/warmed external output sensing is still required to isolate mechanical
+backlash and absolute zero. T1/T2 and continuous-duty work remain blocked on
+the instrumented/guarded fixtures documented in the deployment test plan.
