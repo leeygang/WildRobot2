@@ -1,4 +1,4 @@
-"""Run independent fixed-command evaluations for a WR2 PPO checkpoint."""
+"""Run independent fixed, scripted, or random-command WR2 evaluations."""
 
 from __future__ import annotations
 
@@ -75,6 +75,27 @@ def _parse_commands(value: str) -> tuple[float, ...]:
     return commands
 
 
+def _conditional_tracking(metrics: dict) -> dict:
+    """Use active sample counts, not standing-diluted episode means."""
+    tracking = {}
+    for category in ("standing", "walking", "start", "stop"):
+        count = float(metrics[f"eval/episode_{category}_sample_count"])
+        error_sum = float(metrics[f"eval/episode_{category}_velocity_error_sum"])
+        tracking[category] = {
+            "samples_per_episode": count,
+            "velocity_error_m_s": error_sum / count if count > 0 else None,
+        }
+    walking_count = tracking["walking"]["samples_per_episode"]
+    velocity_sum = sum(
+        float(metrics[f"eval/episode_phase{index}_velocity_sum"])
+        for index in range(4)
+    )
+    tracking["walking"]["forward_velocity_m_s"] = (
+        velocity_sum / walking_count if walking_count > 0 else None
+    )
+    return tracking
+
+
 def evaluate_checkpoint(
     checkpoint_path: Path,
     *,
@@ -84,9 +105,12 @@ def evaluate_checkpoint(
     num_envs: int,
     allow_cpu: bool,
     transitions: bool = False,
+    random_commands: bool = False,
     solver_iterations: int | None = None,
 ) -> dict:
     """Evaluate one checkpoint independently for every requested seed."""
+    if random_commands and (transitions or forward_commands_m_s is not None):
+        raise ValueError("random_commands cannot be combined with transitions or commands")
     _configure_backend_logging()
     with _filter_optional_backend_import_messages():
         import jax
@@ -151,7 +175,7 @@ def evaluate_checkpoint(
         make_policy = ppo_networks.make_inference_fn(networks)
         params = checkpoint.load(str(checkpoint_path))
         eval_policy_factory = functools.partial(make_policy, deterministic=True)
-    commands = tuple(
+    commands = (None,) if random_commands else tuple(
         forward_commands_m_s or (config.ppo.evaluation_forward_command_m_s,)
     )
     randomizer = (
@@ -163,7 +187,7 @@ def evaluate_checkpoint(
     command_results = []
     for command_index, command_forward_m_s in enumerate(commands):
         environment = WR2WalkingEnv(
-            replace(
+            config.environment if random_commands else replace(
                 config.environment,
                 command_forward_range_m_s=(
                     command_forward_m_s,
@@ -171,9 +195,9 @@ def evaluate_checkpoint(
                 ),
                 zero_command_probability=0.0,
             ),
-            # Training progress uses a nominal evaluator. Independent
-            # confirmation intentionally includes the configured dynamics and
-            # sensor randomization when robustness is enabled.
+            # Independent confirmation includes configured observation noise,
+            # model variation, and reset/local actuator variation. Training
+            # progress disables the first two, not local actuator variation.
             add_observation_noise=config.environment.randomization.enabled,
         )
         if transitions:
@@ -208,7 +232,7 @@ def evaluate_checkpoint(
             metrics = {
                 name: np.asarray(value).tolist() for name, value in raw_metrics.items()
             }
-            score = walking_score(
+            score = None if transitions or random_commands else walking_score(
                 episode_length=float(metrics["eval/avg_episode_length"]),
                 target_episode_length=config.environment.episode_length,
                 velocity_error_m_s=float(
@@ -223,15 +247,20 @@ def evaluate_checkpoint(
             result = {
                 "seed": int(seed),
                 "walking_score": score,
+                "conditional_tracking": _conditional_tracking(metrics),
                 "metrics": metrics,
             }
             seed_results.append(result)
+            command_label = "random" if random_commands else f"{command_forward_m_s:.3f}"
+            score_label = "n/a" if score is None else f"{score:.3f}"
+            error = result["conditional_tracking"]["walking"]["velocity_error_m_s"]
+            error_label = "n/a" if error is None else f"{error:.3f}"
             print(
-                f"command={command_forward_m_s:.3f} seed={seed} "
-                f"walking_score={score:.3f} "
+                f"command={command_label} seed={seed} "
+                f"walking_score={score_label} "
                 f"episode_length={float(metrics['eval/avg_episode_length']):.1f} "
-                "velocity_error="
-                f"{float(metrics['eval/episode_forward_velocity_error_m_s_per_step']):.3f} "
+                "walking_velocity_error="
+                f"{error_label} "
                 f"fall={float(metrics['eval/episode_fall']):.1%}",
                 flush=True,
             )
@@ -243,22 +272,32 @@ def evaluate_checkpoint(
         )
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "checkpoint": str(checkpoint_path),
         "backend": "rsl_rl" if rsl_checkpoint else "brax",
         "config": str(config_path.resolve()),
         "solver_iterations": config.environment.solver_iterations,
-        "commands_forward_m_s": list(commands),
+        "commands_forward_m_s": [] if random_commands else list(commands),
+        "training_command_distribution": {
+            "forward_range_m_s": list(config.environment.command_forward_range_m_s),
+            "standing_probability": config.environment.zero_command_probability,
+            "resample_steps": config.environment.command_resample_steps,
+        },
         "num_envs_per_seed": num_envs,
         "evaluation_mode": (
             "randomized_held_out"
             if config.environment.randomization.enabled
             else "nominal"
         ),
+        "variation": {
+            "observation_noise": config.environment.randomization.enabled,
+            "model_randomization": config.environment.randomization.enabled,
+            "reset_and_local_actuator": config.environment.randomization.enabled,
+        },
         "seeds": list(seeds),
         "command_schedule": "stand150_walk300_stand150_walk250_stand150"
         if transitions
-        else "fixed",
+        else ("random_training_distribution" if random_commands else "fixed"),
         "command_results": command_results,
     }
 
@@ -273,12 +312,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--allow-cpu", action="store_true")
     parser.add_argument("--solver-iterations", type=int)
-    parser.add_argument(
+    schedules = parser.add_mutually_exclusive_group()
+    schedules.add_argument(
         "--transitions",
         action="store_true",
         help="Evaluate scripted standing/walking transitions over 1000 steps",
     )
-    return parser.parse_args(argv)
+    schedules.add_argument(
+        "--random-commands",
+        action="store_true",
+        help="Use the config's training command distribution and resampling cadence",
+    )
+    args = parser.parse_args(argv)
+    if args.random_commands and args.commands is not None:
+        parser.error("--random-commands cannot be combined with --commands")
+    return args
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -293,6 +341,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         num_envs=args.num_envs,
         allow_cpu=args.allow_cpu,
         transitions=args.transitions,
+        random_commands=args.random_commands,
         solver_iterations=args.solver_iterations,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -19,6 +19,7 @@ from wr2.sim.robot import RobotDescription
 
 TRIAL = Path("wr2/locomotion/configs/ppo_walking_mirror.yaml")
 FRESH = Path("wr2/locomotion/configs/ppo_walking_fresh.yaml")
+MIRROR_OFF = Path("wr2/locomotion/configs/ppo_walking_mirror_off.yaml")
 
 
 class ActorMirrorLossTest(unittest.TestCase):
@@ -152,6 +153,77 @@ class ActorMirrorLossTest(unittest.TestCase):
         torch.testing.assert_close(
             trainer.policy.log_std.exp(), torch.full((10,), 0.5), rtol=0, atol=0
         )
+
+    def test_mirror_off_config_changes_only_loss_budget_cadence_and_labels(self):
+        from wr2.locomotion.train import _apply_cli_overrides, parse_args
+
+        fresh = load_training_config(FRESH)
+        trial = load_training_config(MIRROR_OFF)
+        self.assertEqual(
+            trial,
+            replace(
+                fresh,
+                version=trial.version,
+                version_name=trial.version_name,
+                ppo=replace(
+                    fresh.ppo,
+                    mirror_loss_coeff=0.0,
+                    num_timesteps=200_000_000,
+                    num_evals=11,
+                ),
+                output=replace(fresh.output, run_prefix="wr2_mirror_off"),
+            ),
+        )
+        source = "results/wr2_walking/wr2_fresh_20261009_104213_seed0/checkpoints/000920043520.pt"
+        with patch("sys.argv", [
+            "train", "--config", str(MIRROR_OFF), "--restore-checkpoint", source
+        ]):
+            args = parse_args()
+        self.assertEqual(args.restore_checkpoint, Path(source))
+        self.assertIsNone(args.run_id)
+        self.assertEqual(_apply_cli_overrides(trial, args), trial)
+
+    def test_mirror_off_saves_11_evaluations_across_200m_additional_steps(self):
+        from wr2.locomotion.rsl_rl_training import (
+            evaluation_iterations,
+            learning_iterations,
+        )
+
+        ppo = load_training_config(MIRROR_OFF).ppo
+        iterations = learning_iterations(ppo.num_timesteps, ppo.num_envs, ppo.unroll_length)
+        evaluations = evaluation_iterations(iterations, ppo.num_evals)
+        self.assertEqual(iterations, 4883)
+        self.assertEqual(len(evaluations) + 1, 11)
+        self.assertEqual(max(evaluations), iterations)
+        self.assertEqual(iterations * ppo.num_envs * ppo.unroll_length, 200_007_680)
+
+    def test_mirror_on_checkpoint_restores_all_state_with_loss_disabled(self):
+        source = self.make_trainer(coefficient=1.0)
+        source.algorithm.optimizer.zero_grad()
+        sum(parameter.sum() for parameter in source.policy.parameters()).backward()
+        source.algorithm.optimizer.step()
+        source.completed_iterations = 22462
+        source.total_steps = 920_043_520
+        source.algorithm.learning_rate = 1e-5
+        for group in source.algorithm.optimizer.param_groups:
+            group["lr"] = 1e-5
+        with torch.no_grad():
+            source.policy.log_std.fill_(np.log(0.0292))
+        state = source.checkpoint_state()
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "source.pt"
+            torch.save(state, path)
+            restored = self.make_trainer(coefficient=0.0, restore=path)
+        self.assertIsNone(restored.algorithm.symmetry)
+        self.assert_nested_equal(restored.policy.state_dict(), state["model_state_dict"])
+        self.assert_nested_equal(
+            restored.algorithm.optimizer.state_dict(), state["optimizer_state_dict"]
+        )
+        self.assertEqual(restored.completed_iterations, state["iteration"])
+        self.assertEqual(restored.total_steps, state["total_steps"])
+        self.assertEqual(restored.algorithm.learning_rate, state["learning_rate"])
+        torch.testing.assert_close(torch.get_rng_state(), state["torch_rng_state"], rtol=0, atol=0)
+        self.assertEqual(restored.checkpoint_state()["mirror_loss_coeff"], 0.0)
 
     def test_fresh_config_saves_51_evaluations_across_one_billion_steps(self):
         from wr2.locomotion.rsl_rl_training import (

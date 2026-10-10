@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-10-10
+
+- Confirmed the 200M continuation review (`wr2_fresh_20261009_205016_seed0`):
+  exact source/Adam/LR/RNG restore, 200,007,680 additional transitions, all 11
+  checkpoints finite, and the selected best still at restored step zero.
+  Paired fully randomized held-out fixed-0.10 speed declined 0.0798 to
+  0.0770 m/s while scripted start/stop errors improved; scripted clipping
+  remained about 8.8%. Random-command falls changed from 0/384 to 2/384;
+  this is a limited robustness warning, not demonstrated broad collapse.
+  Retain the original 920M source. No clipping, solver or PPO root cause was
+  established for the reproduced 180-degree restart failure.
+- Prepared a dedicated 200M/11-evaluation continuation from that same 920M
+  checkpoint, disabling only actor mirror loss to match ToddlerBot's default.
+  Historical configs, rewards, actions, physics, servo envelope, randomization,
+  native PPO and checkpoint-selection behavior remain unchanged. Full-state
+  restoration is retained; no exploration or optimizer reset.
+- Added `evaluate --random-commands` for training-distribution held-out
+  confirmation, with explicit variation/schedule metadata and sample-count
+  conditional tracking. Scripted/random reports no longer assign a misleading
+  fixed walking score. See [the experiment, confirmed review and GPU command](docs/design/mirror_off_continuation.md).
+- Validation: 197 full-suite tests and six targeted evaluation regressions
+  pass; Ruff and diff checks pass. An 80-transition restored Mac MJX/Torch
+  smoke verifies exact source model/Adam/LR/counter/CPU-RNG restore, a finite
+  native PPO update and saved state with mirror loss disabled. A two-environment
+  1000-step random-command CLI smoke verifies the full-variation schedule and
+  conditional reports. These validate implementation, not gait qualification.
+  No GPU training or hardware motion was launched.
+
 ## 2026-10-09
 
 - Prepared a dedicated 1B fresh-start walking config with 51 evaluations and
