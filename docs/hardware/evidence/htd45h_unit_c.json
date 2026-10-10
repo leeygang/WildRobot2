@@ -1275,6 +1275,410 @@
         "published_identification_reference": "https://arxiv.org/html/2502.00893v4 (ToddlerBot system identification)",
         "published_backlash_reference": "https://doi.org/10.1016/S0005-1098(02)00047-X (Nordin and Gutman, 2002)"
       }
+    },
+    {
+      "record_id": "unit-c-bam-hysteresis-minus10-run04-review",
+      "evidence_status": "completed_negative_loaded_hysteresis_single_session_validation_pending",
+      "accepted_for": [
+        "unit_c_negative_loaded_system_hysteresis_observation",
+        "within_session_cycle_repeatability",
+        "new_condition_check_of_existing_low_load_models"
+      ],
+      "not_accepted_for": [
+        "independent_session_hysteresis_validation",
+        "complete_seven_stage_qualification",
+        "isolated_mechanical_backlash",
+        "absolute_encoder_zero_calibration",
+        "population_specification",
+        "continuous_torque",
+        "torque_speed",
+        "braking",
+        "measured_shaft_torque",
+        "current_or_power_qualification"
+      ],
+      "observed_at_utc": "2026-10-10T03:14:40.516025+00:00",
+      "source_campaign": "results/servo_sysid/unit-c-bam-hysteresis-minus10-run04",
+      "source_capture": "results/servo_sysid/unit-c-bam-hysteresis-minus10-run04/07_Q7_loaded_hysteresis_minus10.npz",
+      "source_hysteresis_review": "results/servo_sysid/htd45h-unit-c-hysteresis-minus10-review-run04.json",
+      "software_revisions": {
+        "collection": "9c0f84f90b97691d5b8244f3911fa00a8552c4b1",
+        "collection_worktree_clean": true,
+        "analysis_head": "9c0f84f90b97691d5b8244f3911fa00a8552c4b1",
+        "analysis_revision_status": "The derived hysteresis JSON does not embed Git revision; analysis_head records the actual unchanged analysis revision separately."
+      },
+      "artifact_sha256": {
+        "results/servo_sysid/unit-c-bam-hysteresis-minus10-run04/campaign_manifest.json": "35f6045d4f5a8aa7de16817677789bcfc2014f9547bdefc46202743cd6dd462e",
+        "results/servo_sysid/unit-c-bam-hysteresis-minus10-run04/07_Q7_loaded_hysteresis_minus10.json": "a556756f41bbbaedea2af8fd3e45f93c3108130d307c97bd5875a6be0a6f0436",
+        "results/servo_sysid/unit-c-bam-hysteresis-minus10-run04/07_Q7_loaded_hysteresis_minus10.npz": "9925829063f0d276e794a3abdd9146bd85fbdfdda05413f660cbfa6282fd2c36",
+        "results/servo_sysid/htd45h-unit-c-hysteresis-minus10-review-run04.json": "7b30f9b68a19b3b34cca169cad50a60358141495cfaf5ffe8bb9ba8e59e491e7",
+        "results/servo_sysid/htd45h-unit-a-dynamics-fit-run14.json": "b2c20312130feb748d220552f1ca489c723071873bfb64d6a622620ae02b4758",
+        "results/servo_sysid/htd45h-unit-b-dynamics-fit-run03.json": "b0a400e39761f4690073a80ac3e9255ee8af3b16e2d11e174720c44ac4861047",
+        "results/servo_sysid/htd45h-unit-c-dynamics-fit-run03.json": "6cc5ffc9061dbcfa7d936d2f58225e73f73b7724c56c9f86cbd0fd708cd119ad",
+        "results/servo_sysid/unit-a-bam-hysteresis-minus10-run02/02_H2_loaded_hysteresis_minus10.npz": "14c7f90579cdb7b3014ca61dcd1d4c1294ff2d23085c9a870a18b6f3fad8d7d4",
+        "results/servo_sysid/unit-a-bam-hysteresis-minus10-run02/02_H2_loaded_hysteresis_minus10.json": "824cedcbb2e92116632378832b2d0c37c6ece5ab322a13fbd348f58bf0044241",
+        "results/servo_sysid/unit-a-bam-hysteresis-validation-run03/02_H2_loaded_hysteresis_minus10.npz": "4f6bd078b97658568f237cfbf75e5c766e58414df0bb7541e161b3627516247e",
+        "results/servo_sysid/unit-a-bam-hysteresis-validation-run03/02_H2_loaded_hysteresis_minus10.json": "fea35d5230d6858bb956eb0f99014b7b2030526f4de8bc663cd18ebc76804cc2",
+        "results/servo_sysid/unit-b-bam-low-load-fit-run01/07_Q7_loaded_hysteresis_minus10.npz": "3d68b7581f60d5d8b59fa40b6abb26f33a952a111350fb139b30b00023f37017",
+        "results/servo_sysid/unit-b-bam-low-load-fit-run01/07_Q7_loaded_hysteresis_minus10.json": "b68e2fcd387ccc34c4b3eed6dd341fe363c94abed37c86cb6b468f26ea69d413",
+        "results/servo_sysid/unit-b-bam-low-load-validation-run02/07_Q7_loaded_hysteresis_minus10.npz": "2b5d13e803d576604ab7c743ac6d015efd1b44902b25d691ac4baac71cc811c0",
+        "results/servo_sysid/unit-b-bam-low-load-validation-run02/07_Q7_loaded_hysteresis_minus10.json": "21071628fb96cad09ae9cfa774aa9c5c56d792221f78e9b4c958cca33ec9101e"
+      },
+      "session": {
+        "manifest_status": "partial",
+        "condition_outcome": "completed",
+        "returncode": 0,
+        "error": null,
+        "interpretation": "Only Q7 was selected, so campaign.py records partial for the seven-condition plan. Q7 and all 1808 planned profile samples completed. Original run01/run02 remain failed at Q6.",
+        "held_out_split": "All three cycles are from one session; no independent unit-C Q7 validation session is available. No parameters or delay were fitted to Q7. Existing A/B/C dynamics models are checked on this new condition without refitting."
+      },
+      "calibration": {
+        "servo_model": "HTD-45H",
+        "servo_id": 100,
+        "measured_weight_kg": 2.65,
+        "measured_com_radius_m": 0.1204,
+        "fixture_moving_mass_kg": 2.722761421,
+        "fixture_sha256": "47f9b07fc126f48a82a1786604723a0d8cff283fa74e3cfa014674193845ad23",
+        "plan_sha256": "a4e172eb8f7b54e0b4f1f891c1503d4282a14391aa536fde4b5b25cc6f72b195",
+        "fixture_direction": 1,
+        "fixture_qpos_offset_deg": 0,
+        "telemetry_resolution_deg": 0.24,
+        "mass_radius_uncertainty": null,
+        "absolute_output_encoder_calibration": null,
+        "external_current_voltage_torque_or_ambient_artifacts": []
+      },
+      "condition": {
+        "requested_center_deg": -10,
+        "quantized_center_deg": -10.08,
+        "command_range_deg": [
+          -12,
+          -8
+        ],
+        "sweep_rate_deg_s": 1,
+        "sweep_cycles": 3,
+        "move_time_ms": 250,
+        "profile_settle_s": 1,
+        "sample_hz": 50,
+        "cooldown_target_c": 32,
+        "cooldown_observed_temperature_c": 31,
+        "temperature_abort_inclusive_c": 55,
+        "peak_predicted_fixture_torque_magnitude_nm": 0.6807986789888474,
+        "effective_predicted_torque_ceiling_nm": 0.75,
+        "center_inferred_static_torque_nm": -0.571482681800502
+      },
+      "raw_validation": {
+        "all_expected_segment_names_and_counts_match": true,
+        "all_expected_command_targets_match": true,
+        "all_primary_values_finite": true,
+        "all_array_lengths_consistent": true,
+        "all_monotonic_wall_and_scheduled_timestamps_strictly_increasing": true,
+        "scheduled_samples_contiguous_20ms": true,
+        "position_values_match_0_24deg_grid": true,
+        "velocity_matches_timestamp_gradient": true,
+        "timing": {
+          "samples": 1808,
+          "duration_s": 36.13888924801722,
+          "last_timestamp_s": 36.14330137602519,
+          "sample_gap_min_ms": 18.49616295658052,
+          "sample_gap_p95_ms": 20.82784759113565,
+          "sample_gap_max_ms": 21.832161000929773,
+          "sample_gaps_above_30ms": 0,
+          "wall_gap_max_ms": 24.237871170043945,
+          "wall_minus_monotonic_span_ms": -3.3873864449560642,
+          "nan_write_duration_samples": 1689,
+          "command_write_count": 119,
+          "maximum_command_age_ms": 1263.0800280021504
+        },
+        "segment_counts": {
+          "initial_center": 50,
+          "precondition_negative": 101,
+          "precondition_low_hold": 50,
+          "sweep_positive_cycle01": 201,
+          "turnaround_high_cycle01": 50,
+          "sweep_negative_cycle01": 201,
+          "turnaround_low_cycle01": 50,
+          "sweep_positive_cycle02": 201,
+          "turnaround_high_cycle02": 50,
+          "sweep_negative_cycle02": 201,
+          "turnaround_low_cycle02": 50,
+          "sweep_positive_cycle03": 201,
+          "turnaround_high_cycle03": 50,
+          "sweep_negative_cycle03": 201,
+          "turnaround_low_cycle03": 50,
+          "final_center": 101
+        }
+      },
+      "health": {
+        "profile": {
+          "temperature_initial_c": 32,
+          "temperature_final_c": 43,
+          "temperature_max_c": 43,
+          "voltage_min_v": 12.169,
+          "voltage_max_v": 12.42,
+          "all_loaded": true
+        },
+        "preparation": {
+          "count": 25,
+          "temperature_range_c": [
+            31,
+            32
+          ],
+          "voltage_min_v": 12.107,
+          "neutral_final_position_deg": -0.96,
+          "center_final_position_deg": -9.12
+        },
+        "voltage_warning_count": 0,
+        "temperature_rise_c": 11,
+        "reported_temperature_slope_c_per_min": 15.480461793557911,
+        "slope_interpretation": "The field named last_60s uses this entire 36.14-second profile; cached integer-degree temperature is not an independent 50 Hz signal or an equilibrium measurement.",
+        "teardown_interpretation": "Completed outcome and null error are consistent with successful controlled neutral return and torque-off readback in capture.py. Return telemetry and a post-shutdown load-state sample are not archived; independent physical cutoff operation is not verified."
+      },
+      "loaded_hysteresis": {
+        "signed_width_definition": "Increasing-command branch position minus decreasing-command branch position at the same transmitted command unit.",
+        "matched_command_units": [
+          450,
+          467
+        ],
+        "matched_command_count_per_cycle": 18,
+        "center_command_unit": 458,
+        "center_samples_per_branch_per_cycle": 13,
+        "signed_center_loop_mean_deg": -1.6061538461538472,
+        "completed_cycles": 3,
+        "center_absolute_output_loop_mean_deg": 1.6061538461538472,
+        "center_absolute_output_loop_std_deg": 0.09044269819507117,
+        "center_absolute_output_loop_range_deg": 0.22153846153846146,
+        "all_commands_p95_absolute_output_loop_deg": 1.6996363636363627,
+        "all_commands_maximum_absolute_output_loop_deg": 1.7169230769230772,
+        "center_cycle_width_min_max_deg": [
+          1.4953846153846158,
+          1.7169230769230772
+        ],
+        "cycles": [
+          {
+            "cycle": 1,
+            "signed_width_deg": -1.7169230769230772,
+            "branches": [
+              {
+                "direction": "positive",
+                "center_samples": 13,
+                "center_position_deg": -10.65230769230769,
+                "temperature_range_c": [
+                  35,
+                  37
+                ],
+                "center_temperature_range_c": [
+                  36,
+                  36
+                ]
+              },
+              {
+                "direction": "negative",
+                "center_samples": 13,
+                "center_position_deg": -8.935384615384613,
+                "temperature_range_c": [
+                  36,
+                  37
+                ],
+                "center_temperature_range_c": [
+                  37,
+                  37
+                ]
+              }
+            ]
+          },
+          {
+            "cycle": 2,
+            "signed_width_deg": -1.4953846153846158,
+            "branches": [
+              {
+                "direction": "positive",
+                "center_samples": 13,
+                "center_position_deg": -10.467692307692307,
+                "temperature_range_c": [
+                  38,
+                  39
+                ],
+                "center_temperature_range_c": [
+                  39,
+                  39
+                ]
+              },
+              {
+                "direction": "negative",
+                "center_samples": 13,
+                "center_position_deg": -8.972307692307691,
+                "temperature_range_c": [
+                  39,
+                  40
+                ],
+                "center_temperature_range_c": [
+                  39,
+                  39
+                ]
+              }
+            ]
+          },
+          {
+            "cycle": 3,
+            "signed_width_deg": -1.6061538461538483,
+            "branches": [
+              {
+                "direction": "positive",
+                "center_samples": 13,
+                "center_position_deg": -10.504615384615384,
+                "temperature_range_c": [
+                  40,
+                  42
+                ],
+                "center_temperature_range_c": [
+                  41,
+                  42
+                ]
+              },
+              {
+                "direction": "negative",
+                "center_samples": 13,
+                "center_position_deg": -8.898461538461536,
+                "temperature_range_c": [
+                  41,
+                  42
+                ],
+                "center_temperature_range_c": [
+                  41,
+                  41
+                ]
+              }
+            ]
+          }
+        ],
+        "uncertainty": "Cycle standard deviation is population-form descriptive std (ddof=0) across only three within-session cycles, not a confidence interval. Center estimates average 0.24-degree internal telemetry; no sub-resolution accuracy, isothermal control, or calibrated absolute angle is demonstrated.",
+        "deadband_status": "Isolated mechanical deadband is not identified.",
+        "zero_shift_status": "One preparation-neutral endpoint (-0.96 degree) is a history-dependent internal reading, not repeatability or absolute-zero calibration."
+      },
+      "inferred_fixture_gravity_torque_nm": {
+        "mean": -0.5459465281889252,
+        "min": -0.6284223373384342,
+        "max": -0.45705734149856103
+      },
+      "measured_position_range_deg": [
+        -11.040000000000001,
+        -7.92
+      ],
+      "observed_gradient_speed_peak_deg_s": 23.930828180689122,
+      "speed_interpretation": "The approximately 23.93 degree/s peak comes from finite differences of quantized internal position, not a measured steady shaft speed or no-load speed qualification.",
+      "comparison_sources": {
+        "A_first": {
+          "capture": "results/servo_sysid/unit-a-bam-hysteresis-minus10-run02/02_H2_loaded_hysteresis_minus10.npz",
+          "outcome": "completed",
+          "center_loop_mean_deg": 1.587692307692307
+        },
+        "A_validation": {
+          "capture": "results/servo_sysid/unit-a-bam-hysteresis-validation-run03/02_H2_loaded_hysteresis_minus10.npz",
+          "outcome": "completed",
+          "center_loop_mean_deg": 1.6492307692307715
+        },
+        "B_fit": {
+          "capture": "results/servo_sysid/unit-b-bam-low-load-fit-run01/07_Q7_loaded_hysteresis_minus10.npz",
+          "outcome": "completed",
+          "center_loop_mean_deg": 1.575384615384617
+        },
+        "B_validation": {
+          "capture": "results/servo_sysid/unit-b-bam-low-load-validation-run02/07_Q7_loaded_hysteresis_minus10.npz",
+          "outcome": "completed",
+          "center_loop_mean_deg": 1.6246153846153846
+        }
+      },
+      "existing_model_replay": {
+        "procedure": "Unchanged fit.py load_trace/Replay at 2 ms, fixed 4 N m force cap, initial position from the first measurement and initial velocity zero, nominal ten substeps per sample. Requested targets are replayed as in existing fits. No added backlash, target bias, temperature state, parameter fitting, or delay selection.",
+        "residual_sign": "predicted_minus_measured",
+        "models": {
+          "A": {
+            "source_fit": "results/servo_sysid/htd45h-unit-a-dynamics-fit-run14.json",
+            "parameters": {
+              "armature": 0.02095097890884981,
+              "delay_steps": 0,
+              "effective_velocity_damping": 0.6736224815759155,
+              "frictionloss": 0.4654711955162913,
+              "kp": 24.15736370745031
+            },
+            "rmse_deg": 0.683578703983913,
+            "bias_deg": 0.6096630605467135,
+            "p95_absolute_error_deg": 1.1024906797550516,
+            "predicted_center_loop_mean_deg": 1.714456725986059,
+            "predicted_center_signed_widths_deg": [
+              -1.7191610805212374,
+              -1.7121045487190525,
+              -1.7121045487178872
+            ]
+          },
+          "B": {
+            "source_fit": "results/servo_sysid/htd45h-unit-b-dynamics-fit-run03.json",
+            "parameters": {
+              "armature": 0.042909250771228265,
+              "delay_steps": 0,
+              "effective_velocity_damping": 0.8363428091651759,
+              "frictionloss": 0.44917400624750053,
+              "kp": 24.443848673530084
+            },
+            "rmse_deg": 0.6674511612047016,
+            "bias_deg": 0.5974416519604093,
+            "p95_absolute_error_deg": 1.0679282440824163,
+            "predicted_center_loop_mean_deg": 1.723528495762739,
+            "predicted_center_signed_widths_deg": [
+              -1.724264015536355,
+              -1.7231607358760286,
+              -1.7231607358758332
+            ]
+          },
+          "C": {
+            "source_fit": "results/servo_sysid/htd45h-unit-c-dynamics-fit-run03.json",
+            "parameters": {
+              "armature": 0.036658018047361796,
+              "delay_steps": 0,
+              "effective_velocity_damping": 0.852879028603913,
+              "frictionloss": 0.4497528118050106,
+              "kp": 24.501336841246424
+            },
+            "rmse_deg": 0.665124373852902,
+            "bias_deg": 0.5949938281879164,
+            "p95_absolute_error_deg": 1.0655566570019606,
+            "predicted_center_loop_mean_deg": 1.723073655986694,
+            "predicted_center_signed_widths_deg": [
+              -1.723829356809932,
+              -1.722695805575099,
+              -1.722695805575051
+            ]
+          }
+        },
+        "interpretation": "Models predict 1.714-1.724 degrees of negative center loop width versus 1.606 degrees measured, a difference below one telemetry step. Friction/controller dynamics already represent much of this loop; adding the full measured width as encoder backlash risks double-counting. This does not prove absence of mechanical backlash. Persistent positive position bias remains uncalibrated."
+      },
+      "parameter_mapping": {
+        "training_config_changed": false,
+        "servo_model_nominal_changed": false,
+        "backlash_rad": "No new mapping: loaded loop width does not isolate encoder or mechanical backlash.",
+        "backlash_activation_torque": "Unidentified; WR2 exposure reference 1.0157 N m and ToddlerBot independent 0.1 N m are not identified by Q7.",
+        "target_bias": "No mapping from one neutral endpoint or model bias without an output reference and repeatable approaches.",
+        "brake_torque_limit_nm": "Unidentified.",
+        "passive_active_ratio": "Unidentified.",
+        "thermal_time_constant": "Not fitted; 10-second exposure remains a demand diagnostic."
+      },
+      "limitations": [
+        "Only one unit-C negative-hysteresis session is available; independent run05 is still required.",
+        "Q6 and Q7 were acquired at different temperatures and sessions; the positive/negative width contrast is descriptive, not a temperature-controlled load-sign coefficient.",
+        "Original full campaigns remain failed at Q6 and are not relabeled complete by this standalone Q7.",
+        "Torque is geometry-inferred, and no actual current, external shaft torque/angle, independent supply voltage, ambient condition, or traceable fixture uncertainty is archived.",
+        "Internal health fields are cached without per-field acquisition times; no instrument synchronization claim is made."
+      ],
+      "method_sources": {
+        "wr2_hysteresis": "wr2/tools/servo_sysid/analysis/hysteresis.py",
+        "wr2_replay": "wr2/tools/servo_sysid/fit.py:Replay",
+        "wr2_capture": "wr2/tools/servo_sysid/capture.py:capture_profile",
+        "wr2_campaign": "wr2/tools/servo_sysid/campaign.py:_run_hardware_campaign",
+        "wr2_backlash": "wr2/locomotion/walking_env.py:_observation",
+        "toddlerbot_backlash": "~/projects/toddlerbot/toddlerbot/locomotion/mjx_env.py:2073; mjx_config.py:209",
+        "wr1_backlash": "~/projects/wildrobot/training/envs/domain_randomize.py:apply_backlash_to_joint_pos",
+        "published_identification_reference": "https://arxiv.org/html/2502.00893v4",
+        "published_backlash_reference": "https://doi.org/10.1016/S0005-1098(02)00047-X"
+      }
     }
   ]
 }

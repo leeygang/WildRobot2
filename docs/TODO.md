@@ -135,7 +135,8 @@ validation; it deliberately excludes every test requiring new instrumentation.
   held-out campaigns preserved in
   `docs/hardware/evidence/htd45h_unit_b.json`. Unit C now has held-out Q1--Q5
   evidence in `docs/hardware/evidence/htd45h_unit_c.json`; additional angles
-  and the missing negative-load hysteresis condition remain.
+  remain. Standalone unit-C Q7 run04 is now complete; independent Q7 validation
+  and controlled cold/warm comparisons remain.
 - [ ] Run slow forward/reverse sweeps at cold and warmed conditions to obtain
   preliminary *loaded* backlash and hysteresis evidence. Approach every target
   from both directions and retain the complete command/position trajectory;
@@ -149,7 +150,10 @@ validation; it deliberately excludes every test requiring new instrumentation.
   setup can resolve.
   Unit C's pre-abort positive sweep means were 0.498/0.425 degrees, with three
   full sweep pairs in each session; both captures failed at 55 C during the
-  final return sweep, and Q7 was not run. The campaigns remain incomplete.
+  final return sweep. Standalone Q7 run04 now gives 1.6062 degrees negative
+  center loop mean (cycle std 0.0904 degree), with all three sweep pairs and
+  no voltage warnings; the profile reached 43 C. Independent Q7 validation
+  remains, and the original full campaigns remain incomplete.
 - [x] Collect the first gravity-neutral, low-amplitude E3 chirp on unit A. The
   run completed without voltage warnings and is retained as preliminary
   position-loop, whole-response, and low-load speed evidence.
@@ -171,9 +175,14 @@ validation; it deliberately excludes every test requiring new instrumentation.
   delay and achieved 0.7643 degree fit / 0.7408 degree held-out mean replay
   RMSE. Raw artifacts remain unchanged; hashes, uncertainty, and the unchanged
   training mapping are retained in `docs/hardware/evidence/htd45h_unit_c.json`.
-- [ ] Complete unit-C negative-load hysteresis in separate bounded Q7 sessions
-  after operator fixture inspection. Both full campaigns failed Q6's inclusive
-  55 C cutoff, so do not relabel them complete, restart the full matrix, or
+- [x] Collect and review unit-C negative-load hysteresis in standalone Q7 run04.
+  All 1,808 profile samples completed; signed center widths are
+  -1.7169/-1.4954/-1.6062 degrees, absolute mean 1.6062 degrees. Existing
+  low-load models predict 1.7145--1.7235 degrees without additional backlash,
+  so no training mapping changed. Raw captures and hashes are retained.
+- [ ] Independently validate unit-C negative-load hysteresis in bounded Q7
+  run05 after operator fixture inspection. Both full campaigns failed Q6's
+  inclusive 55 C cutoff, so do not relabel them complete, restart the full matrix, or
   raise the cutoff to pass. The review and exact preflight/collection commands
   are in `docs/hardware/evidence/htd45h_unit_c_review.md`.
 - [ ] Run bounded low-load thermal/current-duration tests only after adding a
@@ -184,8 +193,9 @@ validation; it deliberately excludes every test requiring new instrumentation.
   at the intended deployment wiring and supply configuration before treating
   the observations as a population range. The bounded
   `bam_low_load_qualification` campaigns are complete for unit B; unit C has
-  validated Q1--Q5 and positive pre-abort hysteresis, but no Q7. Three low-load
-  effective unit fits now exist; deployment wiring/current/torque qualification
+  validated Q1--Q5, positive pre-abort hysteresis, and one completed Q7 session.
+  Independent Q7 validation remains. Three low-load effective unit fits now
+  exist; deployment wiring/current/torque qualification
   and controlled temperature comparisons still prevent population limits.
 
 For the present unit A, do not run the documented E1, E2, or E4--E7 high-load

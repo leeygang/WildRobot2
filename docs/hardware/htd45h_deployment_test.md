@@ -160,8 +160,8 @@ capture is required.
 Unit C completed Q1--Q5 in fit run01 and held-out run02 under revision
 `0b3ca04`, with a CLI-selected 32 C cooldown. Both campaign manifests remain
 `failed`: Q6 reached the inclusive 55 C cutoff in its final-center return
-sweep, and Q7 was not executed. Each Q6 trace retains all three complete
-forward/reverse sweep pairs. Their positive center absolute loop means were
+sweep, and neither original campaign executed Q7. Each Q6 trace retains all
+three complete forward/reverse sweep pairs. Their positive center absolute loop means were
 0.4985/0.4246 degrees; these are pre-abort loaded-system observations, not
 completed campaign qualification or isolated mechanical backlash.
 
@@ -176,8 +176,16 @@ about 113 ms, without an external supply artifact to classify it.
 All raw statuses and artifacts are preserved. See the
 [machine-readable evidence](evidence/htd45h_unit_c.json) and
 [review, uncertainty, and next-operator commands](evidence/htd45h_unit_c_review.md).
-Collect missing Q7 separately only after operator fixture inspection; do not
-restart the entire matrix or relax the 55 C cutoff to make Q6 pass. Three
+Standalone Q7 run04 subsequently completed all 1,808 profile samples and
+three sweep pairs under revision `9c0f84f`. Its signed center loop mean is
+-1.6062 degrees (absolute mean 1.6062, cycle std 0.0904 degree); profile
+temperature rose from 32 to 43 C, with no voltage warnings. The Q7-only
+manifest correctly remains `partial`, while the Q7 condition is `completed`.
+Independent Q7 validation run05 remains; all cycles in run04 are one session.
+Existing low-load models predict 1.7145--1.7235 degrees center loop without
+added backlash, so no training backlash/nominal mapping was changed.
+Collect the independent Q7 session only after operator fixture inspection;
+do not restart the entire matrix or relax the 55 C cutoff to make Q6 pass. Three
 low-load unit fits do not establish torque-speed, braking, thermal, or
 population deployment limits.
 

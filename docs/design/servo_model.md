@@ -64,7 +64,7 @@ and EEPROM limits. It does **not** expose motor current or shaft torque.
 | Zero offset and target bias | Training target-bias randomization; deployment calibration | `target_bias_rad` in `ppo_walking.yaml`; per-servo deployment calibration is not implemented | Gait acquisition: +/-0.5 degree; +10 and -10 repeat zero means were -0.1680 and -1.3248 degrees; expand only during robust training | Repeated bidirectional approaches with the `bam_position` or `bam_repeatability` plan | BAM; external encoder for absolute output zero | Unit-A direction/session-dependent observation; acquisition range is intentionally narrower than the observed deployment uncertainty |
 | Position repeatability | Deployment command confidence; training uncertainty selection | Capture result only; not a nominal model field | Unit-B held-out loaded std/range: +10 0.0320/0.0800 degree and -10 0.0392/0.0800 degree; unit-C held-out std/range: +10 0.0727/0.2133 degree and -10 0.0200/0.0533 degree; report as no better than the 0.24-degree telemetry resolution | Five or more independent cooldown/approach repeats with `bam_low_load_qualification` | Current BAM | Units B/C reproduced signed repeatability in two sessions; precise output repeatability still requires an external encoder |
 | Loaded position error/compliance | Training gain/bias envelope; deployment tracking gates | Capture results; provisional `kp_sim` range | +10.08-degree command settled at 7.8667 degrees (mean error +2.2133); -10.08-degree command settled at -9.2853 degrees (mean error -0.7947). Requested incremental-travel errors were approximately +2.045 and -2.039 degrees | Repeat at signed angles and loads; retain full trajectories | Current BAM for preliminary evidence; torque sensor for separation | Observed on unit A; contains zero bias, friction, compliance, and fixture effects, not pure gain |
-| Backlash and hysteresis | Training `backlash_rad`; deployment positioning | `backlash_rad` in `ppo_walking.yaml` | 0--0.5 degree gait-acquisition range; unit-B fit/held-out positive center means 0.474/0.468 degree and negative means 1.575/1.625 degrees; unit A showed the same strong signed asymmetry; unit-C pre-abort positive means 0.498/0.425 degrees, Q7 absent | Run `bam_low_load_qualification` Q6/Q7; `analysis/hysteresis.py` matches forward/reverse output at identical command units and reports cycle repeatability | Current BAM for coarse loaded hysteresis; external encoder required below the servo's 0.24-degree telemetry step | Held-out-repeated signed system hysteresis on units A/B; unit C has positive pre-abort observations only; not isolated backlash or a population specification |
+| Backlash and hysteresis | Training `backlash_rad`; deployment positioning | `backlash_rad` in `ppo_walking.yaml` | 0--0.5 degree gait-acquisition range; unit-B fit/held-out positive center means 0.474/0.468 degree and negative means 1.575/1.625 degrees; unit A showed the same strong signed asymmetry; unit-C pre-abort positive means 0.498/0.425 degrees and standalone negative Q7 mean 1.6062 degrees (cycle std 0.0904 degree) | Run `bam_low_load_qualification` Q6/Q7; `analysis/hysteresis.py` matches forward/reverse output at identical command units and reports cycle repeatability | Current BAM for coarse loaded hysteresis; external encoder required below the servo's 0.24-degree telemetry step | Held-out-repeated signed system hysteresis on units A/B; unit C has pre-abort positive observations and one completed negative session, independent Q7 validation pending; not isolated backlash or a population specification |
 | Peak/stall torque | Training force-cap envelope; deployment transient limit | `vendor_stall_torque_nm`, `torque_limit_nm` | Vendor stall 4.413 N m; nominal training cap 4.0 N m; gait acquisition randomizes 3.6--4.0 N m and reserves the earlier 1--4 N m envelope for robust training | Sweep guarded steady/short-duration points with measured shaft torque and current | Guarded dynamometer with inline torque sensor and encoder | Vendor upper bound; not WR2-qualified |
 | Maximum validated fixture load | Training torque-exposure normalization; test planning | `maximum_validated_load_nm` and duration in `robot.yml` | 1.0157 N m for 3 s | Existing signed BAM commissioning captures; repeat across units before adoption as a population limit | Current BAM | Observed short-duration unit-A value |
 | Continuous torque | Deployment duty limit; training thermal/exposure constraints | `continuous_actual_load_*` evidence fields; no accepted continuous rating | 0.0833 N m observation did not reach cutoff; 0.317 N m reached 80 C after about 402 s; no continuous rating | Stage increasing static loads, log current/voltage/temperature, and hold until thermal equilibrium or abort. Existing E7 at 2.76 N m must not be used on unit A | Adjustable/instrumented BAM, synchronized current logger, controlled ambient/cooling | Bracket incomplete; unqualified |
@@ -140,8 +140,9 @@ population specification:
   [unit-B evidence log](../hardware/evidence/htd45h_unit_b.json).
 - Unit C completed Q1--Q5 in two sessions at a 32 C cooldown target, then both
   Q6 captures hit the inclusive 55 C cutoff during the final return sweep;
-  Q7 was not executed. The manifests remain failed. Three complete positive
-  sweep pairs per session give pre-abort center means of 0.4985/0.4246 degree,
+  neither original campaign executed Q7. The manifests remain failed. Three
+  complete positive sweep pairs per session give pre-abort center means of
+  0.4985/0.4246 degree,
   not complete signed hysteresis qualification. Fitting only run01 Q3/Q4/Q5
   selected zero extra delay, kept the selected parameters inside their bounds,
   and achieved 0.7643 degree fit / 0.7408 degree held-out mean replay RMSE.
@@ -156,6 +157,16 @@ population specification:
   0.7414/0.7410/0.7408 degree mean RMSE; the nearly equivalent predictions do
   not justify changing the current unit-A nominal or treating fitted
   armature/damping differences as independently measured physical variation.
+  Standalone negative Q7 run04 subsequently completed all 1,808 samples and
+  three sweep pairs under revision `9c0f84f`, with signed center widths
+  -1.7169/-1.4954/-1.6062 degrees (absolute mean 1.6062, cycle std 0.0904
+  degree), a 32--43 C profile, and no voltage warnings. The Q7-only manifest
+  remains `partial` by design; the condition is completed. Independent Q7
+  validation is still pending. Unchanged A/B/C low-load replays predict
+  1.7145/1.7235/1.7231 degrees center width without an added backlash term,
+  versus 1.6062 measured. Thus the loaded loop must not automatically be added
+  again as encoder backlash; the replay still has positive position bias and
+  does not isolate physical clearance, absolute zero, or activation torque.
 - Earlier motion/hot-return tests reported intermittent internal voltage as low
   as 9.273 V while the external supply appeared stable. Without the raw,
   synchronized external log this does not identify whether the drop occurred
@@ -174,7 +185,7 @@ torque.
 | Repeated zero/loaded position | `capture.py --prepare-only` | `campaign.py --plan bam_position`, `bam_repeatability`, or `bam_low_load_qualification` | `analysis/position.py` | Per-repeat NPZ/JSON plus summary and campaign manifest | Available in the current implementation; captures from older revisions may have empty NPZ traces and JSON-only preparation telemetry |
 | Gravity-neutral position dynamics | `capture.py` | E3 in `bam_position` or Q3 in `bam_low_load_qualification` | `fit.py` | NPZ/JSON, fit JSON | Independent fit and held-out captures complete for units A and B |
 | Loaded dynamics | `capture.py` | Q4/Q5 in `bam_low_load_qualification`; legacy E4/E5 remain unsafe | `fit.py` | NPZ/JSON, fit JSON | Independent signed fit and held-out captures complete for units A and B at 0.647/0.681 N m predicted peaks |
-| Backlash/hysteresis | `capture.py --profile hysteresis` | `campaign.py --plan bam_hysteresis` or Q6/Q7 in `bam_low_load_qualification` | `analysis/hysteresis.py`; top-level `hysteresis` command | Signed sweep NPZ/JSON with per-cycle summary; optional multi-capture report | Held-out-repeated signed loaded hysteresis complete for units A and B; external encoder still required for precise mechanical backlash |
+| Backlash/hysteresis | `capture.py --profile hysteresis` | `campaign.py --plan bam_hysteresis` or Q6/Q7 in `bam_low_load_qualification` | `analysis/hysteresis.py`; top-level `hysteresis` command | Signed sweep NPZ/JSON with per-cycle summary; optional multi-capture report | Held-out-repeated signed loaded hysteresis complete for units A and B; unit C negative Q7 has one complete session; external encoder still required for precise mechanical backlash |
 | Low-load continuous torque | `capture.py --constant-hold-s` | E7 in the `legacy_deployment` plan | Thermal gate in `analyze.py` | NPZ/JSON plus external current log | Partly implemented; E7 load is unsafe and instrument control is missing |
 | Supply voltage/current | None | Label only | Aggregate JSON ingestion through the `report` command | Required: raw timestamped log plus derived summary | Missing collector |
 | Measured shaft torque | None | None | Optional aggregate fields only | Required: raw calibrated torque trace | Missing collector and sensor |
