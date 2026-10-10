@@ -235,6 +235,42 @@ class Htd45hProtocolTest(unittest.TestCase):
         self.assertAlmostEqual(
             summary["cycles"][0]["center_absolute_output_loop_deg"], 0.48
         )
+        self.assertAlmostEqual(
+            summary["cycles"][0]["center_signed_output_loop_deg"], -0.48
+        )
+
+    def test_thermal_abort_retains_sweep_metrics_but_not_complete_status(self):
+        from wr2.tools.servo_sysid.analysis.hysteresis import summarize_captures
+        from wr2.tools.servo_sysid.core import file_sha256
+
+        command_deg = np.asarray([8.0, 10.08, 12.0])
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "thermal_abort.npz"
+            metadata = path.with_suffix(".json")
+            np.savez(
+                path,
+                segment_name=np.asarray(
+                    ["sweep_positive_cycle01"] * 3 + ["sweep_negative_cycle01"] * 3
+                ),
+                command_rad=np.radians(np.concatenate((command_deg, command_deg[::-1]))),
+                measured_position_rad=np.radians(
+                    np.concatenate((command_deg - 0.24, command_deg[::-1] + 0.24))
+                ),
+            )
+            metadata.write_text(json.dumps({
+                "center_deg": 10.0,
+                "outcome": "failed",
+                "error": "temperature 55.0 C reaches or exceeds the 55.0 C limit",
+            }))
+            original_hashes = (file_sha256(path), file_sha256(metadata))
+            report = summarize_captures([path])
+            self.assertEqual(original_hashes, (file_sha256(path), file_sha256(metadata)))
+        self.assertEqual(report["status"], "incomplete")
+        self.assertIn("capture outcome is failed", report["failures"][0])
+        self.assertEqual(
+            report["captures"][0]["hysteresis"]["aggregate"]["completed_cycles"], 1
+        )
+        self.assertAlmostEqual(report["aggregate"]["capture_center_loop_mean_deg"], 0.48)
 
     def test_preparation_samples_populate_canonical_trace(self):
         samples = [

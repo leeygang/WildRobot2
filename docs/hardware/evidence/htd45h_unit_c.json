@@ -1,0 +1,1280 @@
+{
+  "schema_version": 1,
+  "servo_model": "HTD-45H",
+  "servo_label": "htd45h-unit-c",
+  "records": [
+    {
+      "record_id": "unit-c-bam-low-load-run01-run02-fit-run03",
+      "evidence_status": "held_out_validated_q1_to_q5_with_q6_thermal_abort_and_q7_missing",
+      "accepted_for": [
+        "unit_c_low_load_effective_dynamics",
+        "unit_c_signed_loaded_position_repeatability",
+        "unit_c_pre_abort_positive_loaded_hysteresis_observation",
+        "three_unit_low_load_variability_observation"
+      ],
+      "not_accepted_for": [
+        "complete_seven_stage_qualification",
+        "deployment_qualification",
+        "population_specification",
+        "isolated_mechanical_backlash",
+        "negative_loaded_hysteresis_on_unit_c",
+        "continuous_torque",
+        "torque_speed",
+        "braking",
+        "measured_shaft_torque",
+        "current_or_power_qualification"
+      ],
+      "observed_at_utc": "2026-10-10T02:34:24.424594+00:00",
+      "source_fit_campaign": "results/servo_sysid/unit-c-bam-low-load-fit-run01",
+      "source_validation_campaign": "results/servo_sysid/unit-c-bam-low-load-validation-run02",
+      "source_fit": "results/servo_sysid/htd45h-unit-c-dynamics-fit-run03.json",
+      "source_hysteresis_review": "results/servo_sysid/htd45h-unit-c-hysteresis-review-run03.json",
+      "software_revisions": {
+        "analysis_head": "0b3ca04cf4f2e36586fc589b651e40eb630c2f3c",
+        "fit_revision_status": "Fit JSON does not embed a Git revision; analysis_head records the actual review revision separately.",
+        "fit_campaign": "0b3ca04cf4f2e36586fc589b651e40eb630c2f3c",
+        "validation_campaign": "0b3ca04cf4f2e36586fc589b651e40eb630c2f3c"
+      },
+      "artifact_sha256": {
+        "results/servo_sysid/htd45h-unit-c-dynamics-fit-run03.json": "6cc5ffc9061dbcfa7d936d2f58225e73f73b7724c56c9f86cbd0fd708cd119ad",
+        "results/servo_sysid/htd45h-unit-c-hysteresis-review-run03.json": "b7d22b33a3ade1afa696ab367aee32c3158759a61a537738ed6191e534c9189e",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_01.json": "d2515d768fc1b1cb71e055c3f72700df07e52aeb14ced31b643fb584a073fc16",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_01.npz": "1e3b7156341e22f7505fe894915e4d19c372e68bdb90b4b5faffec35baf57603",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_02.json": "e143c439dd334b6fce6f6839c22a8ca91c6cacf694b267ebdfd175f69032cc45",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_02.npz": "58933ddfca9ac2118e7cc0456bab854c18175a8b914df881ad484f8ef6c4791c",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_03.json": "58d76934f2407d8b033084e67c3316664726441a18f5d9a692a9a25002366b48",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_03.npz": "fd3e23b319ad7b497ed4b62e49cab273456e4cf0ff96832a0fa36f0e613a2615",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_04.json": "e9e9143853202585a9f8925cce7ef2b4335998d78dce40b8f57da1f19874f805",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_04.npz": "f556fe783703d3fb923842fa9fb9e65449e2c05a224eef9e22560904b09a8188",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_05.json": "d1d6c32912d6d2b3dab987b06d8a7b11c26a31ca8c9b3b744a3d5b1f4c4e7221",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_05.npz": "1e50bfb1a7a6aedef9c38a520da4684bf17e2f0c5184110842938a0768481b3f",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeatability_summary.json": "c485538a3ecbbe47855501cf66bfa9a31f4012293ef3ae6e8e3a832a4677f89a",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_01.json": "8362b6319d6690949b37490275d2ca82cea68f9711fc739078510f7e5cfd544a",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_01.npz": "759221e1a6d1bb44bd85e99848b21fa0e38455354e44eaca80e49f41f18f5470",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_02.json": "f8b7d92ce38263584cded2a18ffe2f70443b61f07a709f9afb313bdf144385e6",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_02.npz": "c723a32f3d87c16f47235d29d33f4190c31fdf2295074959f85bc1a0873bf65b",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_03.json": "f80b4cb9afb0aa3e21a2eee471438b7f6f35bb29c88b0ddbef183cdb1b5580a9",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_03.npz": "0f8d7e638c9dca18d0913135a32cbbafeaf8574a4a2020194fba9a963cfa88c1",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_04.json": "2d028aa8dae82ff1377d81bce700481f7c5242b13335a8520e138058297112df",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_04.npz": "f330fbf33f9d70bba4dc6bf917731bbce7cac30575d2622c564af448296f916d",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_05.json": "89c590156de9fc2e0e146c9ec74c423003acb785e25bee5ec122ff172717034c",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_05.npz": "0ec81edaf70575394e5e75b4379d2a50aa906a8f7c370f26f8b659d3d957a8e6",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeatability_summary.json": "a3852486982791e8efdf5de692a9aa13df40bf84afcc31fde0372cd05d0ae524",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/03_Q3_gravity_neutral_dynamics.json": "1b8c8cfbe1fc44c22b39a7f976fc74cf1d882b4fac3970e102cb2cf86b8becd0",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/03_Q3_gravity_neutral_dynamics.npz": "05d14ddec6e124fbc322500670fdf8e1245f31afe6f8f6f0be4b6953a83eeab1",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/04_Q4_loaded_dynamics_plus10.json": "c8fcd569d1069614773dd5968f74ca7c86adfa6f023c83b95729cc505cc000dc",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/04_Q4_loaded_dynamics_plus10.npz": "71a154841a11f972acc769f72a022ad9150e0b7ecb3263c6d126f8766831020f",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/05_Q5_loaded_dynamics_minus10.json": "88070b0350bbb703fa4cc4b1c9a56d06c717f6d814da5825efdca3d833b91543",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/05_Q5_loaded_dynamics_minus10.npz": "40898778c135f931146399e2d19811ea8d3a943b0ce6c2dedeb350fbc7b1a1b3",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/06_Q6_loaded_hysteresis_plus10.json": "cc390eff6d241e3333065dae82ce34c6754a8b19f720dcc1ed741ed5da12146a",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/06_Q6_loaded_hysteresis_plus10.npz": "42dabfe945a08cb058ab49f083fc4434635396ea0386a6e0744f6b98c9795408",
+        "results/servo_sysid/unit-c-bam-low-load-fit-run01/campaign_manifest.json": "2c58e8c635a974c5d168c6671c1a9442acccfd0224009aa831cb48e607bf38d1",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_01.json": "78e663febbd160328c27630e3071126ee21aeb1369a505cd78076ed9b07a2c87",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_01.npz": "b749264b8ab08b126217cbccb05072d6ff5dba46a69f647d3c1d973c86c03cf9",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_02.json": "90c3df4d84aa58be32ed8a8bb138dfa4370d905078ecebb2bd7840154412b5e4",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_02.npz": "243d1c8211f1ed9333825b1d4552a447d01b6dbd1ce7b06fa558216bf9e4720d",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_03.json": "14c9ae91bc8a649475703a3d873cb9c9480e3581c5d0e56a053e4b6c6e53e549",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_03.npz": "4075d4777e99200c9f8f596c204b11a737cc68d1e45b23c7816d060c8a944981",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_04.json": "0f5c4158860646207520700408b6fc6b83410bfdda8f9ef47d26ef8be3115b69",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_04.npz": "7324a64e83e5645e0643873c9fdb01c51221a713f2e823201bf2a65063095670",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_05.json": "b0a2ab89e2b3b999b16e042899d1fe22042e9ddf71a868ec30f5d7c5facd6f55",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_05.npz": "6c5e278845bbbeadd7aec09a34f4d5951b836c5707fb81fa9b5f970620bd2278",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeatability_summary.json": "3f1e6a5c3c15f9dc43e144b1fb30a13a0f4aa1fed7662e3ca3c667a136ed2a5a",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_01.json": "d4bba772ee7d0fd338d774fdc6ce675545134a12a22add3eba3b4883a1f0e6bc",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_01.npz": "42ed5ed82efb0c5d1c07b427bb64bf2dca5d3442e68e43f320396bfae57abc73",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_02.json": "d6175436fdf2f5c6ff029fe2338e89d0a1ce0eadb9efcf62a317981aff12aaf3",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_02.npz": "c91185d0641db2834df61047a6525cd8e2113cc9fbffa650f010689d1a10edcf",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_03.json": "77fde9d363d4e8f2f2ac460c9ac97b00e3ec2b549ec37d0039d5078d2c53d10b",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_03.npz": "cf409749a4093cfa9e5643a8043edf3ec3b2375c33b75bcd51a55e9557b32c51",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_04.json": "9d110c3d73119a0794b108b00ea7289b5ec2c100ebb9582380ec1e322d3cd43c",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_04.npz": "334e98060369b41c1aed7b0a6e4c5607e34692235369163aff18886e9797a808",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_05.json": "167f299fe5c6b1710294931cc8ac375dfd210de299b8db2db9dc084ab280879c",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_05.npz": "a72801d8874d88c8b3e6bf1eb1da4d7e1ef73bb418435a540cfdd3938dc204c6",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeatability_summary.json": "a9faf6cb89a87ec1bc109d038346558ebe7aff17d7a139fbf8864a2c5908208a",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/03_Q3_gravity_neutral_dynamics.json": "ab036132440145610bcd505a3fba3893eb46bacd3016cabf9e6bcc3f5dc07862",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/03_Q3_gravity_neutral_dynamics.npz": "26b34aa15a6312dd2b52a0153e2f4af45a65cff77573934411ece1a543cfa413",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/04_Q4_loaded_dynamics_plus10.json": "b926561598da3acfcc63438ce4426b026cad8568dc34a04f0ce95325ca3507de",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/04_Q4_loaded_dynamics_plus10.npz": "f541e65e6383118d39dd3a23ff3ef6d5d904ebca83d6ccce340024678241ce5e",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/05_Q5_loaded_dynamics_minus10.json": "e497be0465343ca4686306296ad6a133a92d8c2aecadb2a6024d46c4c4a12ad9",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/05_Q5_loaded_dynamics_minus10.npz": "029dd1f4fe9559e9f187fbb978fb00ed3da4a108bc337484bcde195c69b14179",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/06_Q6_loaded_hysteresis_plus10.json": "d1d0febceeef6ac79b1b61143e202bdfb82a0a1a07e831548594d2ed959a9972",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/06_Q6_loaded_hysteresis_plus10.npz": "72af5b25d71586944c2dc50aaa6afd8b02de18498ca22b6dcfbbba23adecec86",
+        "results/servo_sysid/unit-c-bam-low-load-validation-run02/campaign_manifest.json": "bf503f4fbffbd261bdf208c82487c4901b0a9db21e405f71235363f7bd2fec8a"
+      },
+      "campaigns": {
+        "fit": {
+          "status": "failed",
+          "started_at": "2026-10-09T23:19:42.899058+00:00",
+          "updated_at": "2026-10-10T00:05:05.792863+00:00",
+          "failed_condition": "Q6_loaded_hysteresis_plus10",
+          "condition_outcomes": {
+            "Q1_repeatability_plus10": "completed",
+            "Q2_repeatability_minus10": "completed",
+            "Q3_gravity_neutral_dynamics": "completed",
+            "Q4_loaded_dynamics_plus10": "completed",
+            "Q5_loaded_dynamics_minus10": "completed",
+            "Q6_loaded_hysteresis_plus10": "failed"
+          },
+          "missing_conditions": [
+            "Q7_loaded_hysteresis_minus10"
+          ],
+          "cooldown_target_c": 32,
+          "max_temperature_c": 55,
+          "plan_sha256": "a4e172eb8f7b54e0b4f1f891c1503d4282a14391aa536fde4b5b25cc6f72b195",
+          "fixture_sha256": "47f9b07fc126f48a82a1786604723a0d8cff283fa74e3cfa014674193845ad23",
+          "npz_count": 14,
+          "sample_count": 4659,
+          "completed_capture_sample_count": 2949,
+          "completed_npz_count": 13,
+          "all_primary_measurements_finite": true,
+          "all_arrays_length_consistent": true,
+          "all_timestamps_strictly_increasing": true,
+          "all_archived_samples_torque_enabled": true,
+          "nullable_timing_interpretation": "Preparation-only captures have no scheduled clock/lateness; command-write duration is NaN when no command was written. These are unavailable diagnostics, not missing position/voltage/temperature samples.",
+          "minimum_servo_reported_voltage_v_including_warning_events": 11.457,
+          "max_archived_temperature_c": 54,
+          "voltage_warning_events": [],
+          "captures": [
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_01.npz",
+              "outcome": "completed",
+              "sample_count": 59,
+              "duration_s": 6.536943899933249,
+              "timestamp_gap_p95_ms": 112.77285258402117,
+              "timestamp_gap_max_ms": 125.30572200194001,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 59,
+                "loop_lateness_s": 59,
+                "command_write_duration_s": 57
+              },
+              "cooldown_final_temperature_c": 31,
+              "cooldown_elapsed_s": 0.005738858017139137,
+              "profile_initial_temperature_c": 31,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_02.npz",
+              "outcome": "completed",
+              "sample_count": 55,
+              "duration_s": 6.091933295945637,
+              "timestamp_gap_p95_ms": 112.80431976774707,
+              "timestamp_gap_max_ms": 125.52335602231324,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 55,
+                "loop_lateness_s": 55,
+                "command_write_duration_s": 53
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 75.10546444007196,
+              "profile_initial_temperature_c": 32,
+              "profile_final_temperature_c": 35,
+              "profile_max_temperature_c": 35
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_03.npz",
+              "outcome": "completed",
+              "sample_count": 54,
+              "duration_s": 5.9805898239137605,
+              "timestamp_gap_p95_ms": 113.018464948982,
+              "timestamp_gap_max_ms": 124.80094900820404,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 54,
+                "loop_lateness_s": 54,
+                "command_write_duration_s": 52
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 95.13158721092623,
+              "profile_initial_temperature_c": 33,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_04.npz",
+              "outcome": "completed",
+              "sample_count": 55,
+              "duration_s": 6.090999317006208,
+              "timestamp_gap_p95_ms": 112.79372731223702,
+              "timestamp_gap_max_ms": 124.81912306975573,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 55,
+                "loop_lateness_s": 55,
+                "command_write_duration_s": 53
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 120.16458238998894,
+              "profile_initial_temperature_c": 33,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-fit-run01/01_Q1_repeatability_plus10/repeat_05.npz",
+              "outcome": "completed",
+              "sample_count": 55,
+              "duration_s": 6.0924757609609514,
+              "timestamp_gap_p95_ms": 112.79153484501876,
+              "timestamp_gap_max_ms": 124.78022510185838,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 55,
+                "loop_lateness_s": 55,
+                "command_write_duration_s": 53
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 140.1922865830129,
+              "profile_initial_temperature_c": 32,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_01.npz",
+              "outcome": "completed",
+              "sample_count": 54,
+              "duration_s": 5.981305695022456,
+              "timestamp_gap_p95_ms": 112.87077160086483,
+              "timestamp_gap_max_ms": 124.60159102920443,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 54,
+                "loop_lateness_s": 54,
+                "command_write_duration_s": 52
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 150.2055493289372,
+              "profile_initial_temperature_c": 32,
+              "profile_final_temperature_c": 35,
+              "profile_max_temperature_c": 35
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_02.npz",
+              "outcome": "completed",
+              "sample_count": 54,
+              "duration_s": 5.982269497937523,
+              "timestamp_gap_p95_ms": 112.83543456811458,
+              "timestamp_gap_max_ms": 124.87510009668767,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 54,
+                "loop_lateness_s": 54,
+                "command_write_duration_s": 52
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 150.20624242397025,
+              "profile_initial_temperature_c": 32,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_03.npz",
+              "outcome": "completed",
+              "sample_count": 54,
+              "duration_s": 5.985224495991133,
+              "timestamp_gap_p95_ms": 112.82734577544034,
+              "timestamp_gap_max_ms": 124.94970601983368,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 54,
+                "loop_lateness_s": 54,
+                "command_write_duration_s": 52
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 160.2186111630872,
+              "profile_initial_temperature_c": 32,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_04.npz",
+              "outcome": "completed",
+              "sample_count": 55,
+              "duration_s": 6.092691383091733,
+              "timestamp_gap_p95_ms": 112.77951333904639,
+              "timestamp_gap_max_ms": 125.08458900265396,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 55,
+                "loop_lateness_s": 55,
+                "command_write_duration_s": 53
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 165.22553469089326,
+              "profile_initial_temperature_c": 32,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-fit-run01/02_Q2_repeatability_minus10/repeat_05.npz",
+              "outcome": "completed",
+              "sample_count": 54,
+              "duration_s": 5.979096328024752,
+              "timestamp_gap_p95_ms": 112.9018472507596,
+              "timestamp_gap_max_ms": 124.72829595208168,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 54,
+                "loop_lateness_s": 54,
+                "command_write_duration_s": 52
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 165.2254624790512,
+              "profile_initial_temperature_c": 32,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-fit-run01/03_Q3_gravity_neutral_dynamics.npz",
+              "outcome": "completed",
+              "sample_count": 800,
+              "duration_s": 15.97904791799374,
+              "timestamp_gap_p95_ms": 20.838653342798352,
+              "timestamp_gap_max_ms": 21.64201403502375,
+              "nullable_timing_sample_counts": {
+                "command_write_duration_s": 450
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 165.22475719405338,
+              "profile_initial_temperature_c": 33,
+              "profile_final_temperature_c": 42,
+              "profile_max_temperature_c": 42
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-fit-run01/04_Q4_loaded_dynamics_plus10.npz",
+              "outcome": "completed",
+              "sample_count": 800,
+              "duration_s": 15.979006837005727,
+              "timestamp_gap_p95_ms": 20.865359308663756,
+              "timestamp_gap_max_ms": 21.282547968439758,
+              "nullable_timing_sample_counts": {
+                "command_write_duration_s": 543
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 235.31927508302033,
+              "profile_initial_temperature_c": 34,
+              "profile_final_temperature_c": 46,
+              "profile_max_temperature_c": 46
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-fit-run01/05_Q5_loaded_dynamics_minus10.npz",
+              "outcome": "completed",
+              "sample_count": 800,
+              "duration_s": 15.978825510013849,
+              "timestamp_gap_p95_ms": 20.888180774636567,
+              "timestamp_gap_max_ms": 21.528872079215944,
+              "nullable_timing_sample_counts": {
+                "command_write_duration_s": 548
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 490.6588623970747,
+              "profile_initial_temperature_c": 33,
+              "profile_final_temperature_c": 40,
+              "profile_max_temperature_c": 40
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-fit-run01/06_Q6_loaded_hysteresis_plus10.npz",
+              "outcome": "failed",
+              "sample_count": 1710,
+              "duration_s": 34.179805835941806,
+              "timestamp_gap_p95_ms": 20.809694775380194,
+              "timestamp_gap_max_ms": 21.497156005352736,
+              "nullable_timing_sample_counts": {
+                "command_write_duration_s": 1597
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 365.49273113999516,
+              "profile_initial_temperature_c": 34,
+              "profile_final_temperature_c": 54,
+              "profile_max_temperature_c": 54
+            }
+          ]
+        },
+        "validation": {
+          "status": "failed",
+          "started_at": "2026-10-10T00:12:40.690720+00:00",
+          "updated_at": "2026-10-10T01:17:44.902113+00:00",
+          "failed_condition": "Q6_loaded_hysteresis_plus10",
+          "condition_outcomes": {
+            "Q1_repeatability_plus10": "completed_with_warnings",
+            "Q2_repeatability_minus10": "completed",
+            "Q3_gravity_neutral_dynamics": "completed",
+            "Q4_loaded_dynamics_plus10": "completed",
+            "Q5_loaded_dynamics_minus10": "completed",
+            "Q6_loaded_hysteresis_plus10": "failed"
+          },
+          "missing_conditions": [
+            "Q7_loaded_hysteresis_minus10"
+          ],
+          "cooldown_target_c": 32,
+          "max_temperature_c": 55,
+          "plan_sha256": "a4e172eb8f7b54e0b4f1f891c1503d4282a14391aa536fde4b5b25cc6f72b195",
+          "fixture_sha256": "47f9b07fc126f48a82a1786604723a0d8cff283fa74e3cfa014674193845ad23",
+          "npz_count": 14,
+          "sample_count": 4681,
+          "completed_capture_sample_count": 2944,
+          "completed_npz_count": 13,
+          "all_primary_measurements_finite": true,
+          "all_arrays_length_consistent": true,
+          "all_timestamps_strictly_increasing": true,
+          "all_archived_samples_torque_enabled": true,
+          "nullable_timing_interpretation": "Preparation-only captures have no scheduled clock/lateness; command-write duration is NaN when no command was written. These are unavailable diagnostics, not missing position/voltage/temperature samples.",
+          "minimum_servo_reported_voltage_v_including_warning_events": 9.508,
+          "max_archived_temperature_c": 54,
+          "voltage_warning_events": [
+            {
+              "capture": "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_05.npz",
+              "first_voltage_v": 9.508,
+              "minimum_voltage_v": 9.508,
+              "recovered_at": "2026-10-10T00:47:39.154105+00:00",
+              "recovery_voltage_v": 12.298,
+              "started_at": "2026-10-10T00:47:39.041347+00:00"
+            }
+          ],
+          "captures": [
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_01.npz",
+              "outcome": "completed",
+              "sample_count": 54,
+              "duration_s": 5.981219967943616,
+              "timestamp_gap_p95_ms": 112.90933480486274,
+              "timestamp_gap_max_ms": 124.99068095348775,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 54,
+                "loop_lateness_s": 54,
+                "command_write_duration_s": 52
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 600.806709358003,
+              "profile_initial_temperature_c": 33,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_02.npz",
+              "outcome": "completed",
+              "sample_count": 54,
+              "duration_s": 5.9810684729600325,
+              "timestamp_gap_p95_ms": 112.93462859466672,
+              "timestamp_gap_max_ms": 124.9425980495289,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 54,
+                "loop_lateness_s": 54,
+                "command_write_duration_s": 52
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 355.4785439199768,
+              "profile_initial_temperature_c": 33,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_03.npz",
+              "outcome": "completed",
+              "sample_count": 55,
+              "duration_s": 6.092826909967698,
+              "timestamp_gap_p95_ms": 112.90250327438116,
+              "timestamp_gap_max_ms": 124.7778240358457,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 55,
+                "loop_lateness_s": 55,
+                "command_write_duration_s": 53
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 355.47845823399257,
+              "profile_initial_temperature_c": 33,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_04.npz",
+              "outcome": "completed",
+              "sample_count": 55,
+              "duration_s": 6.091826842050068,
+              "timestamp_gap_p95_ms": 112.74250954156741,
+              "timestamp_gap_max_ms": 124.71594905946404,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 55,
+                "loop_lateness_s": 55,
+                "command_write_duration_s": 53
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 395.53270792297553,
+              "profile_initial_temperature_c": 32,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-validation-run02/01_Q1_repeatability_plus10/repeat_05.npz",
+              "outcome": "completed",
+              "sample_count": 54,
+              "duration_s": 5.980306549929082,
+              "timestamp_gap_p95_ms": 112.80632193665951,
+              "timestamp_gap_max_ms": 125.08029595483094,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 54,
+                "loop_lateness_s": 54,
+                "command_write_duration_s": 52
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 330.44536920497194,
+              "profile_initial_temperature_c": 33,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_01.npz",
+              "outcome": "completed",
+              "sample_count": 54,
+              "duration_s": 5.981305383029394,
+              "timestamp_gap_p95_ms": 112.94103660620749,
+              "timestamp_gap_max_ms": 125.08139596320689,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 54,
+                "loop_lateness_s": 54,
+                "command_write_duration_s": 52
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 225.30553374392912,
+              "profile_initial_temperature_c": 32,
+              "profile_final_temperature_c": 35,
+              "profile_max_temperature_c": 35
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_02.npz",
+              "outcome": "completed",
+              "sample_count": 55,
+              "duration_s": 6.095524340053089,
+              "timestamp_gap_p95_ms": 112.89227575762197,
+              "timestamp_gap_max_ms": 124.92948793806136,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 55,
+                "loop_lateness_s": 55,
+                "command_write_duration_s": 53
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 175.23714320990257,
+              "profile_initial_temperature_c": 32,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_03.npz",
+              "outcome": "completed",
+              "sample_count": 54,
+              "duration_s": 5.9817667989991605,
+              "timestamp_gap_p95_ms": 112.78101820498705,
+              "timestamp_gap_max_ms": 125.0894699478522,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 54,
+                "loop_lateness_s": 54,
+                "command_write_duration_s": 52
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 160.21847973996773,
+              "profile_initial_temperature_c": 33,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_04.npz",
+              "outcome": "completed",
+              "sample_count": 54,
+              "duration_s": 5.981845395988785,
+              "timestamp_gap_p95_ms": 112.88111002650112,
+              "timestamp_gap_max_ms": 124.91838703863323,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 54,
+                "loop_lateness_s": 54,
+                "command_write_duration_s": 52
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 140.19296900904737,
+              "profile_initial_temperature_c": 32,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-validation-run02/02_Q2_repeatability_minus10/repeat_05.npz",
+              "outcome": "completed",
+              "sample_count": 55,
+              "duration_s": 6.093342209002003,
+              "timestamp_gap_p95_ms": 112.7818978508003,
+              "timestamp_gap_max_ms": 124.980867956765,
+              "nullable_timing_sample_counts": {
+                "scheduled_time_s": 55,
+                "loop_lateness_s": 55,
+                "command_write_duration_s": 53
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 140.19503031799104,
+              "profile_initial_temperature_c": 32,
+              "profile_final_temperature_c": 36,
+              "profile_max_temperature_c": 36
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-validation-run02/03_Q3_gravity_neutral_dynamics.npz",
+              "outcome": "completed",
+              "sample_count": 800,
+              "duration_s": 15.978907004930079,
+              "timestamp_gap_p95_ms": 20.831009617540985,
+              "timestamp_gap_max_ms": 21.65093005169183,
+              "nullable_timing_sample_counts": {
+                "command_write_duration_s": 450
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 140.19226939894725,
+              "profile_initial_temperature_c": 33,
+              "profile_final_temperature_c": 42,
+              "profile_max_temperature_c": 42
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-validation-run02/04_Q4_loaded_dynamics_plus10.npz",
+              "outcome": "completed",
+              "sample_count": 800,
+              "duration_s": 15.978545041987672,
+              "timestamp_gap_p95_ms": 20.91469616862014,
+              "timestamp_gap_max_ms": 21.703301928937435,
+              "nullable_timing_sample_counts": {
+                "command_write_duration_s": 543
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 175.23846616095398,
+              "profile_initial_temperature_c": 33,
+              "profile_final_temperature_c": 46,
+              "profile_max_temperature_c": 46
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-validation-run02/05_Q5_loaded_dynamics_minus10.npz",
+              "outcome": "completed",
+              "sample_count": 800,
+              "duration_s": 15.978778627933934,
+              "timestamp_gap_p95_ms": 20.888792909681797,
+              "timestamp_gap_max_ms": 21.4144749334082,
+              "nullable_timing_sample_counts": {
+                "command_write_duration_s": 548
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 275.3719681800576,
+              "profile_initial_temperature_c": 33,
+              "profile_final_temperature_c": 40,
+              "profile_max_temperature_c": 40
+            },
+            {
+              "path": "results/servo_sysid/unit-c-bam-low-load-validation-run02/06_Q6_loaded_hysteresis_plus10.npz",
+              "outcome": "failed",
+              "sample_count": 1737,
+              "duration_s": 34.71881986199878,
+              "timestamp_gap_p95_ms": 20.778259699000046,
+              "timestamp_gap_max_ms": 21.3367739925161,
+              "nullable_timing_sample_counts": {
+                "command_write_duration_s": 1622
+              },
+              "cooldown_final_temperature_c": 32,
+              "cooldown_elapsed_s": 190.2594008530723,
+              "profile_initial_temperature_c": 34,
+              "profile_final_temperature_c": 54,
+              "profile_max_temperature_c": 54
+            }
+          ]
+        }
+      },
+      "signed_repeatability": {
+        "telemetry_resolution_deg": 0.24,
+        "positive_10deg": {
+          "fit": {
+            "aggregate": {
+              "completed_repeats": 5,
+              "loaded_position_mean_deg": 7.925333333333333,
+              "loaded_position_std_deg": 0.05694441734416679,
+              "loaded_position_range_deg": 0.15999999999999925,
+              "zero_position_mean_deg": -0.3936,
+              "zero_position_std_deg": 0.35714064456457495,
+              "maximum_absolute_error_deg": 2.1333333333333337,
+              "minimum_voltage_v": 11.457,
+              "maximum_final_temperature_c": 36
+            },
+            "zero_positions_deg": [
+              -1.104,
+              -0.24,
+              -0.144,
+              -0.24,
+              -0.24
+            ],
+            "loaded_positions_deg": [
+              7.893333333333333,
+              7.893333333333333,
+              7.946666666666666,
+              7.866666666666666,
+              8.026666666666666
+            ],
+            "summary_recomputed_matches_archive": true,
+            "mean_quantized_command_minus_position_deg": 2.1546666666666674
+          },
+          "validation": {
+            "aggregate": {
+              "completed_repeats": 5,
+              "loaded_position_mean_deg": 8.042666666666666,
+              "loaded_position_std_deg": 0.07273696905059143,
+              "loaded_position_range_deg": 0.21333333333333382,
+              "zero_position_mean_deg": -0.21119999999999997,
+              "zero_position_std_deg": 0.0384,
+              "maximum_absolute_error_deg": 2.0533333333333337,
+              "minimum_voltage_v": 11.814,
+              "maximum_final_temperature_c": 36
+            },
+            "zero_positions_deg": [
+              -0.24,
+              -0.192,
+              -0.24,
+              -0.24,
+              -0.144
+            ],
+            "loaded_positions_deg": [
+              8.026666666666666,
+              8,
+              8.08,
+              8.16,
+              7.946666666666666
+            ],
+            "summary_recomputed_matches_archive": true,
+            "mean_quantized_command_minus_position_deg": 2.0373333333333346
+          },
+          "validation_minus_fit_loaded_mean_deg": 0.11733333333333285
+        },
+        "negative_10deg": {
+          "fit": {
+            "aggregate": {
+              "completed_repeats": 5,
+              "loaded_position_mean_deg": -9.050666666666666,
+              "loaded_position_std_deg": 0.027194770739161662,
+              "loaded_position_range_deg": 0.08000000000000007,
+              "zero_position_mean_deg": -0.8544,
+              "zero_position_std_deg": 0.30869635566361975,
+              "maximum_absolute_error_deg": 0.9866666666666664,
+              "minimum_voltage_v": 12.134,
+              "maximum_final_temperature_c": 36
+            },
+            "zero_positions_deg": [
+              -0.24,
+              -0.96,
+              -1.008,
+              -1.056,
+              -1.008
+            ],
+            "loaded_positions_deg": [
+              -9.093333333333334,
+              -9.066666666666666,
+              -9.04,
+              -9.04,
+              -9.013333333333334
+            ],
+            "summary_recomputed_matches_archive": true,
+            "mean_quantized_command_minus_position_deg": -1.0293333333333337
+          },
+          "validation": {
+            "aggregate": {
+              "completed_repeats": 5,
+              "loaded_position_mean_deg": -9.018666666666665,
+              "loaded_position_std_deg": 0.019955506062794247,
+              "loaded_position_range_deg": 0.05333333333333279,
+              "zero_position_mean_deg": -0.72,
+              "zero_position_std_deg": 0.321277450189085,
+              "maximum_absolute_error_deg": 1.0133333333333336,
+              "minimum_voltage_v": 12.141,
+              "maximum_final_temperature_c": 36
+            },
+            "zero_positions_deg": [
+              -0.096,
+              -0.8160000000000001,
+              -0.768,
+              -0.96,
+              -0.96
+            ],
+            "loaded_positions_deg": [
+              -9.04,
+              -9.013333333333332,
+              -9.04,
+              -9.013333333333332,
+              -8.986666666666666
+            ],
+            "summary_recomputed_matches_archive": true,
+            "mean_quantized_command_minus_position_deg": -1.0613333333333355
+          },
+          "validation_minus_fit_loaded_mean_deg": 0.032000000000001805
+        },
+        "interpretation": "Requested centers are +/-10 degrees; transmitted centers are +/-10.08 degrees. Means/std/ranges below 0.24 degree reflect averaging quantized internal telemetry, not proven sub-resolution shaft repeatability. All five approaches remain reported; first-approach zero history is not silently discarded."
+      },
+      "dynamic_capture_metrics": {
+        "Q3_gravity_neutral_dynamics": {
+          "fit": {
+            "tracking_rmse_deg": 1.208133739661966,
+            "tracking_signed_bias_deg": 0.8145281451438018,
+            "profile_temperature_range_c": [
+              33,
+              42
+            ],
+            "predicted_envelope": {
+              "peak_inertial_torque_nm": 0.5231433220858173,
+              "peak_speed_rad_s": 0.5021818239402562,
+              "peak_static_torque_nm": 0.1285996476319359,
+              "peak_total_torque_nm": 0.47262484977746
+            }
+          },
+          "validation": {
+            "tracking_rmse_deg": 1.0945322015070695,
+            "tracking_signed_bias_deg": 0.6720281451438018,
+            "profile_temperature_range_c": [
+              33,
+              42
+            ],
+            "predicted_envelope": {
+              "peak_inertial_torque_nm": 0.5231433220858173,
+              "peak_speed_rad_s": 0.5021818239402562,
+              "peak_static_torque_nm": 0.1285996476319359,
+              "peak_total_torque_nm": 0.47262484977746
+            }
+          }
+        },
+        "Q4_loaded_dynamics_plus10": {
+          "fit": {
+            "tracking_rmse_deg": 2.0389731076852264,
+            "tracking_signed_bias_deg": 1.8545089990877919,
+            "profile_temperature_range_c": [
+              34,
+              46
+            ],
+            "predicted_envelope": {
+              "peak_inertial_torque_nm": 0.13815940308980287,
+              "peak_speed_rad_s": 0.25940062236685935,
+              "peak_static_torque_nm": 0.6472507772570271,
+              "peak_total_torque_nm": 0.6472507772570271
+            }
+          },
+          "validation": {
+            "tracking_rmse_deg": 2.1146221307809845,
+            "tracking_signed_bias_deg": 1.9292089990877919,
+            "profile_temperature_range_c": [
+              33,
+              46
+            ],
+            "predicted_envelope": {
+              "peak_inertial_torque_nm": 0.13815940308980287,
+              "peak_speed_rad_s": 0.25940062236685935,
+              "peak_static_torque_nm": 0.6472507772570271,
+              "peak_total_torque_nm": 0.6472507772570271
+            }
+          }
+        },
+        "Q5_loaded_dynamics_minus10": {
+          "fit": {
+            "tracking_rmse_deg": 0.9248800849832287,
+            "tracking_signed_bias_deg": -0.5330910009122085,
+            "profile_temperature_range_c": [
+              33,
+              40
+            ],
+            "predicted_envelope": {
+              "peak_inertial_torque_nm": 0.13815940308980282,
+              "peak_speed_rad_s": 0.25940062236685935,
+              "peak_static_torque_nm": 0.6807986789888459,
+              "peak_total_torque_nm": 0.6807986789888459
+            }
+          },
+          "validation": {
+            "tracking_rmse_deg": 0.9567808081602802,
+            "tracking_signed_bias_deg": -0.5774910009122085,
+            "profile_temperature_range_c": [
+              33,
+              40
+            ],
+            "predicted_envelope": {
+              "peak_inertial_torque_nm": 0.13815940308980282,
+              "peak_speed_rad_s": 0.25940062236685935,
+              "peak_static_torque_nm": 0.6807986789888459,
+              "peak_total_torque_nm": 0.6807986789888459
+            }
+          }
+        }
+      },
+      "loaded_hysteresis": {
+        "telemetry_resolution_deg": 0.24,
+        "overall_status": "incomplete_thermal_abort",
+        "negative_10deg": {
+          "status": "not_collected"
+        },
+        "fit": {
+          "capture": "results/servo_sysid/unit-c-bam-low-load-fit-run01/06_Q6_loaded_hysteresis_plus10.npz",
+          "capture_outcome": "failed",
+          "capture_error": "RuntimeError: temperature 55.0 C reaches or exceeds the 55.0 C limit",
+          "sweep_analysis_status": "measured",
+          "aggregate": {
+            "completed_cycles": 3,
+            "center_absolute_output_loop_mean_deg": 0.498461538461538,
+            "center_absolute_output_loop_std_deg": 0.04522134909753594,
+            "center_absolute_output_loop_range_deg": 0.11076923076923162,
+            "all_commands_p95_absolute_output_loop_deg": 0.6775384615384613,
+            "all_commands_maximum_absolute_output_loop_deg": 0.7569230769230799
+          },
+          "cycles": [
+            {
+              "cycle_index": 1,
+              "matched_command_count": 18,
+              "command_unit_range": [
+                533,
+                550
+              ],
+              "center_command_unit": 542,
+              "center_positive_position_deg": 7.384615384615385,
+              "center_negative_position_deg": 7.883076923076923,
+              "center_signed_output_loop_deg": -0.4984615384615383,
+              "center_absolute_output_loop_deg": 0.4984615384615383,
+              "median_absolute_output_loop_deg": 0.3297902097902101,
+              "p95_absolute_output_loop_deg": 0.6784615384615386,
+              "maximum_absolute_output_loop_deg": 0.7569230769230799
+            },
+            {
+              "cycle_index": 2,
+              "matched_command_count": 18,
+              "command_unit_range": [
+                533,
+                550
+              ],
+              "center_command_unit": 542,
+              "center_positive_position_deg": 7.384615384615385,
+              "center_negative_position_deg": 7.827692307692307,
+              "center_signed_output_loop_deg": -0.44307692307692204,
+              "center_absolute_output_loop_deg": 0.44307692307692204,
+              "median_absolute_output_loop_deg": 0.33398601398601446,
+              "p95_absolute_output_loop_deg": 0.5846433566433565,
+              "maximum_absolute_output_loop_deg": 0.6545454545454543
+            },
+            {
+              "cycle_index": 3,
+              "matched_command_count": 18,
+              "command_unit_range": [
+                533,
+                550
+              ],
+              "center_command_unit": 542,
+              "center_positive_position_deg": 7.384615384615385,
+              "center_negative_position_deg": 7.938461538461539,
+              "center_signed_output_loop_deg": -0.5538461538461537,
+              "center_absolute_output_loop_deg": 0.5538461538461537,
+              "median_absolute_output_loop_deg": 0.40363636363636335,
+              "p95_absolute_output_loop_deg": 0.7098461538461537,
+              "maximum_absolute_output_loop_deg": 0.7569230769230746
+            }
+          ],
+          "profile_initial_temperature_c": 34,
+          "last_archived_temperature_c": 54,
+          "abort_temperature_c": 55,
+          "last_archived_profile_elapsed_s": 34.179805835941806,
+          "inferred_fixture_gravity_torque_mean_nm": 0.40961884424980594,
+          "inferred_fixture_gravity_torque_range_nm": [
+            0.3034713851804064,
+            0.5947596719815217
+          ],
+          "final_center_archived_samples": 3,
+          "planned_final_center_samples": 101
+        },
+        "validation": {
+          "capture": "results/servo_sysid/unit-c-bam-low-load-validation-run02/06_Q6_loaded_hysteresis_plus10.npz",
+          "capture_outcome": "failed",
+          "capture_error": "RuntimeError: temperature 55.0 C reaches or exceeds the 55.0 C limit",
+          "sweep_analysis_status": "measured",
+          "aggregate": {
+            "completed_cycles": 3,
+            "center_absolute_output_loop_mean_deg": 0.42461538461538445,
+            "center_absolute_output_loop_std_deg": 0.19244917872137735,
+            "center_absolute_output_loop_range_deg": 0.46153846153846256,
+            "all_commands_p95_absolute_output_loop_deg": 0.6969230769230772,
+            "all_commands_maximum_absolute_output_loop_deg": 0.7938461538461521
+          },
+          "cycles": [
+            {
+              "cycle_index": 1,
+              "matched_command_count": 18,
+              "command_unit_range": [
+                533,
+                550
+              ],
+              "center_command_unit": 542,
+              "center_positive_position_deg": 7.421538461538461,
+              "center_negative_position_deg": 8.04923076923077,
+              "center_signed_output_loop_deg": -0.6276923076923087,
+              "center_absolute_output_loop_deg": 0.6276923076923087,
+              "median_absolute_output_loop_deg": 0.4254545454545462,
+              "p95_absolute_output_loop_deg": 0.6746493506493523,
+              "maximum_absolute_output_loop_deg": 0.7885714285714318
+            },
+            {
+              "cycle_index": 2,
+              "matched_command_count": 18,
+              "command_unit_range": [
+                533,
+                550
+              ],
+              "center_command_unit": 542,
+              "center_positive_position_deg": 7.56923076923077,
+              "center_negative_position_deg": 7.735384615384616,
+              "center_signed_output_loop_deg": -0.1661538461538461,
+              "center_absolute_output_loop_deg": 0.1661538461538461,
+              "median_absolute_output_loop_deg": 0.2836363636363628,
+              "p95_absolute_output_loop_deg": 0.615692307692307,
+              "maximum_absolute_output_loop_deg": 0.7569230769230764
+            },
+            {
+              "cycle_index": 3,
+              "matched_command_count": 18,
+              "command_unit_range": [
+                533,
+                550
+              ],
+              "center_command_unit": 542,
+              "center_positive_position_deg": 7.4215384615384625,
+              "center_negative_position_deg": 7.901538461538461,
+              "center_signed_output_loop_deg": -0.47999999999999865,
+              "center_absolute_output_loop_deg": 0.47999999999999865,
+              "median_absolute_output_loop_deg": 0.40615384615384764,
+              "p95_absolute_output_loop_deg": 0.6840000000000008,
+              "maximum_absolute_output_loop_deg": 0.7938461538461521
+            }
+          ],
+          "profile_initial_temperature_c": 34,
+          "last_archived_temperature_c": 54,
+          "abort_temperature_c": 55,
+          "last_archived_profile_elapsed_s": 34.71881986199878,
+          "inferred_fixture_gravity_torque_mean_nm": 0.4106594607222897,
+          "inferred_fixture_gravity_torque_range_nm": [
+            0.3034713851804064,
+            0.568450584155054
+          ],
+          "final_center_archived_samples": 30,
+          "planned_final_center_samples": 101
+        },
+        "interpretation": "Three full sweep pairs per session were archived before the final-center thermal abort. Signed width is increasing-command branch minus decreasing-command branch at matched command units (center 542 = +10.08 degrees). Values combine dynamics, friction, gravity, compliance and possible backlash. Validation cycle 2 width 0.166 degrees is below the 0.24 degree telemetry resolution. Overall sessions remain incomplete; no negative load data or isolated backlash estimate is claimed."
+      },
+      "calibration_and_instruments": {
+        "measured_weight_kg": 2.65,
+        "measured_com_radius_m": 0.1204,
+        "fixture_moving_mass_kg": 2.722761421,
+        "fixture_model_path": "wr2/tools/servo_sysid/fixtures/htd45h_2650g.xml",
+        "fixture_sha256": "47f9b07fc126f48a82a1786604723a0d8cff283fa74e3cfa014674193845ad23",
+        "mass_radius_measurement_uncertainty": "not recorded; operator-supplied measurements, no calibration certificate archived",
+        "internal_position_resolution_deg": 0.24,
+        "internal_temperature_resolution_c": 1,
+        "internal_voltage_resolution_v": 0.001,
+        "internal_sensor_accuracy_calibration": "not independently verified",
+        "confirmed_from_artifacts": [
+          "HTD-45H servo bus and EEPROM/position/voltage/temperature/torque-enable telemetry"
+        ],
+        "external_encoder_archived": false,
+        "measured_shaft_torque_archived": false,
+        "synchronized_supply_current_voltage_archived": false,
+        "ambient_temperature_archived": false
+      },
+      "effective_fit": {
+        "model": "effective_position_servo",
+        "parameters": {
+          "armature": 0.036658018047361796,
+          "delay_steps": 0,
+          "effective_velocity_damping": 0.852879028603913,
+          "frictionloss": 0.4497528118050106,
+          "kp": 24.501336841246424
+        },
+        "parameter_units": {
+          "kp": "N m/rad",
+          "effective_velocity_damping": "N m s/rad",
+          "frictionloss": "N m",
+          "armature": "kg m^2",
+          "delay_steps": "20 ms capture intervals"
+        },
+        "fit_captures": [
+          "results/servo_sysid/unit-c-bam-low-load-fit-run01/03_Q3_gravity_neutral_dynamics.npz",
+          "results/servo_sysid/unit-c-bam-low-load-fit-run01/04_Q4_loaded_dynamics_plus10.npz",
+          "results/servo_sysid/unit-c-bam-low-load-fit-run01/05_Q5_loaded_dynamics_minus10.npz"
+        ],
+        "validation_captures": [
+          "results/servo_sysid/unit-c-bam-low-load-validation-run02/03_Q3_gravity_neutral_dynamics.npz",
+          "results/servo_sysid/unit-c-bam-low-load-validation-run02/04_Q4_loaded_dynamics_plus10.npz",
+          "results/servo_sysid/unit-c-bam-low-load-validation-run02/05_Q5_loaded_dynamics_minus10.npz"
+        ],
+        "fit_metrics": {
+          "captures": {
+            "Q3_gravity_neutral_dynamics": {
+              "abs_p95_deg": 1.4073366227834552,
+              "bias_deg": 0.7581801383430544,
+              "rmse_deg": 0.852216059456484
+            },
+            "Q4_loaded_dynamics_plus10": {
+              "abs_p95_deg": 1.3303517747204294,
+              "bias_deg": 0.639748632715118,
+              "rmse_deg": 0.7515680649093986
+            },
+            "Q5_loaded_dynamics_minus10": {
+              "abs_p95_deg": 1.2302645506746992,
+              "bias_deg": 0.5773937369909876,
+              "rmse_deg": 0.689215027560472
+            }
+          },
+          "max_rmse_deg": 0.852216059456484,
+          "mean_rmse_deg": 0.7643330506421182
+        },
+        "validation_metrics": {
+          "captures": {
+            "Q3_gravity_neutral_dynamics": {
+              "abs_p95_deg": 1.2602928676008194,
+              "bias_deg": 0.6172894390836714,
+              "rmse_deg": 0.7308842928676069
+            },
+            "Q4_loaded_dynamics_plus10": {
+              "abs_p95_deg": 1.4246310454244844,
+              "bias_deg": 0.7242698344511308,
+              "rmse_deg": 0.8444604024940368
+            },
+            "Q5_loaded_dynamics_minus10": {
+              "abs_p95_deg": 1.1305157059952977,
+              "bias_deg": 0.5428188062971845,
+              "rmse_deg": 0.6469136230024696
+            }
+          },
+          "max_rmse_deg": 0.8444604024940368,
+          "mean_rmse_deg": 0.7407527727880377
+        },
+        "simulation_dt_s": 0.002,
+        "force_limit_nm_held_fixed": 4,
+        "searched_delay_steps": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "max_nfev_per_candidate": 100,
+        "approximate_95pct_factor": {
+          "armature": 1.6657098828175454,
+          "effective_velocity_damping": 1.358244156036519,
+          "frictionloss": 1.083490167649465,
+          "kp": 1.0384025675129056
+        },
+        "approximate_95pct_interval": {
+          "armature": [
+            0.02200744464897742,
+            0.06106162294599448
+          ],
+          "effective_velocity_damping": [
+            0.6279276261292316,
+            1.158417956407368
+          ],
+          "frictionloss": [
+            0.4150963481105778,
+            0.4873027494634292
+          ],
+          "kp": [
+            23.59521981915931,
+            25.44225108344883
+          ]
+        },
+        "delay_zero_cost_improvement_over_delay_one_fraction": 0.027516204867610194,
+        "all_selected_continuous_parameters_inside_bounds": true,
+        "uncertainty_interpretation": "Local Jacobian-based factors conditional on the selected symmetric model/delay and an iid residual assumption. Correlated quantized residuals, thermal drift, fixture calibration uncertainty, and weak armature/damping separation are not covered; these are not population confidence bounds."
+      },
+      "training_parameter_mapping": {
+        "armature": 0.036658018047361796,
+        "damping": 0.35287902860391296,
+        "fitted_extra_command_delay_steps": 0,
+        "frictionloss": 0.4497528118050106,
+        "kp_sim": 24.501336841246424,
+        "kv_sim": 0.5,
+        "identity": "effective_velocity_damping = kv_sim + joint_damping",
+        "status": "provisional_unit_c_low_load_evidence_only; no nominal or randomization config changed"
+      },
+      "three_unit_comparison": {
+        "unit_c_held_out_mean_rmse_deg_by_model": {
+          "A": 0.741427948522733,
+          "B": 0.7410193847290231,
+          "C": 0.7407527727880377
+        },
+        "nominal_model_decision": "All three effective parameter vectors reproduce C held-out data at about 0.741 degree mean RMSE. A-versus-C improvement is about 0.00068 degree, far below telemetry resolution; no nominal or randomization update is warranted. Armature/damping parameter differences are not independently established physical differences.",
+        "units": {
+          "A": {
+            "parameters": {
+              "armature": 0.02095097890884981,
+              "delay_steps": 0,
+              "effective_velocity_damping": 0.6736224815759155,
+              "frictionloss": 0.4654711955162913,
+              "kp": 24.15736370745031
+            },
+            "fit_mean_rmse_deg": 0.8650910096627724,
+            "validation_mean_rmse_deg": 0.8546032090892556
+          },
+          "B": {
+            "parameters": {
+              "armature": 0.042909250771228265,
+              "delay_steps": 0,
+              "effective_velocity_damping": 0.8363428091651759,
+              "frictionloss": 0.44917400624750053,
+              "kp": 24.443848673530084
+            },
+            "fit_mean_rmse_deg": 0.7564870911300442,
+            "validation_mean_rmse_deg": 0.7558347707181609
+          },
+          "C": {
+            "parameters": {
+              "armature": 0.036658018047361796,
+              "delay_steps": 0,
+              "effective_velocity_damping": 0.852879028603913,
+              "frictionloss": 0.4497528118050106,
+              "kp": 24.501336841246424
+            },
+            "fit_mean_rmse_deg": 0.7643330506421182,
+            "validation_mean_rmse_deg": 0.7407527727880377
+          }
+        },
+        "observed_parameter_min_max": {
+          "kp": [
+            24.15736370745031,
+            24.501336841246424
+          ],
+          "effective_velocity_damping": [
+            0.6736224815759155,
+            0.852879028603913
+          ],
+          "frictionloss": [
+            0.44917400624750053,
+            0.4654711955162913
+          ],
+          "armature": [
+            0.02095097890884981,
+            0.042909250771228265
+          ]
+        },
+        "interpretation": "Three unit-level effective fits are available, but A/B and C use different starting-temperature policies and unit C lacks negative hysteresis. The observed extrema are not a qualified population distribution or deployment torque limit."
+      },
+      "limitations": [
+        "Both campaign manifests remain failed at Q6; no raw status or metadata was repaired or relabeled completed.",
+        "Q6 includes three complete signed sweep pairs before a thermal abort in the final-center return sweep. Its loop metrics are partial-session positive loaded system observations, not a completed campaign qualification.",
+        "Unit C negative hysteresis Q7 was not executed; no signed load-asymmetry claim can be made for unit C.",
+        "Q6 temperatures rise from 34 to 54 C before an inclusive 55 C abort; servo telemetry does not establish thermal equilibrium or continuous duty.",
+        "The 55 C abort reading raised before array append; 54 C is the last saved sample, not evidence the abort failed.",
+        "Voltage warning 9.508 V recovered to 12.298 V after about 113 ms. No synchronized external artifact identifies bus sag versus telemetry error.",
+        "Final torque-off is disabled and read back by capture.py; there is no post-shutdown torque-state sample in the archived NPZ. No independent power-cutoff operation is verified by these artifacts.",
+        "Internal health fields are cached and lack per-instrument acquisition timestamps; 50 Hz trace rows are not independent 50 Hz temperature/voltage measurements.",
+        "Cooldown target is recorded in the campaign manifest, not in this revision of each capture JSON limits object. Actual cooldown and preparation temperature samples are retained.",
+        "Effective total damping does not identify active velocity gain separately from passive drag; kv_sim=0.5 is a retained decomposition convention.",
+        "The 4 N m replay limit is held fixed and not a measured servo limit. Torque-speed, braking torque, and passive_active_ratio remain unidentified.",
+        "Loaded loop width and signed zero history combine controller response, friction, gravity, compliance, and possible backlash. They do not identify encoder error or backlash activation torque.",
+        "WR2 still uses maximum_validated_load_nm=1.0157 as its observation-backlash activation denominator, unlike ToddlerBot independent backlash_activation=0.1. These captures justify neither value; no training mapping change is made.",
+        "Ambient temperature, actual current, external shaft angle/torque, and traceable mass/radius uncertainty are absent."
+      ],
+      "method_sources": {
+        "wr2_fitter": "wr2/tools/servo_sysid/fit.py",
+        "wr2_hysteresis": "wr2/tools/servo_sysid/analysis/hysteresis.py",
+        "wr2_repeatability": "wr2/tools/servo_sysid/analysis/position.py",
+        "toddlerbot_sysid": "~/projects/toddlerbot/toddlerbot/tools/run_sysID.py",
+        "toddlerbot_backlash": "~/projects/toddlerbot/toddlerbot/locomotion/mjx_env.py:2073; mjx_config.py:209",
+        "wr1_fitter": "~/projects/wildrobot/tools/sysid/fit_servo_dynamics.py",
+        "published_identification_reference": "https://arxiv.org/html/2502.00893v4 (ToddlerBot system identification)",
+        "published_backlash_reference": "https://doi.org/10.1016/S0005-1098(02)00047-X (Nordin and Gutman, 2002)"
+      }
+    }
+  ]
+}

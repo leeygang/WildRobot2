@@ -155,6 +155,32 @@ a population distribution. Exact metrics, hashes, and limitations are in
 [`htd45h_unit_b.json`](evidence/htd45h_unit_b.json). No additional unit-B BAM
 capture is required.
 
+### Current unit-C checkpoint
+
+Unit C completed Q1--Q5 in fit run01 and held-out run02 under revision
+`0b3ca04`, with a CLI-selected 32 C cooldown. Both campaign manifests remain
+`failed`: Q6 reached the inclusive 55 C cutoff in its final-center return
+sweep, and Q7 was not executed. Each Q6 trace retains all three complete
+forward/reverse sweep pairs. Their positive center absolute loop means were
+0.4985/0.4246 degrees; these are pre-abort loaded-system observations, not
+completed campaign qualification or isolated mechanical backlash.
+
+Fitting only run01 Q3/Q4/Q5 selected zero additional delay and achieved
+0.7643 degree fit and 0.7408 degree held-out mean replay RMSE. The effective
+parameters are `kp=24.501337`, total damping `0.852879`, friction loss
+`0.449753`, and armature `0.036658`. With `kv_sim=0.5`, the joint damping
+remainder would be `0.352879`; no training/configuration values were changed.
+Run02 also retained one 9.508 V warning that recovered to 12.298 V after
+about 113 ms, without an external supply artifact to classify it.
+
+All raw statuses and artifacts are preserved. See the
+[machine-readable evidence](evidence/htd45h_unit_c.json) and
+[review, uncertainty, and next-operator commands](evidence/htd45h_unit_c_review.md).
+Collect missing Q7 separately only after operator fixture inspection; do not
+restart the entire matrix or relax the 55 C cutoff to make Q6 pass. Three
+low-load unit fits do not establish torque-speed, braking, thermal, or
+population deployment limits.
+
 ### Coarse loaded hysteresis with the current BAM
 
 The `bam_hysteresis` plan runs three continuous 1 degree/s forward/reverse

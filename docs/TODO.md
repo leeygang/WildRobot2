@@ -133,7 +133,9 @@ validation; it deliberately excludes every test requiring new instrumentation.
 - [ ] Extend low-load commissioning to several angles and repeat all accepted
   conditions on additional labeled servos. Unit B now has complete fit and
   held-out campaigns preserved in
-  `docs/hardware/evidence/htd45h_unit_b.json`; unit C remains.
+  `docs/hardware/evidence/htd45h_unit_b.json`. Unit C now has held-out Q1--Q5
+  evidence in `docs/hardware/evidence/htd45h_unit_c.json`; additional angles
+  and the missing negative-load hysteresis condition remain.
 - [ ] Run slow forward/reverse sweeps at cold and warmed conditions to obtain
   preliminary *loaded* backlash and hysteresis evidence. Approach every target
   from both directions and retain the complete command/position trajectory;
@@ -145,6 +147,9 @@ validation; it deliberately excludes every test requiring new instrumentation.
   means were 1.575/1.625 degrees. Controlled cold/warm comparisons remain. The
   servo's 0.24-degree telemetry resolution limits the smallest deadband this
   setup can resolve.
+  Unit C's pre-abort positive sweep means were 0.498/0.425 degrees, with three
+  full sweep pairs in each session; both captures failed at 55 C during the
+  final return sweep, and Q7 was not run. The campaigns remain incomplete.
 - [x] Collect the first gravity-neutral, low-amplitude E3 chirp on unit A. The
   run completed without voltage warnings and is retained as preliminary
   position-loop, whole-response, and low-load speed evidence.
@@ -161,6 +166,16 @@ validation; it deliberately excludes every test requiring new instrumentation.
   extra delay, kept every continuous parameter inside its bounds, and achieved
   0.7565 degree fit and 0.7558 degree held-out mean replay RMSE. This is
   accepted as unit-B variability evidence, not a population specification.
+- [x] Review unit-C signed repeatability and held-out low-load dynamics. Q1--Q5
+  completed in run01/run02; fitting only run01 Q3/Q4/Q5 selected zero extra
+  delay and achieved 0.7643 degree fit / 0.7408 degree held-out mean replay
+  RMSE. Raw artifacts remain unchanged; hashes, uncertainty, and the unchanged
+  training mapping are retained in `docs/hardware/evidence/htd45h_unit_c.json`.
+- [ ] Complete unit-C negative-load hysteresis in separate bounded Q7 sessions
+  after operator fixture inspection. Both full campaigns failed Q6's inclusive
+  55 C cutoff, so do not relabel them complete, restart the full matrix, or
+  raise the cutoff to pass. The review and exact preflight/collection commands
+  are in `docs/hardware/evidence/htd45h_unit_c_review.md`.
 - [ ] Run bounded low-load thermal/current-duration tests only after adding a
   clock-aligned external supply logger. Record supply voltage and current in
   addition to command, position, derived velocity, servo voltage, and
@@ -168,8 +183,10 @@ validation; it deliberately excludes every test requiring new instrumentation.
 - [ ] Repeat safe conditions on at least three independently labeled servos and
   at the intended deployment wiring and supply configuration before treating
   the observations as a population range. The bounded
-  `bam_low_load_qualification` fit and held-out campaigns are complete for unit
-  B; two complete campaigns on unit C remain to be collected.
+  `bam_low_load_qualification` campaigns are complete for unit B; unit C has
+  validated Q1--Q5 and positive pre-abort hysteresis, but no Q7. Three low-load
+  effective unit fits now exist; deployment wiring/current/torque qualification
+  and controlled temperature comparisons still prevent population limits.
 
 For the present unit A, do not run the documented E1, E2, or E4--E7 high-load
 conditions. Existing evidence covers only about 1 N m for short holds, and an
