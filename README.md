@@ -79,10 +79,14 @@ every run directory.
 For the controlled 1B fresh-start run, use
 [`ppo_walking_fresh.yaml`](wr2/locomotion/configs/ppo_walking_fresh.yaml)
 without a restore checkpoint; see [the GPU command and checks](docs/design/fresh_walking_training.md).
-For the next controlled 200M continuation, use
+For the controlled mirror-off comparison, use
 [`ppo_walking_mirror_off.yaml`](wr2/locomotion/configs/ppo_walking_mirror_off.yaml)
 from the original 920M checkpoint; see
 [the GPU command and phase-diverse held-out checks](docs/design/mirror_off_continuation.md).
+For the next 200M continuation, use
+[`ppo_walking_mirror_off_seed1.yaml`](wr2/locomotion/configs/ppo_walking_mirror_off_seed1.yaml)
+from the validated mirror-off 80M checkpoint; see
+[the confirmed review, seed semantics and GPU command](docs/design/mirror_off_seed1_continuation.md).
 The bounded train/evaluate/promote campaign and Mac-to-GPU command are described
 in [`docs/design/walking_training_agent.md`](docs/design/walking_training_agent.md).
 That guide also covers the autonomous Mac supervisor, which analyzes each GPU

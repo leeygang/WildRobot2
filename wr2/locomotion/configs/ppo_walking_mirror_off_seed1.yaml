@@ -1,0 +1,196 @@
+# 200M follow-up from the validated 80M mirror-off checkpoint.
+# Change only the environment/evaluation seed; restore policy and optimizer state.
+# Restore 000080035840.pt explicitly, not the regressed 200M final.
+version: "0.24.1"
+version_name: WR2 mirror-off 80M continuation environment seed1
+seed: 1
+environment:
+  episode_length: 1000
+  solver_iterations: 10
+  heading_observation: true
+  active_groups:
+  - leg
+  pose_weights:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.01
+  - 1.0
+  - 0.01
+  - 5.0
+  - 5.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.01
+  - 1.0
+  - 0.01
+  - 5.0
+  - 5.0
+  policy_action_scale_rad: 0.25
+  action_delay_steps: 1
+  privileged_linear_velocity_scale: 2.0
+  privileged_actuator_force_scale: 0.1
+  reset_joint_noise_rad: 0.0
+  reset_velocity_noise_rad_s: 0.0
+  command_forward_range_m_s:
+  - 0.05
+  - 0.1
+  command_lateral_range_m_s:
+  - 0.0
+  - 0.0
+  command_yaw_range_rad_s:
+  - 0.0
+  - 0.0
+  zero_command_probability: 0.2
+  command_resample_steps: 150
+  command_active_threshold_m_s: 0.05
+  gait_cycle_s: 0.72
+  randomize_gait_phase_on_reset: false
+  swing_height_m: 0.04
+  feet_phase_tracking_sigma_m2: 0.0007
+  min_feet_lateral_distance_m: 0.06
+  contact_force_threshold_n: 1.0
+  target_torso_height_m: 0.301
+  terminate_height_m: 0.2
+  terminate_max_height_m: 1.0
+  velocity_reward_sigma: 0.03162277660168379
+  velocity_tracking_sigma: 0.03162277660168379
+  yaw_tracking_sigma: 0.5
+  height_tracking_sigma: 0.03
+  torque_exposure_time_constant_s: 10.0
+  zmp_reference:
+    phase_samples: 36
+    command_samples: 5
+    com_height_m: 0.294
+    single_double_support_ratio: 2.0
+    ik_damping: 0.0002
+    ik_max_iterations: 120
+    max_position_residual_m: 0.007
+    max_orientation_residual_rad: 0.005
+reward_weights:
+  velocity_xy: 2.0
+  forward_progress: 0.0
+  yaw_rate: 1.5
+  angular_velocity_xy: -1.0
+  upright: 2.5
+  torso_height: 0.0
+  alive: 1.0
+  pose: -0.5
+  action_rate: -2.0
+  joint_velocity: 0.0
+  foot_slip: 0.0
+  mechanical_power: -0.0002
+  actuator_torque_squared: -0.005
+  feet_phase: 7.5
+  contact_phase: 0.0
+  both_feet_contact: 0.0
+  close_feet: -10.0
+  feet_orientation: -5.0
+observation_noise:
+  joint_position_uniform_rad: 0.05
+  joint_velocity_uniform_rad_s: 0.1
+  gyro_cutoff_hz: 0.35
+  gyro_colored_std_rad_s: 0.25
+  gyro_bias_walk_std_rad_s: 0.0002
+  gyro_white_std_rad_s: 0.0
+  gyro_amplitude_min: 0.8
+  gyro_amplitude_max: 2.0
+  projected_gravity_cutoff_hz: 0.25
+  projected_gravity_colored_std_rad: 0.1
+  projected_gravity_bias_walk_std_rad: 0.0001
+  projected_gravity_white_std_rad: 0.0
+  projected_gravity_amplitude_min: 0.8
+  projected_gravity_amplitude_max: 1.2
+domain_randomization:
+  enabled: true
+  friction_scale:
+  - 0.7
+  - 1.3
+  damping_scale:
+  - 0.8
+  - 1.2
+  armature_scale:
+  - 0.8
+  - 1.2
+  frictionloss_scale:
+  - 0.7
+  - 1.3
+  kp_scale:
+  - 0.9
+  - 1.1
+  kv_scale:
+  - 0.9
+  - 1.1
+  torque_limit_scale:
+  - 0.9
+  - 1.0
+  body_mass_scale:
+  - 0.8
+  - 1.2
+  target_bias_rad:
+  - -0.008726646
+  - 0.008726646
+  initial_torso_roll_rad:
+  - -0.1
+  - 0.1
+  initial_torso_pitch_rad:
+  - -0.1
+  - 0.1
+  backlash_rad:
+  - 0.0
+  - 0.008726646
+  max_speed_scale:
+  - 0.9
+  - 1.0
+  brake_torque_scale:
+  - 0.9
+  - 1.0
+  passive_active_ratio_scale:
+  - 1.0
+  - 1.0
+ppo:
+  backend: rsl_rl
+  mirror_loss_coeff: 0.0
+  num_timesteps: 200000000
+  num_envs: 2048
+  num_evals: 11
+  num_eval_envs: 128
+  evaluation_forward_command_m_s: 0.1
+  learning_rate: 3.0e-05
+  entropy_cost: 0.0005
+  discounting: 0.97
+  gae_lambda: 0.95
+  clipping_epsilon: 0.2
+  max_grad_norm: 1.0
+  unroll_length: 20
+  batch_size: 256
+  num_minibatches: 8
+  num_updates_per_batch: 4
+  normalize_observations: false
+  normalize_advantage: true
+  value_loss_coef: 0.25
+  desired_kl: 0.01
+  learning_rate_schedule: adaptive
+  training_metrics_steps: 2000000
+network:
+  policy_hidden_layer_sizes:
+  - 512
+  - 256
+  - 128
+  value_hidden_layer_sizes:
+  - 512
+  - 256
+  - 128
+  activation: elu
+  distribution_type: normal
+  noise_std_type: log
+  init_noise_std: 0.5
+checkpoints:
+  save_every_evaluation: true
+  keep_best: true
+  selection_metric: walking_score
+output:
+  root: results/wr2_walking
+  run_prefix: wr2_mirror_off

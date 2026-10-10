@@ -2,6 +2,26 @@
 
 ## 2026-10-10
 
+- Confirmed the mirror-off 200M review (`wr2_mirror_off_20261010_083343_seed0`):
+  exact full-state restoration and finite state across all 11 checkpoints.
+  Paired full-variation native evaluation covered 6,144 episodes. Best80
+  improved fixed-0.10 speed 0.0798 to 0.0819 m/s and MAE 0.0289 to 0.0265 m/s,
+  with no falls in its 1,536 candidate episodes. Scripted stop MAE worsened
+  0.0405 to 0.0487 m/s and heading increased; this is not final walking success
+  or hardware qualification. Reject final200: 27/384 scripted and 5/384 random
+  falls, with degraded tracking. No new PPO/solver root cause was established.
+- Prepared another 200M/11-evaluation continuation from best80, changing only
+  the environment/evaluation seed to 1 and version labels. Mirror loss stays
+  off, matching ToddlerBot's default; rewards, actions, randomization ranges,
+  servo envelope and physics remain unchanged. Full model/Adam/LR/counter/
+  Torch-RNG restoration is retained, without resetting exploration. See
+  [the confirmed review and next GPU command](docs/design/mirror_off_seed1_continuation.md).
+- Validation: 201 full-suite tests and three focused continuation regressions
+  pass; Ruff and diff checks pass. An 80-transition Mac native MJX/Torch smoke
+  restores the actual best80 model/Adam/LR/counters/CPU RNG exactly, completes
+  a finite PPO update and saves seed 1 with mirror loss off. The short smoke
+  verifies startup, not gait quality; no GPU training or hardware was started.
+
 - Confirmed the 200M continuation review (`wr2_fresh_20261009_205016_seed0`):
   exact source/Adam/LR/RNG restore, 200,007,680 additional transitions, all 11
   checkpoints finite, and the selected best still at restored step zero.
