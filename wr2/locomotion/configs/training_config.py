@@ -453,13 +453,16 @@ def load_training_config(
             "environment.zmp_reference.max_orientation_residual_rad must be positive"
         )
     if environment.command_lateral_range_m_s != (0.0, 0.0):
-        raise ValueError(
-            "WR2's current ZMP lookup supports forward commands only; "
-            "environment.command_lateral_range_m_s must be [0, 0]"
-        )
+        if environment.rewards.forward_progress != 0.0:
+            raise ValueError("XY walking must not use the forward-only acquisition reward")
+        for name in ("command_forward_range_m_s", "command_lateral_range_m_s"):
+            low, high = getattr(environment, name)
+            deadzone = environment.command_active_threshold_m_s
+            if low > -deadzone or high < deadzone or deadzone <= 0.0:
+                raise ValueError(f"environment.{name} must cover both signed XY deadzones")
     if environment.command_yaw_range_rad_s != (0.0, 0.0):
         raise ValueError(
-            "WR2's current ZMP lookup supports forward commands only; "
+            "WR2's five-DOF legs support XY references, not turning; "
             "environment.command_yaw_range_rad_s must be [0, 0]"
         )
 

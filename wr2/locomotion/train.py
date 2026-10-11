@@ -132,6 +132,26 @@ def _worst_endpoint_score(scores: list[float | None]) -> float | None:
     return min(float(score) for score in scores if score is not None)
 
 
+def _checkpoint_evaluation_xy_commands(config: TrainingConfig) -> tuple[tuple[float, float], ...]:
+    """Preserve forward endpoints; cover cardinal and diagonal XY commands."""
+    env = config.environment
+    if env.command_lateral_range_m_s == (0.0, 0.0):
+        return tuple((x, 0.0) for x in _checkpoint_evaluation_commands(
+            env.command_forward_range_m_s, config.ppo.evaluation_forward_command_m_s
+        ))
+    xs, ys = env.command_forward_range_m_s, env.command_lateral_range_m_s
+    commands = [(config.ppo.evaluation_forward_command_m_s, 0.0)]
+    commands.extend((x, 0.0) for x in xs)
+    commands.extend((x, 0.0) for x in (
+        -env.command_active_threshold_m_s, env.command_active_threshold_m_s
+    ))
+    commands.extend((0.0, y) for y in ys)
+    # TB samples an ellipse, not its enclosing box. Keep ranked diagonals
+    # within that training distribution rather than evaluating box corners.
+    commands.extend((x / math.sqrt(2), y / math.sqrt(2)) for x in xs for y in ys)
+    return tuple(dict.fromkeys(commands))
+
+
 def _worst_endpoint_selection_score(
     endpoint_evaluations: list[dict[str, float | None]],
     selection_metric: str,
@@ -154,50 +174,35 @@ def _validate_training_zmp_reference(
         create_reference_context,
         validate_zmp_reference,
     )
+    from wr2.reference.walk_zmp import reference_command_grid
 
     environment = training_config.environment
     zmp = environment.zmp_reference
     low, high = environment.command_forward_range_m_s
-    if low <= 0.0 or high <= 0.0:
-        raise ValueError(
-            "WR2's current ZMP PPO reference requires a positive forward-command "
-            "range; standing is sampled through zero_command_probability"
-        )
-    if math.isclose(low, high):
-        training_commands = (float(low),)
-    else:
-        if zmp.command_samples < 2:
-            raise ValueError(
-                "environment.zmp_reference.command_samples must be at least two "
-                "when the forward-command range is not fixed"
-            )
-        training_commands = tuple(
-            float(low + index * (high - low) / (zmp.command_samples - 1))
-            for index in range(zmp.command_samples)
-        )
-
-    command_groups = [training_commands]
-    evaluation_command = training_config.ppo.evaluation_forward_command_m_s
-    if not any(
-        math.isclose(evaluation_command, command, abs_tol=1e-9)
-        for command in training_commands
-    ):
-        command_groups.append((float(evaluation_command),))
-
-    results = []
-    samples = 2 * zmp.phase_samples
-    for commands in command_groups:
-        context = create_reference_context(
-            commands,
-            training_config=training_config,
-        )
-        results.extend(
-            validate_zmp_reference(context, command, samples=samples)
-            for command in commands
-        )
+    varying_range = not math.isclose(low, high) or (
+        environment.command_lateral_range_m_s[0] != environment.command_lateral_range_m_s[1]
+    )
+    if varying_range and zmp.command_samples < 2:
+        raise ValueError("ZMP command_samples must be at least two for a varying command range")
+    commands = reference_command_grid(
+        (low, high), environment.command_lateral_range_m_s, zmp.command_samples
+    )
+    for command in _checkpoint_evaluation_xy_commands(training_config):
+        if not any(
+            all(math.isclose(a, b, abs_tol=1e-9) for a, b in zip(command, item))
+            for item in commands
+        ):
+            commands += (command,)
+    context = create_reference_context(
+        training_config=training_config, commands_xy_m_s=commands
+    )
+    results = [
+        validate_zmp_reference(context, *command, samples=2 * zmp.phase_samples)
+        for command in commands
+    ]
 
     failures = [
-        f"vx={result.command_forward_m_s:.3f}: {failure}"
+        f"vxy=({result.command_forward_m_s:.3f},{result.command_lateral_m_s:.3f}): {failure}"
         for result in results
         for failure in result.failures
     ]
@@ -209,7 +214,9 @@ def _validate_training_zmp_reference(
 
 
 def _format_zmp_preflight(results) -> str:
-    commands = ",".join(f"{result.command_forward_m_s:.3f}" for result in results)
+    commands = f"{len(results)} XY lookup points" if any(
+        item.command_lateral_m_s != 0.0 for item in results
+    ) else ",".join(f"{item.command_forward_m_s:.3f}" for item in results)
     support_margin_mm = (
         min(result.minimum_zmp_support_margin_m for result in results) * 1000.0
     )
@@ -313,17 +320,15 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         training_config.environment,
         add_observation_noise=True,
     )
-    evaluation_commands = _checkpoint_evaluation_commands(
-        training_config.environment.command_forward_range_m_s,
-        training_config.ppo.evaluation_forward_command_m_s,
-    )
+    evaluation_commands = _checkpoint_evaluation_xy_commands(training_config)
     evaluation_environments = tuple(
         (
             command,
             WR2WalkingEnv(
                 replace(
                     training_config.environment,
-                    command_forward_range_m_s=(command, command),
+                    command_forward_range_m_s=(command[0], command[0]),
+                    command_lateral_range_m_s=(command[1], command[1]),
                     zero_command_probability=0.0,
                 ),
                 add_observation_noise=False,
@@ -335,10 +340,10 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         environment
         for command, environment in evaluation_environments
         if math.isclose(
-            command,
+            command[0],
             training_config.ppo.evaluation_forward_command_m_s,
             abs_tol=1e-9,
-        )
+        ) and command[1] == 0.0
     )
     output_root = Path(training_config.output.root)
     if not output_root.is_absolute():
@@ -390,7 +395,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         f"{training_config.ppo.num_evals} evaluations x "
         f"{training_config.ppo.num_eval_envs} parallel episodes; "
         "fixed endpoints "
-        f"{[round(command, 3) for command in evaluation_commands]}m/s forward; "
+        f"{evaluation_commands}m/s XY; "
         f"primary={training_config.ppo.evaluation_forward_command_m_s:.2f}m/s"
     )
     print(
@@ -401,7 +406,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     zmp = environment.zmp_reference_diagnostics
     print(
         "  ZMP critic:   "
-        f"{len(zmp.command_samples_m_s)} command x "
+        f"{len(zmp.command_samples_xy_m_s)} command x "
         f"{training_config.environment.zmp_reference.phase_samples} phase lookup; "
         f"IK residual={zmp.max_ik_position_residual_m * 1000.0:.2f}mm"
     )
@@ -471,6 +476,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     rollout_metrics_path.write_text("")
 
     training_started = time.monotonic()
+    xy_training = training_config.environment.command_lateral_range_m_s != (0.0, 0.0)
     progress_index = 0
     latest_params: dict[str, object] = {}
     best_selection_score = -math.inf
@@ -554,10 +560,15 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             minimum_swing_text = (
                 "n/a" if minimum_swing is None else format(minimum_swing, ".1%")
             )
+            xy_tracking_text = (
+                f"XY_MAE={rollout_show('xy_velocity_error_m_s_per_step')} "
+                if xy_training else ""
+            )
             print(
                 f"Rollout [{_format_duration(elapsed_s)}] steps={step:,} | "
                 f"ep_len={rollout_show('length', '.0f')} "
                 f"vx={rollout_show('forward_velocity_m_s_per_step')} "
+                f"{xy_tracking_text}"
                 f"progress={rollout_show('forward_progress_per_step')} "
                 f"contact={rollout_show('contact_phase_match_per_step', '.1%')} "
                 f"min_swing={minimum_swing_text} "
@@ -628,7 +639,8 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
 
             endpoint_episode_length = endpoint_metric("avg_episode_length")
             endpoint_velocity_error = endpoint_metric(
-                "episode_forward_velocity_error_m_s_per_step"
+                "episode_xy_velocity_error_m_s_per_step" if xy_training
+                else "episode_forward_velocity_error_m_s_per_step"
             )
             endpoint_contact_match = endpoint_metric(
                 "episode_contact_phase_match_per_step"
@@ -657,6 +669,16 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             endpoint_forward_velocity = endpoint_metric(
                 "episode_forward_velocity_m_s_per_step"
             )
+            endpoint_lateral_velocity = endpoint_metric("episode_lateral_velocity_m_s_per_step")
+            command_speed = math.hypot(*command)
+            projected_velocity = (
+                (command[0] * endpoint_forward_velocity + command[1] * endpoint_lateral_velocity)
+                / command_speed
+                if command_speed > 0
+                and endpoint_forward_velocity is not None
+                and endpoint_lateral_velocity is not None
+                else endpoint_forward_velocity
+            )
             endpoint_fall_rate = endpoint_metric("episode_fall")
             endpoint_action_saturation = endpoint_metric(
                 "episode_action_saturation_fraction_per_step"
@@ -683,8 +705,8 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                     episode_length=endpoint_episode_length,
                     target_episode_length=(training_config.environment.episode_length),
                     fall_rate=endpoint_fall_rate,
-                    command_forward_m_s=command,
-                    forward_velocity_m_s=endpoint_forward_velocity,
+                    command_forward_m_s=command_speed,
+                    forward_velocity_m_s=projected_velocity,
                     contact_match=endpoint_contact_match,
                     double_support=endpoint_double_support,
                     action_saturation=endpoint_action_saturation,
@@ -693,10 +715,12 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 )
             endpoint_evaluations.append(
                 {
-                    "command_forward_m_s": command,
+                    "command_forward_m_s": command[0],
+                    "command_lateral_m_s": command[1],
                     "episode_length": endpoint_episode_length,
                     "fall_rate": endpoint_fall_rate,
                     "forward_velocity_m_s": endpoint_forward_velocity,
+                    "lateral_velocity_m_s": endpoint_lateral_velocity,
                     "velocity_error_m_s": endpoint_velocity_error,
                     "contact_match": endpoint_contact_match,
                     "double_support": endpoint_double_support,
@@ -791,10 +815,12 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             )
         if endpoint_evaluations:
             endpoint_text = " | ".join(
-                f"{endpoint['command_forward_m_s']:.2f}:"
+                f"({endpoint['command_forward_m_s']:.2f},{endpoint['command_lateral_m_s']:.2f}):"
                 f"vx={show(endpoint['forward_velocity_m_s'])},"
+                f"vy={show(endpoint['lateral_velocity_m_s'])},"
+                f"MAE={show(endpoint['velocity_error_m_s'])},"
                 f"fall={show(endpoint['fall_rate'], '.1%')},"
-                f"score={show(endpoint['acquisition_score'])}"
+                f"score={show(endpoint['walking_score'])}"
                 for endpoint in endpoint_evaluations
             )
             print(f"  └─ endpoints: {endpoint_text}", flush=True)

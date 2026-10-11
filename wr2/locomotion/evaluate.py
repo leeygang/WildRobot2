@@ -35,7 +35,7 @@ def transition_environment(config, *, add_observation_noise):
             )
             return jp.where(
                 walking,
-                jp.asarray([config.command_forward_range_m_s[0], 0.0, 0.0]),
+                jp.asarray([config.command_forward_range_m_s[0], config.command_lateral_range_m_s[0], 0.0]),
                 jp.zeros(3),
             )
 
@@ -68,10 +68,20 @@ def _parse_commands(value: str) -> tuple[float, ...]:
         ) from exc
     if (
         not commands
-        or any(command <= 0.0 for command in commands)
+        or any(not np.isfinite(command) or command == 0.0 for command in commands)
         or len(set(commands)) != len(commands)
     ):
-        raise argparse.ArgumentTypeError("commands must be unique and positive")
+        raise argparse.ArgumentTypeError("commands must be unique, finite and nonzero")
+    return commands
+
+
+def _parse_xy_commands(value: str) -> tuple[tuple[float, float], ...]:
+    try:
+        commands = tuple(tuple(float(v) for v in item.split(",")) for item in value.split(";"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("XY commands must be x,y pairs separated by semicolons") from exc
+    if not commands or any(len(item) != 2 for item in commands) or not np.isfinite(commands).all() or len(set(commands)) != len(commands):
+        raise argparse.ArgumentTypeError("XY commands must be unique finite x,y pairs")
     return commands
 
 
@@ -85,6 +95,12 @@ def _conditional_tracking(metrics: dict) -> dict:
             "samples_per_episode": count,
             "velocity_error_m_s": error_sum / count if count > 0 else None,
         }
+        for field in ("xy_velocity_error", "lateral_velocity_error", "lateral_velocity"):
+            metric_suffix = field + "_sum"
+            total = metrics.get(f"eval/episode_{category}_{metric_suffix}")
+            tracking[category][field + "_m_s"] = (
+                float(total) / count if total is not None and count > 0 else None
+            )
     walking_count = tracking["walking"]["samples_per_episode"]
     velocity_sum = sum(
         float(metrics[f"eval/episode_phase{index}_velocity_sum"])
@@ -107,10 +123,13 @@ def evaluate_checkpoint(
     transitions: bool = False,
     random_commands: bool = False,
     solver_iterations: int | None = None,
+    xy_commands_m_s: Sequence[tuple[float, float]] | None = None,
 ) -> dict:
     """Evaluate one checkpoint independently for every requested seed."""
-    if random_commands and (transitions or forward_commands_m_s is not None):
+    if random_commands and (transitions or forward_commands_m_s is not None or xy_commands_m_s is not None):
         raise ValueError("random_commands cannot be combined with transitions or commands")
+    if xy_commands_m_s is not None and forward_commands_m_s is not None:
+        raise ValueError("XY commands cannot be combined with forward commands")
     _configure_backend_logging()
     with _filter_optional_backend_import_messages():
         import jax
@@ -156,6 +175,7 @@ def evaluate_checkpoint(
                 config.ppo.evaluation_forward_command_m_s,
                 config.ppo.evaluation_forward_command_m_s,
             ),
+            command_lateral_range_m_s=(0.0, 0.0),
             zero_command_probability=0.0,
         )
         network_environment = WR2WalkingEnv(
@@ -175,9 +195,9 @@ def evaluate_checkpoint(
         make_policy = ppo_networks.make_inference_fn(networks)
         params = checkpoint.load(str(checkpoint_path))
         eval_policy_factory = functools.partial(make_policy, deterministic=True)
-    commands = (None,) if random_commands else tuple(
-        forward_commands_m_s or (config.ppo.evaluation_forward_command_m_s,)
-    )
+    commands = (None,) if random_commands else tuple(xy_commands_m_s or (
+        (float(x), 0.0) for x in (forward_commands_m_s or (config.ppo.evaluation_forward_command_m_s,))
+    ))
     randomizer = (
         make_domain_randomizer(config.environment.randomization)
         if config.environment.randomization.enabled
@@ -185,7 +205,9 @@ def evaluate_checkpoint(
     )
 
     command_results = []
-    for command_index, command_forward_m_s in enumerate(commands):
+    for command_index, command_xy in enumerate(commands):
+        command_forward_m_s = None if command_xy is None else command_xy[0]
+        command_lateral_m_s = None if command_xy is None else command_xy[1]
         environment = WR2WalkingEnv(
             config.environment if random_commands else replace(
                 config.environment,
@@ -193,6 +215,7 @@ def evaluate_checkpoint(
                     command_forward_m_s,
                     command_forward_m_s,
                 ),
+                command_lateral_range_m_s=(command_lateral_m_s, command_lateral_m_s),
                 zero_command_probability=0.0,
             ),
             # Independent confirmation includes configured observation noise,
@@ -232,12 +255,12 @@ def evaluate_checkpoint(
             metrics = {
                 name: np.asarray(value).tolist() for name, value in raw_metrics.items()
             }
-            score = None if transitions or random_commands else walking_score(
+            xy_error = metrics.get("eval/episode_xy_velocity_error_m_s_per_step")
+            use_xy_error = xy_commands_m_s is not None or config.environment.command_lateral_range_m_s != (0.0, 0.0)
+            score = None if transitions or random_commands or np.linalg.norm(command_xy) == 0 else walking_score(
                 episode_length=float(metrics["eval/avg_episode_length"]),
                 target_episode_length=config.environment.episode_length,
-                velocity_error_m_s=float(
-                    metrics["eval/episode_forward_velocity_error_m_s_per_step"]
-                ),
+                velocity_error_m_s=float(xy_error if use_xy_error else metrics["eval/episode_forward_velocity_error_m_s_per_step"]),
                 velocity_sigma_m_s=config.environment.velocity_tracking_sigma,
                 contact_match=float(
                     metrics["eval/episode_contact_phase_match_per_step"]
@@ -251,9 +274,9 @@ def evaluate_checkpoint(
                 "metrics": metrics,
             }
             seed_results.append(result)
-            command_label = "random" if random_commands else f"{command_forward_m_s:.3f}"
+            command_label = "random" if random_commands else f"({command_forward_m_s:.3f},{command_lateral_m_s:.3f})"
             score_label = "n/a" if score is None else f"{score:.3f}"
-            error = result["conditional_tracking"]["walking"]["velocity_error_m_s"]
+            error = result["conditional_tracking"]["walking"]["xy_velocity_error_m_s" if use_xy_error else "velocity_error_m_s"]
             error_label = "n/a" if error is None else f"{error:.3f}"
             print(
                 f"command={command_label} seed={seed} "
@@ -267,19 +290,25 @@ def evaluate_checkpoint(
         command_results.append(
             {
                 "command_forward_m_s": command_forward_m_s,
+                "command_lateral_m_s": command_lateral_m_s,
                 "seed_results": seed_results,
             }
         )
 
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "checkpoint": str(checkpoint_path),
         "backend": "rsl_rl" if rsl_checkpoint else "brax",
         "config": str(config_path.resolve()),
         "solver_iterations": config.environment.solver_iterations,
-        "commands_forward_m_s": [] if random_commands else list(commands),
+        "commands_forward_m_s": [] if random_commands else [command[0] for command in commands],
+        "commands_xy_m_s": [] if random_commands else [list(command) for command in commands],
         "training_command_distribution": {
             "forward_range_m_s": list(config.environment.command_forward_range_m_s),
+            "lateral_range_m_s": list(config.environment.command_lateral_range_m_s),
+            "yaw_range_rad_s": list(config.environment.command_yaw_range_rad_s),
+            "sampling": "tb_xy_ellipse" if config.environment.command_lateral_range_m_s != (0.0, 0.0) else "uniform_forward",
+            "xy_deadzone_m_s": config.environment.command_active_threshold_m_s,
             "standing_probability": config.environment.zero_command_probability,
             "resample_steps": config.environment.command_resample_steps,
         },
@@ -307,7 +336,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--config", type=Path, default=DEFAULT_TRAINING_CONFIG_PATH)
     parser.add_argument("--seeds", type=_parse_seeds, default=(101, 202, 303))
-    parser.add_argument("--commands", type=_parse_commands)
+    command_options = parser.add_mutually_exclusive_group()
+    command_options.add_argument("--commands", type=_parse_commands)
+    command_options.add_argument("--xy-commands", type=_parse_xy_commands, help="Quoted x,y pairs, e.g. '0.1,0;-0.1,0;0,0.05;0,-0.05'")
     parser.add_argument("--num-envs", type=int, default=128)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--allow-cpu", action="store_true")
@@ -324,7 +355,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Use the config's training command distribution and resampling cadence",
     )
     args = parser.parse_args(argv)
-    if args.random_commands and args.commands is not None:
+    if args.random_commands and (args.commands is not None or args.xy_commands is not None):
         parser.error("--random-commands cannot be combined with --commands")
     return args
 
@@ -343,6 +374,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         transitions=args.transitions,
         random_commands=args.random_commands,
         solver_iterations=args.solver_iterations,
+        xy_commands_m_s=args.xy_commands,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(

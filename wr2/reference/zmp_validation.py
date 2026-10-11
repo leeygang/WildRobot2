@@ -32,9 +32,10 @@ class ZMPReferenceContext:
 
 @dataclass(frozen=True)
 class ZMPGeometryResult:
-    """Geometry and continuity measurements for one forward command."""
+    """Geometry and continuity measurements for one XY command."""
 
     command_forward_m_s: float
+    command_lateral_m_s: float
     samples: int
     failures: tuple[str, ...]
     worst_stance_bottom_z_m: float
@@ -49,19 +50,17 @@ class ZMPGeometryResult:
 
 
 def create_reference_context(
-    commands_m_s: tuple[float, ...],
+    commands_m_s: tuple[float, ...] = (),
     config_path: str | Path = DEFAULT_TRAINING_CONFIG_PATH,
     *,
     training_config: TrainingConfig | None = None,
+    commands_xy_m_s: tuple[tuple[float, float], ...] | None = None,
 ) -> ZMPReferenceContext:
     """Load the canonical model and build an exact command lookup."""
-    if not commands_m_s or any(command <= 0.0 for command in commands_m_s):
-        raise ValueError("commands_m_s must contain positive forward speeds")
-    commands = tuple(sorted(set(float(command) for command in commands_m_s)))
-    if len(commands) > 2:
-        spacing = np.diff(commands)
-        if not np.allclose(spacing, spacing[0], atol=1e-9):
-            raise ValueError("three or more validation commands must be evenly spaced")
+    commands_xy = commands_xy_m_s or tuple((float(command), 0.0) for command in commands_m_s)
+    if not commands_xy or not np.isfinite(commands_xy).all():
+        raise ValueError("reference commands must contain finite XY velocities")
+    command_array = np.asarray(commands_xy)
 
     if training_config is None:
         training_config = load_training_config(config_path)
@@ -98,13 +97,15 @@ def create_reference_context(
         model,
         keyframe_id=keyframe_id,
         actuator_names=robot.actuator_names,
-        command_forward_range_m_s=(commands[0], commands[-1]),
+        command_forward_range_m_s=(float(command_array[:, 0].min()), float(command_array[:, 0].max())),
+        command_lateral_range_m_s=(float(command_array[:, 1].min()), float(command_array[:, 1].max())),
+        command_vectors_m_s=commands_xy,
         gait_cycle_s=training_config.environment.gait_cycle_s,
         swing_height_m=training_config.environment.swing_height_m,
         com_height_m=zmp.com_height_m,
         single_double_support_ratio=zmp.single_double_support_ratio,
         phase_samples=zmp.phase_samples,
-        command_samples=len(commands),
+        command_samples=len(commands_xy),
         ik_damping=zmp.ik_damping,
         ik_max_iterations=zmp.ik_max_iterations,
         max_position_residual_m=zmp.max_position_residual_m,
@@ -195,17 +196,18 @@ def apply_reference_frame(
     *,
     phase_rad: float,
     command_forward_m_s: float,
+    command_lateral_m_s: float = 0.0,
     cycle_index: int = 0,
 ) -> tuple[ZMPReferenceSample, float]:
     """Apply one kinematic reference frame and return its sample and root x."""
-    sample = context.reference.sample(phase_rad, command_forward_m_s)
+    sample = context.reference.sample(phase_rad, command_forward_m_s, command_lateral_m_s)
     cycle_time = context.training_config.environment.gait_cycle_s
     phase_time = sample.phase_rad / (2.0 * np.pi) * cycle_time
     elapsed = cycle_index * cycle_time + phase_time
     root_x = sample.command_forward_m_s * elapsed
     qpos = context.home_qpos.copy()
     qpos[0] = root_x
-    qpos[1] = sample.com_lateral_m
+    qpos[1] = sample.command_lateral_m_s * elapsed + sample.com_lateral_m
     qpos[2] = sample.root_height_m
     qpos[context.joint_qpos_indices] = sample.joint_position_rad
     context.data.qpos[:] = qpos
@@ -217,6 +219,7 @@ def apply_reference_frame(
 def validate_zmp_reference(
     context: ZMPReferenceContext,
     command_forward_m_s: float,
+    command_lateral_m_s: float = 0.0,
     *,
     samples: int = 72,
     stance_height_tolerance_m: float = 0.003,
@@ -232,9 +235,7 @@ def validate_zmp_reference(
     minimum_support_margin = np.inf
     maximum_lipm_residual = 0.0
     joint_frames = []
-    cycle_time = context.training_config.environment.gait_cycle_s
     com_height = context.training_config.environment.zmp_reference.com_height_m
-    angular_frequency = 2.0 * np.pi / cycle_time
 
     for frame_index in range(samples):
         phase = frame_index * 2.0 * np.pi / samples
@@ -242,6 +243,7 @@ def validate_zmp_reference(
             context,
             phase_rad=phase,
             command_forward_m_s=command_forward_m_s,
+            command_lateral_m_s=command_lateral_m_s,
         )
         joint_frames.append(sample.joint_position_rad)
         bottom_z = np.asarray(
@@ -278,7 +280,8 @@ def validate_zmp_reference(
             ]
         )
         support_polygon = convex_hull_xy(support_points)
-        zmp_world = np.asarray([root_x, sample.zmp_lateral_m])
+        root_y = context.data.qpos[1] - sample.com_lateral_m
+        zmp_world = np.asarray([root_x, root_y + sample.zmp_lateral_m])
         support_margin = point_support_margin(zmp_world, support_polygon)
         minimum_support_margin = min(minimum_support_margin, support_margin)
         if support_margin < -support_tolerance_m:
@@ -287,8 +290,7 @@ def validate_zmp_reference(
                 "outside the active support polygon"
             )
 
-        com_acceleration_y = -(angular_frequency**2) * sample.com_lateral_m
-        implied_zmp_y = sample.com_lateral_m - com_height / 9.81 * com_acceleration_y
+        implied_zmp_y = sample.com_lateral_m - com_height / 9.81 * sample.com_lateral_acceleration_m_s2
         maximum_lipm_residual = max(
             maximum_lipm_residual, abs(implied_zmp_y - sample.zmp_lateral_m)
         )
@@ -301,10 +303,11 @@ def validate_zmp_reference(
 
     return ZMPGeometryResult(
         command_forward_m_s=float(command_forward_m_s),
+        command_lateral_m_s=float(command_lateral_m_s),
         samples=samples,
         failures=tuple(failures),
         worst_stance_bottom_z_m=float(worst_stance),
-        worst_swing_bottom_z_m=float(worst_swing),
+        worst_swing_bottom_z_m=float(worst_swing) if np.isfinite(worst_swing) else 0.0,
         minimum_zmp_support_margin_m=float(minimum_support_margin),
         maximum_lipm_residual_m=float(maximum_lipm_residual),
         maximum_joint_step_rad=maximum_joint_step,

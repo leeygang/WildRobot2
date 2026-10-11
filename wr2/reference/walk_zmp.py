@@ -28,11 +28,29 @@ _LEG_JOINT_SUFFIXES = (
 )
 
 
+def reference_command_grid(
+    forward_range: tuple[float, float], lateral_range: tuple[float, float],
+    samples: int,
+) -> tuple[tuple[float, float], ...]:
+    """XY lattice including the envelope of TB's heading-corrected commands."""
+    axes = []
+    radius = float(np.linalg.norm([max(map(abs, forward_range)), max(map(abs, lateral_range))]))
+    for low, high in (forward_range, lateral_range):
+        axis = np.asarray([low]) if np.isclose(low, high) else np.linspace(low, high, samples)
+        if lateral_range != (0.0, 0.0):
+            axis = np.unique(np.concatenate([axis, [-radius, radius]]))
+        axes.append(axis)
+    grid = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 2)
+    return tuple(tuple(map(float, command)) for command in grid)
+
+
 def periodic_lipm_lateral_reference(
     gait_phase: jax.Array,
     foot_half_width_m: float,
     com_height_m: float,
     gait_cycle_s: float,
+    lateral_speed_m_s: float = 0.0,
+    single_double_support_ratio: float = 2.0,
 ) -> jax.Array:
     """Return periodic lateral CoM and implied ZMP positions.
 
@@ -42,12 +60,33 @@ def periodic_lipm_lateral_reference(
     alternating support-foot centers.  Phase zero is the middle of double
     support before left-foot swing; the ZMP is on the right at pi/2.
     """
-    angular_frequency = _TWO_PI / gait_cycle_s
-    zmp_gain = 1.0 + com_height_m * angular_frequency**2 / _GRAVITY_M_S2
-    com_y = -(foot_half_width_m / zmp_gain) * jp.sin(gait_phase)
-    com_acceleration_y = -(angular_frequency**2) * com_y
-    zmp_y = com_y - com_height_m / _GRAVITY_M_S2 * com_acceleration_y
-    return jp.stack([com_y, zmp_y])
+    return _lipm_lateral_reference(
+        jp, gait_phase, foot_half_width_m, com_height_m, gait_cycle_s,
+        lateral_speed_m_s, single_double_support_ratio,
+    )[:2]
+
+
+def _lipm_lateral_reference(array_lib, phase, width, height, cycle, lateral_speed, support_ratio):
+    """Invert the periodic LIPM for sway plus the translating stance centers.
+
+    Stance centers advance twice per cycle. The second harmonic matches their
+    offsets at single-support boundaries; each harmonic obeys z = c - h/g*c''.
+    Zero lateral speed retains the existing forward reference exactly.
+    """
+    angular_frequency = _TWO_PI / cycle
+    transition_half_width = np.pi / (2.0 * (support_ratio + 1.0))
+    stance_length = np.pi + 2.0 * transition_half_width
+    half_stride = lateral_speed * cycle * stance_length / (2.0 * _TWO_PI)
+    boundary_offset = half_stride * (np.pi - 2.0 * transition_half_width) / stance_length
+    zmp_advance = boundary_offset / np.sin(2.0 * transition_half_width)
+    zmp_gain = 1.0 + height * angular_frequency**2 / _GRAVITY_M_S2
+    advance_gain = 1.0 + height * (2.0 * angular_frequency)**2 / _GRAVITY_M_S2
+    sway = -(width / zmp_gain) * array_lib.sin(phase)
+    advance = zmp_advance / advance_gain * array_lib.sin(2.0 * phase)
+    com_y = sway + advance
+    com_acceleration_y = -(angular_frequency**2) * sway - (2.0 * angular_frequency)**2 * advance
+    zmp_y = com_y - height / _GRAVITY_M_S2 * com_acceleration_y
+    return array_lib.stack([com_y, zmp_y, com_acceleration_y])
 
 
 def _periodic_foot_reference(
@@ -125,6 +164,7 @@ class ZMPReferenceDiagnostics:
     """Host-side validation of the generated WR2 lookup table."""
 
     command_samples_m_s: tuple[float, ...]
+    command_samples_xy_m_s: tuple[tuple[float, float], ...]
     foot_half_width_m: float
     com_lateral_amplitude_m: float
     max_ik_position_residual_m: float
@@ -137,11 +177,14 @@ class ZMPReferenceSample:
 
     phase_rad: float
     command_forward_m_s: float
+    command_lateral_m_s: float
     joint_position_rad: np.ndarray
     com_lateral_m: float
     zmp_lateral_m: float
+    com_lateral_acceleration_m_s2: float
     root_height_m: float
     foot_forward_m: np.ndarray
+    foot_lateral_m: np.ndarray
     foot_height_m: np.ndarray
     stance_mask: np.ndarray
 
@@ -162,6 +205,8 @@ class WR2ZMPReference:
         keyframe_id: int,
         actuator_names: tuple[str, ...],
         command_forward_range_m_s: tuple[float, float],
+        command_lateral_range_m_s: tuple[float, float] = (0.0, 0.0),
+        command_vectors_m_s: tuple[tuple[float, float], ...] | None = None,
         gait_cycle_s: float,
         swing_height_m: float,
         com_height_m: float,
@@ -193,11 +238,11 @@ class WR2ZMPReference:
         joint_qpos_indices = np.asarray(model.jnt_qposadr[joint_ids], dtype=np.int32)
         home_joint_position = home_qpos[joint_qpos_indices]
 
-        low, high = command_forward_range_m_s
-        if np.isclose(low, high):
-            command_grid = np.asarray([low], dtype=np.float64)
-        else:
-            command_grid = np.linspace(low, high, command_samples, dtype=np.float64)
+        command_grid = np.asarray(
+            command_vectors_m_s if command_vectors_m_s is not None else reference_command_grid(
+                command_forward_range_m_s, command_lateral_range_m_s, command_samples
+            ), dtype=np.float64,
+        )
 
         model_signature = (
             model.nq,
@@ -209,7 +254,7 @@ class WR2ZMPReference:
         cache_key = (
             model_signature,
             tuple(actuator_names),
-            tuple(np.round(command_grid, 10)),
+            tuple(np.round(command_grid.reshape(-1), 10)),
             float(gait_cycle_s),
             float(swing_height_m),
             float(com_height_m),
@@ -259,6 +304,7 @@ class WR2ZMPReference:
         self._gait_cycle_s = float(gait_cycle_s)
         self._swing_height_m = float(swing_height_m)
         self._com_height_m = float(com_height_m)
+        self._home_root_height_m = float(home_qpos[2])
         self._single_double_support_ratio = float(single_double_support_ratio)
         self._foot_half_width_m = diagnostics.foot_half_width_m
         self.diagnostics = diagnostics
@@ -415,15 +461,18 @@ class WR2ZMPReference:
         home_joint_position = home_qpos[joint_qpos_indices]
         lookup = np.broadcast_to(
             home_joint_position,
-            (command_grid.size, phase_samples, home_joint_position.size),
+            (len(command_grid), phase_samples, home_joint_position.size),
         ).copy()
         max_position_residual = 0.0
         max_orientation_residual = 0.0
         root_height_offset = float(home_qpos[2] - com_height_m)
 
-        for command_index, forward_speed in enumerate(command_grid):
+        for command_index, (forward_speed, lateral_speed) in enumerate(command_grid):
             for phase_index, phase in enumerate(phase_grid):
-                com_y = -com_lateral_amplitude_m * np.sin(phase)
+                com_y = _lipm_lateral_reference(
+                    np, phase, foot_half_width_m, com_height_m, gait_cycle_s,
+                    float(lateral_speed), single_double_support_ratio,
+                )[0]
                 foot_x, foot_z, _ = _periodic_foot_reference(
                     np,
                     phase,
@@ -432,12 +481,16 @@ class WR2ZMPReference:
                     swing_height_m,
                     single_double_support_ratio,
                 )
+                foot_y, _, _ = _periodic_foot_reference(
+                    np, phase, float(lateral_speed), gait_cycle_s,
+                    swing_height_m, single_double_support_ratio,
+                )
                 for side_index, side in enumerate(("left", "right")):
                     values = side_data[side]
                     target_delta_torso = np.asarray(
                         [
                             foot_x[side_index],
-                            -com_y,
+                            foot_y[side_index] - com_y,
                             foot_z[side_index] + root_height_offset,
                         ]
                     )
@@ -473,7 +526,8 @@ class WR2ZMPReference:
                     )
 
         diagnostics = ZMPReferenceDiagnostics(
-            command_samples_m_s=tuple(float(value) for value in command_grid),
+            command_samples_m_s=tuple(float(value) for value in np.unique(command_grid[:, 0])),
+            command_samples_xy_m_s=tuple(tuple(map(float, value)) for value in command_grid),
             foot_half_width_m=foot_half_width_m,
             com_lateral_amplitude_m=com_lateral_amplitude_m,
             max_ik_position_residual_m=max_position_residual,
@@ -482,28 +536,32 @@ class WR2ZMPReference:
         return command_grid, lookup, diagnostics
 
     def sample(
-        self, gait_phase: float, command_forward_m_s: float
+        self, gait_phase: float, command_forward_m_s: float,
+        command_lateral_m_s: float = 0.0,
     ) -> ZMPReferenceSample:
         """Return a complete host-side reference frame for inspection."""
         command_index = int(
-            np.argmin(np.abs(self._command_grid_numpy - command_forward_m_s))
+            np.argmin(np.linalg.norm(
+                self._command_grid_numpy - [command_forward_m_s, command_lateral_m_s],
+                axis=1,
+            ))
         )
-        matched_command = float(self._command_grid_numpy[command_index])
+        matched_command, matched_lateral = map(float, self._command_grid_numpy[command_index])
+        is_walking = np.linalg.norm([command_forward_m_s, command_lateral_m_s]) >= 1e-6
         phase = float(np.mod(gait_phase, _TWO_PI))
         joint_position = np.asarray(
             self.joint_position(
                 jp.asarray(phase),
-                jp.asarray([matched_command, 0.0, 0.0]),
-                jp.asarray(True),
+                jp.asarray([matched_command, matched_lateral, 0.0]),
+                jp.asarray(is_walking),
             )
         )
-        com_y, zmp_y = np.asarray(
-            periodic_lipm_lateral_reference(
-                jp.asarray(phase),
+        com_y, zmp_y, com_acceleration_y = _lipm_lateral_reference(
+                np, phase,
                 self._foot_half_width_m,
                 self._com_height_m,
                 self._gait_cycle_s,
-            )
+                matched_lateral, self._single_double_support_ratio,
         )
         foot_x, foot_z, stance = _periodic_foot_reference(
             np,
@@ -513,14 +571,26 @@ class WR2ZMPReference:
             self._swing_height_m,
             self._single_double_support_ratio,
         )
+        foot_y, _, _ = _periodic_foot_reference(
+            np, phase, matched_lateral, self._gait_cycle_s,
+            self._swing_height_m, self._single_double_support_ratio,
+        )
+        if not is_walking:
+            matched_command = matched_lateral = 0.0
+            com_y = zmp_y = com_acceleration_y = 0.0
+            foot_x = foot_y = foot_z = np.zeros(2)
+            stance = np.ones(2, dtype=np.bool_)
         return ZMPReferenceSample(
             phase_rad=phase,
             command_forward_m_s=matched_command,
+            command_lateral_m_s=matched_lateral,
             joint_position_rad=joint_position,
             com_lateral_m=float(com_y),
             zmp_lateral_m=float(zmp_y),
-            root_height_m=self._com_height_m,
+            com_lateral_acceleration_m_s2=float(com_acceleration_y),
+            root_height_m=self._com_height_m if is_walking else self._home_root_height_m,
             foot_forward_m=np.asarray(foot_x, dtype=np.float64),
+            foot_lateral_m=np.asarray(foot_y, dtype=np.float64),
             foot_height_m=np.asarray(foot_z, dtype=np.float64),
             stance_mask=np.asarray(stance, dtype=np.bool_),
         )
@@ -530,9 +600,15 @@ class WR2ZMPReference:
         gait_phase: jax.Array,
         command: jax.Array,
         is_walking: jax.Array,
+        heading_error_rad: jax.Array = 0.0,
     ) -> jax.Array:
         """Interpolate the nearest-command joint reference at ``gait_phase``."""
-        command_index = jp.argmin(jp.abs(self._command_grid - command[0]))
+        cosine, sine = jp.cos(heading_error_rad), jp.sin(heading_error_rad)
+        command_xy = jp.stack([
+            cosine * command[0] - sine * command[1],
+            sine * command[0] + cosine * command[1],
+        ])
+        command_index = jp.argmin(jp.linalg.norm(self._command_grid - command_xy, axis=1))
         phase_position = jp.mod(gait_phase, _TWO_PI) * self._phase_samples / _TWO_PI
         phase_floor = jp.floor(phase_position).astype(jp.int32)
         lower_index = jp.mod(phase_floor, self._phase_samples)

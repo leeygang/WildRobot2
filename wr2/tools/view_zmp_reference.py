@@ -11,6 +11,7 @@ import mujoco.viewer
 import numpy as np
 
 from wr2.locomotion.configs import DEFAULT_TRAINING_CONFIG_PATH
+from wr2.locomotion.evaluate import _parse_xy_commands
 from wr2.reference.zmp_validation import (
     apply_reference_frame,
     box_projected_corners_xy,
@@ -29,8 +30,8 @@ def _parse_commands(value: str) -> tuple[float, ...]:
         raise argparse.ArgumentTypeError(
             "commands must be comma-separated numbers"
         ) from exc
-    if not commands or any(command <= 0.0 for command in commands):
-        raise argparse.ArgumentTypeError("commands must be positive")
+    if not commands or not np.isfinite(commands).all():
+        raise argparse.ArgumentTypeError("commands must be finite")
     return commands
 
 
@@ -74,8 +75,9 @@ def _draw_reference_overlay(viewer, context, sample, root_x: float) -> None:
         actual_com = np.asarray(context.data.subtree_com[0])
         viewer.cam.lookat[0] = actual_com[0]
         viewer.cam.lookat[1] = actual_com[1]
-        planned_com = np.asarray([root_x, sample.com_lateral_m, sample.root_height_m])
-        planned_zmp = np.asarray([root_x, sample.zmp_lateral_m, 0.004])
+        root_y = context.data.qpos[1] - sample.com_lateral_m
+        planned_com = np.asarray([root_x, root_y + sample.com_lateral_m, sample.root_height_m])
+        planned_zmp = np.asarray([root_x, root_y + sample.zmp_lateral_m, 0.004])
         _add_sphere(scene, actual_com, 0.008, [1.0, 0.1, 0.1, 1.0])
         _add_sphere(scene, planned_com, 0.007, [1.0, 0.8, 0.1, 1.0])
         _add_sphere(scene, planned_zmp, 0.006, [0.1, 1.0, 0.1, 1.0])
@@ -122,12 +124,12 @@ def _draw_reference_overlay(viewer, context, sample, root_x: float) -> None:
 def _print_validation(result) -> None:
     verdict = "PASS" if result.passed else "FAIL"
     print(
-        f"vx={result.command_forward_m_s:.2f} {verdict}: "
+        f"vxy=({result.command_forward_m_s:.2f},{result.command_lateral_m_s:.2f}) {verdict}: "
         f"stance_z={result.worst_stance_bottom_z_m:+.4f}m "
         f"swing_z={result.worst_swing_bottom_z_m:+.4f}m "
         f"zmp_margin={result.minimum_zmp_support_margin_m * 1000.0:+.2f}mm "
         f"lipm={result.maximum_lipm_residual_m:.2e}m "
-        f"max_dq={result.maximum_joint_step_rad:.3f}rad"
+        f"max_dq={np.rad2deg(result.maximum_joint_step_rad):.1f}deg"
     )
     for failure in result.failures[:10]:
         print(f"  - {failure}")
@@ -136,19 +138,20 @@ def _print_validation(result) -> None:
 
 
 def validate_only(args: argparse.Namespace) -> int:
-    context = create_reference_context(args.commands, args.config)
+    commands = args.xy_commands or tuple((x, 0.0) for x in args.commands)
+    context = create_reference_context(config_path=args.config, commands_xy_m_s=commands)
     failed = False
-    for command in args.commands:
-        result = validate_zmp_reference(context, command, samples=args.samples)
+    for command in commands:
+        result = validate_zmp_reference(context, *command, samples=args.samples)
         _print_validation(result)
         failed |= not result.passed
     return int(failed)
 
 
 def view_reference(args: argparse.Namespace) -> int:
-    command = args.commands[0]
-    context = create_reference_context((command,), args.config)
-    result = validate_zmp_reference(context, command, samples=args.samples)
+    command = args.xy_commands[0] if args.xy_commands else (args.commands[0], 0.0)
+    context = create_reference_context(config_path=args.config, commands_xy_m_s=(command,))
+    result = validate_zmp_reference(context, *command, samples=args.samples)
     _print_validation(result)
     if not result.passed and not args.show_failed:
         print("Refusing to open the viewer for a failed reference; use --show-failed.")
@@ -198,7 +201,8 @@ def view_reference(args: argparse.Namespace) -> int:
             sample, root_x = apply_reference_frame(
                 context,
                 phase_rad=phase,
-                command_forward_m_s=command,
+                command_forward_m_s=command[0],
+                command_lateral_m_s=command[1],
                 cycle_index=cycle_index,
             )
             _draw_reference_overlay(viewer, context, sample, root_x)
@@ -210,12 +214,15 @@ def view_reference(args: argparse.Namespace) -> int:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_TRAINING_CONFIG_PATH)
-    parser.add_argument(
+    commands = parser.add_mutually_exclusive_group()
+    commands.add_argument(
         "--commands",
         type=_parse_commands,
         default=(0.10,),
-        help="Comma-separated forward speeds; viewer uses the first",
+        help="Comma-separated signed forward speeds; viewer uses the first",
     )
+    commands.add_argument("--xy-commands", type=_parse_xy_commands,
+                          help="Quoted x,y pairs separated by semicolons; viewer uses the first")
     parser.add_argument("--samples", type=int, default=72)
     parser.add_argument("--playback-speed", type=float, default=1.0)
     parser.add_argument("--cycles", type=int, default=0, help="Zero loops forever")

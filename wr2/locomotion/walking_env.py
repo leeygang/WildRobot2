@@ -18,6 +18,31 @@ from wr2.sim.robot import RobotDescription
 _TWO_PI = 2.0 * np.pi
 
 
+def sample_tb_xy_command(rng: jax.Array, config: WalkingEnvConfig) -> jax.Array:
+    """TB's signed ellipse sampler, with its optional turning branch excluded."""
+    keys = jax.random.split(rng, 7)
+    theta = jax.random.uniform(keys[3], (), minval=0.0, maxval=_TWO_PI)
+    sine, cosine = jp.sin(theta), jp.cos(theta)
+    x_max = jp.where(
+        sine > 0, config.command_forward_range_m_s[1],
+        -config.command_forward_range_m_s[0],
+    )
+    y_max = jp.where(
+        cosine > 0, config.command_lateral_range_m_s[1],
+        -config.command_lateral_range_m_s[0],
+    )
+    # TB intentionally shares the radial draw between x and y.
+    radius = jax.random.uniform(keys[4], ())
+    deadzone = config.command_active_threshold_m_s
+    command = jp.stack([
+        (deadzone + radius * (x_max - deadzone)) * sine,
+        (deadzone + radius * (y_max - deadzone)) * cosine,
+        jp.asarray(0.0),
+    ])
+    standing = jax.random.uniform(keys[2], ()) < config.zero_command_probability
+    return jp.where(standing, jp.zeros(3), command)
+
+
 def _smoothstep(value: jax.Array) -> jax.Array:
     value = jp.clip(value, 0.0, 1.0)
     return value * value * (3.0 - 2.0 * value)
@@ -342,6 +367,7 @@ class WR2WalkingEnv(PipelineEnv):
             keyframe_id=key_id,
             actuator_names=self.robot.actuator_names,
             command_forward_range_m_s=self.config.command_forward_range_m_s,
+            command_lateral_range_m_s=self.config.command_lateral_range_m_s,
             gait_cycle_s=self.config.gait_cycle_s,
             swing_height_m=self.config.swing_height_m,
             com_height_m=zmp_config.com_height_m,
@@ -443,6 +469,11 @@ class WR2WalkingEnv(PipelineEnv):
         return jp.linalg.norm(command) >= self.config.command_active_threshold_m_s
 
     def _sample_command(self, rng: jax.Array) -> jax.Array:
+        if self.config.command_lateral_range_m_s != (0.0, 0.0) and (
+            self.config.command_forward_range_m_s[0] != self.config.command_forward_range_m_s[1]
+            or self.config.command_lateral_range_m_s[0] != self.config.command_lateral_range_m_s[1]
+        ):
+            return sample_tb_xy_command(rng, self.config)
         keys = jax.random.split(rng, 4)
         forward = jax.random.uniform(
             keys[0],
@@ -641,6 +672,8 @@ class WR2WalkingEnv(PipelineEnv):
             gait_phase,
             command,
             zmp_reference_active,
+            heading_error_rad=(reference_heading - torso_heading(torso_quat))
+            if self.config.command_lateral_range_m_s != (0.0, 0.0) else 0.0,
         )
         privileged_actor = [
             *phase_and_command,
@@ -1410,12 +1443,16 @@ class WR2WalkingEnv(PipelineEnv):
             ]
         )
         error = jp.abs(velocity[0] - command[0])
+        xy_error = jp.linalg.norm(velocity[:2] - command[:2])
         walking = self._is_walking(command)
         result = {
             "heading_error_rad_per_step": jp.abs(jp.arctan2(jp.sin(yaw), jp.cos(yaw))),
             "path_forward_displacement_m": path_delta[0],
             "path_lateral_displacement_m": path_delta[1],
             "forward_velocity_squared_per_step": velocity[0] ** 2,
+            "xy_velocity_error_m_s_per_step": xy_error,
+            "lateral_velocity_error_m_s_per_step": jp.abs(velocity[1] - command[1]),
+            "command_lateral_m_s_per_step": command[1],
         }
         categories = {
             "standing": ~walking,
@@ -1426,6 +1463,11 @@ class WR2WalkingEnv(PipelineEnv):
         for name, active in categories.items():
             result[f"{name}_sample_count"] = active.astype(jp.float32)
             result[f"{name}_velocity_error_sum"] = jp.where(active, error, 0.0)
+            result[f"{name}_xy_velocity_error_sum"] = jp.where(active, xy_error, 0.0)
+            result[f"{name}_lateral_velocity_error_sum"] = jp.where(
+                active, jp.abs(velocity[1] - command[1]), 0.0
+            )
+            result[f"{name}_lateral_velocity_sum"] = jp.where(active, velocity[1], 0.0)
         for index in range(4):
             active = walking & (jp.floor(jp.mod(phase, _TWO_PI) * 4 / _TWO_PI) == index)
             result[f"phase{index}_sample_count"] = active.astype(jp.float32)

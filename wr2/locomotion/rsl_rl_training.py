@@ -635,10 +635,10 @@ def train_rsl_ppo(
         index
         for index, (command, _) in enumerate(command_evaluators)
         if math.isclose(
-            command,
+            command[0] if isinstance(command, tuple) else command,
             ppo.evaluation_forward_command_m_s,
             abs_tol=1e-9,
-        )
+        ) and (not isinstance(command, tuple) or command[1] == 0.0)
     )
     evaluator = _MultiCommandEvaluator(
         (evaluator for _, evaluator in command_evaluators),
@@ -684,6 +684,7 @@ def _make_transition_evaluator(config, policy_factory, rng):
         replace(
             config.environment,
             command_forward_range_m_s=(config.ppo.evaluation_forward_command_m_s,) * 2,
+            command_lateral_range_m_s=(0.0, 0.0),
         ),
         add_observation_noise=False,
     )

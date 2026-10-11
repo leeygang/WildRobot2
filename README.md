@@ -79,6 +79,10 @@ every run directory.
 For the controlled 1B fresh-start run, use
 [`ppo_walking_fresh.yaml`](wr2/locomotion/configs/ppo_walking_fresh.yaml)
 without a restore checkpoint; see [the GPU command and checks](docs/design/fresh_walking_training.md).
+For signed forward/backward and lateral walking, use
+[`ppo_walking_xy.yaml`](wr2/locomotion/configs/ppo_walking_xy.yaml).
+It follows TB's XY command sampler with turning excluded; see
+[the scope, reference validation and GPU command](docs/design/xy_walking_training.md).
 For the controlled mirror-off comparison, use
 [`ppo_walking_mirror_off.yaml`](wr2/locomotion/configs/ppo_walking_mirror_off.yaml)
 from the original 920M checkpoint; see
@@ -87,7 +91,7 @@ For the seed1 200M continuation, use
 [`ppo_walking_mirror_off_seed1.yaml`](wr2/locomotion/configs/ppo_walking_mirror_off_seed1.yaml)
 from the validated mirror-off 80M checkpoint; see
 [the confirmed review, seed semantics and GPU command](docs/design/mirror_off_seed1_continuation.md).
-For the next 200M continuation, use
+For the seed2 forward-only 200M continuation, use
 [`ppo_walking_mirror_off_seed2.yaml`](wr2/locomotion/configs/ppo_walking_mirror_off_seed2.yaml)
 from the validated seed1 +120M checkpoint; see
 [the confirmed review and GPU command](docs/design/mirror_off_seed2_continuation.md).

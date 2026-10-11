@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-10-11
+
+- Added a dedicated `ppo_walking_xy.yaml` baseline for signed forward/backward,
+  left/right and diagonal walking, with 20% standing and 80% TB-style ellipse
+  sampling. Preserve the historical forward-only configs and ten leg actions;
+  waist yaw remains inactive and pure turning is explicitly excluded because
+  WR2 lacks TB's independent left/right hip-yaw axes. Mirror loss is disabled
+  as in TB's default trainer; PPO/rewards/servo limits/physics are unchanged.
+- Extended the privileged reference to XY, with TB's heading-frame correction
+  and lookup coverage for rotated commands. The existing WR2 periodic LIPM
+  proxy now accounts for lateral stance-center advance; numerical five-DOF IK
+  remains an explicit difference from TB's planner. All 49 lookup points pass
+  unchanged geometry/support bounds with at least 8 mm of support margin.
+- Added signed XY CLI evaluation/viewer support, conditional XY/X/Y errors,
+  lateral start/stop tests and ten-direction checkpoint ranking based on XY
+  error. Standing/mixed schedules remain unscored; lateral walking is measured
+  against commanded Y rather than treated as drift. Existing autonomous-agent
+  acceptance criteria remain forward-only; the new baseline uses manual runs.
+  Ranked diagonals lie within TB's sampled ellipse, not its enclosing box;
+  preflight checks their exact references in addition to the 49 lookup points.
+  See [scope, parity rationale and GPU commands](docs/design/xy_walking_training.md).
+- Validation: the final full-suite run passes 217 tests, including 14 signed-XY
+  regressions for sampler parity, references, transitions and lateral scoring.
+  Sampler golden values match current TB with turning excluded; independent
+  LIPM finite differences, heading correction and physical joint limits pass.
+  An 80-transition Mac native RSL-RL smoke completes two finite PPO updates
+  and saves finite model/Adam state. It skips held-out evaluation; the full
+  ten-condition CPU CLI smoke was stopped during first evaluation/compilation
+  before updates, so complete CLI validation remains pending on GPU.
+  No physical hardware or GPU training was started.
+
 ## 2026-10-10
 
 - Confirmed the seed1 mirror-off review (`wr2_mirror_off_20261010_125338_seed1`):

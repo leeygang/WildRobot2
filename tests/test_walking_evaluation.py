@@ -141,7 +141,11 @@ class WalkingEvaluationTest(unittest.TestCase):
         self.assertEqual(report["command_schedule"], "random_training_distribution")
         self.assertEqual(report["commands_forward_m_s"], [])
         self.assertEqual(report["training_command_distribution"], {
-            "forward_range_m_s": [0.05, 0.1],
+                "forward_range_m_s": [0.05, 0.1],
+                "lateral_range_m_s": [0.0, 0.0],
+                "yaw_range_rad_s": [0.0, 0.0],
+                "sampling": "uniform_forward",
+                "xy_deadzone_m_s": 0.05,
             "standing_probability": 0.2,
             "resample_steps": 150,
         })
