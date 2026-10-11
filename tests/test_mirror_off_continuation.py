@@ -15,6 +15,8 @@ from wr2.locomotion.rsl_rl_training import RSLPPOTrainer, _training_rng_keys
 CONFIG = Path("wr2/locomotion/configs/ppo_walking_mirror_off_seed1.yaml")
 PARENT_CONFIG = Path("wr2/locomotion/configs/ppo_walking_mirror_off.yaml")
 SOURCE = Path("results/wr2_walking/wr2_mirror_off_20261010_083343_seed0/checkpoints/000080035840.pt")
+NEXT_CONFIG = Path("wr2/locomotion/configs/ppo_walking_mirror_off_seed2.yaml")
+NEXT_SOURCE = Path("results/wr2_walking/wr2_mirror_off_20261010_125338_seed1/checkpoints/000120012800.pt")
 
 
 class MirrorOffContinuationTest(unittest.TestCase):
@@ -43,8 +45,33 @@ class MirrorOffContinuationTest(unittest.TestCase):
             self.assertFalse(np.array_equal(old, new))
             np.testing.assert_array_equal(new, same)
 
+    def test_seed_two_changes_only_environment_seed_and_version_labels(self):
+        from wr2.locomotion.train import _apply_cli_overrides, parse_args
+
+        parent = load_training_config(CONFIG)
+        followup = load_training_config(NEXT_CONFIG)
+        self.assertEqual(followup, replace(
+            parent, seed=2, version=followup.version, version_name=followup.version_name
+        ))
+        with patch("sys.argv", [
+            "train", "--config", str(NEXT_CONFIG), "--restore-checkpoint", str(NEXT_SOURCE)
+        ]):
+            args = parse_args()
+        self.assertIsNone(args.run_id)
+        self.assertEqual(args.restore_checkpoint, NEXT_SOURCE)
+        self.assertEqual(_apply_cli_overrides(followup, args), followup)
+        self.assertEqual(followup.ppo.num_timesteps, 200_000_000)
+        self.assertEqual(followup.ppo.num_evals, 11)
+        self.assertEqual(followup.ppo.mirror_loss_coeff, 0.0)
+
+    def test_seed_two_changes_all_jax_streams_repeatably(self):
+        one, two, repeated = (_training_rng_keys(seed) for seed in (1, 2, 2))
+        for old, new, same in zip(one, two, repeated, strict=True):
+            self.assertFalse(np.array_equal(old, new))
+            np.testing.assert_array_equal(new, same)
+
     def test_new_environment_seed_does_not_reset_native_policy_or_adam_rng(self):
-        config = load_training_config(CONFIG)
+        config = load_training_config(NEXT_CONFIG)
         config = replace(config,
             ppo=replace(config.ppo, num_envs=4, unroll_length=2, num_minibatches=1),
             network=replace(config.network, policy_hidden_layer_sizes=(8, 4), value_hidden_layer_sizes=(8, 4)),
@@ -61,16 +88,16 @@ class MirrorOffContinuationTest(unittest.TestCase):
                 restore_checkpoint=restore, progress_fn=lambda *args: None,
                 policy_params_fn=lambda *args: None, evaluator=None)
 
-        source = trainer(replace(config, seed=0))
+        source = trainer(replace(config, seed=1))
         sum(parameter.sum() for parameter in source.policy.parameters()).backward()
         source.algorithm.optimizer.step()
-        source.completed_iterations = 24416
-        source.total_steps = 1_000_079_360
+        source.completed_iterations = 27346
+        source.total_steps = 1_120_092_160
         source.algorithm.learning_rate = 1e-5
         for group in source.algorithm.optimizer.param_groups:
             group["lr"] = 1e-5
         with torch.no_grad():
-            source.policy.log_std.fill_(np.log(0.0260726))
+            source.policy.log_std.fill_(np.log(0.02384625))
         saved = source.checkpoint_state()
         with tempfile.TemporaryDirectory() as folder:
             checkpoint = Path(folder) / "source.pt"

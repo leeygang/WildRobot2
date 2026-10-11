@@ -2,6 +2,28 @@
 
 ## 2026-10-10
 
+- Confirmed the seed1 mirror-off review (`wr2_mirror_off_20261010_125338_seed1`):
+  exact full-state restore, all 11 checkpoints finite, 200,007,680 added steps.
+  Paired full-variation evaluation covered 4,608 episodes without falls or
+  non-finite states. Selected best120 improves fixed-0.10 speed 0.0819 to
+  0.0829 m/s, MAE 0.0265 to 0.0259 m/s, and heading 3.86 to 2.99 degrees.
+  Scripted stop MAE improves 0.0487 to 0.0373 m/s, but start MAE worsens
+  0.0939 to 0.1017 m/s; this is a tradeoff, not completed walking. Final200
+  is slower at 0.0796 m/s. Mixed-mode clipping and hardware qualification
+  remain unresolved; no new restore/metric/solver bug was identified.
+- Prepared another 200M/11-evaluation continuation from seed1 best120 using
+  environment/evaluation seed 2. Only seed and version labels change;
+  mirror-off TB-aligned PPO, rewards, actions, servo envelope, randomization
+  ranges and physics remain unchanged. Preserve full native model/Adam/LR/
+  counter/Torch-RNG state, retain best80 as fallback, and check launch behavior
+  alongside tracking/stopping before promotion. See
+  [the confirmed review and next GPU command](docs/design/mirror_off_seed2_continuation.md).
+- Validation: 203 full-suite tests and five focused continuation regressions
+  pass; Ruff and diff checks pass. An 80-transition Mac native MJX/Torch smoke
+  restores actual best120 model/Adam/LR/counters/CPU RNG exactly, completes a
+  finite PPO update and saves seed 2 with mirror loss off. Short smoke episodes
+  verify startup, not gait qualification; no GPU training or hardware started.
+
 - Confirmed the mirror-off 200M review (`wr2_mirror_off_20261010_083343_seed0`):
   exact full-state restoration and finite state across all 11 checkpoints.
   Paired full-variation native evaluation covered 6,144 episodes. Best80
