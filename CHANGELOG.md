@@ -2,6 +2,44 @@
 
 ## 2026-10-11
 
+### Six-DOF hip-yaw model revision
+
+- Imported the updated Onshape model with independent left/right hip yaw,
+  neck yaw and head pitch. Re-imported the user's mass-property correction:
+  neck/head bodies are 5.087/13.467 g, with total CAD mass 2.058328 kg.
+  Preserve exported physical limits and inertias; neck/head, arms and waist
+  stay at home while all twelve leg joints participate in walking PPO.
+- Updated canonical/MJX models, actuator order, robot configuration, observation
+  builders, action contracts, model-derived reflection and current training
+  templates for 21 actuators / 12 leg actions. `wr2_proprio_v5` has 1005 actor
+  and 1740 critic inputs. TB's Normal residual action and 0.25-rad scale remain
+  unchanged; native checkpoints now guard model hash and actuator orders.
+  Old ten-action policies require fresh training, not heading migration.
+- Derive foot collision boxes, sole sites and home heights from the new CAD.
+  Home/walk-home root heights are 0.289479/0.288261 m with 1 mm initial ground
+  clearance. Six-DOF reference IK controls full foot orientation. Separate
+  measured crouched CoM height (0.205281 m) from root-reference height
+  (0.283261 m), and correct the viewer's CoM overlay accordingly.
+- The old extra 10 mm reference crouch fails full orientation IK at WR2's
+  90-degree knee boundary; 5 mm passes without loosening joint, ground, support
+  or IK bounds. All 53 signed-XY geometry checks pass with at least 8.96 mm
+  support margin. Preserve TB's timing/speed prior: measured leg-height ratio
+  is 0.9782, corresponding to about 0.9891 speed/time scaling. Pure turning
+  remains a separately tracked implementation, despite the new hip-yaw hardware.
+- Reference diagnostics now reflect lateral commands as well as phase, and
+  distinguish CAD home-site mismatch from generated-motion asymmetry. The
+  updated model has 0.2515 mm home-sole mirror mismatch; generated XY foot
+  displacement mirrors within 0.0086 mm. Do not force unequal CAD legs to
+  share identical IK coordinates. See [the import and verification guide](docs/design/hip_yaw_model_import.md).
+- Validation: 227 full-suite tests and ten focused import/symmetry tests pass;
+  Ruff and diff checks pass. Canonical/MJX compile, two-second home/walk-home
+  settling and deterministic re-import pass. The corrected model's fresh Mac
+  native smoke completes 80 transitions / two finite RSL-RL updates and saves
+  matching model-contract metadata plus finite policy/Adam state. It skips
+  held-out rollout evaluation; no GPU training or physical hardware was started.
+
+### Earlier signed-XY baseline on the five-DOF model
+
 - Added a dedicated `ppo_walking_xy.yaml` baseline for signed forward/backward,
   left/right and diagonal walking, with 20% standing and 80% TB-style ellipse
   sampling. Preserve the historical forward-only configs and ten leg actions;

@@ -2,9 +2,8 @@
 
 The deployable actor does not consume this reference.  Like ToddlerBot's
 ``WalkZMPReference``, it gives the asymmetric critic a phase- and
-command-conditioned bilateral leg trajectory.  WR2 has five rather than six
-degrees of freedom per leg, so the lookup is generated from the canonical
-MuJoCo model with damped numerical inverse kinematics.
+command-conditioned bilateral leg trajectory. The six-DOF leg lookup is
+generated from the canonical model, including full foot orientation.
 """
 
 from __future__ import annotations
@@ -22,6 +21,7 @@ _TWO_PI = 2.0 * np.pi
 _LEG_JOINT_SUFFIXES = (
     "hip_pitch",
     "hip_roll",
+    "hip_yaw",
     "knee_pitch",
     "ankle_pitch",
     "ankle_roll",
@@ -165,6 +165,8 @@ class ZMPReferenceDiagnostics:
 
     command_samples_m_s: tuple[float, ...]
     command_samples_xy_m_s: tuple[tuple[float, float], ...]
+    root_height_m: float
+    com_height_m: float
     foot_half_width_m: float
     com_lateral_amplitude_m: float
     max_ik_position_residual_m: float
@@ -196,7 +198,7 @@ _TABLE_CACHE: dict[
 
 
 class WR2ZMPReference:
-    """Command lookup containing a periodic ZMP plan and five-DOF leg IK."""
+    """Command lookup containing a periodic ZMP plan and six-DOF leg IK."""
 
     def __init__(
         self,
@@ -209,7 +211,8 @@ class WR2ZMPReference:
         command_vectors_m_s: tuple[tuple[float, float], ...] | None = None,
         gait_cycle_s: float,
         swing_height_m: float,
-        com_height_m: float,
+        com_height_m: float | None,
+        root_height_m: float | None = None,
         single_double_support_ratio: float,
         phase_samples: int,
         command_samples: int,
@@ -237,6 +240,10 @@ class WR2ZMPReference:
             raise ValueError("ZMP reference could not resolve every actuator joint")
         joint_qpos_indices = np.asarray(model.jnt_qposadr[joint_ids], dtype=np.int32)
         home_joint_position = home_qpos[joint_qpos_indices]
+        if root_height_m is None:
+            # New CAD knees stop at 90 degrees: the old extra 10 mm crouch
+            # cannot preserve flat-foot orientation at a 40 mm swing apex.
+            root_height_m = float(home_qpos[2] - 0.005)
 
         command_grid = np.asarray(
             command_vectors_m_s if command_vectors_m_s is not None else reference_command_grid(
@@ -250,6 +257,8 @@ class WR2ZMPReference:
             bytes(model.names),
             tuple(np.round(home_joint_position, 10)),
             tuple(np.round(model.jnt_range[joint_ids].reshape(-1), 10)),
+            model.body_pos.tobytes(), model.body_quat.tobytes(),
+            model.body_mass.tobytes(), model.site_pos.tobytes(),
         )
         cache_key = (
             model_signature,
@@ -257,7 +266,8 @@ class WR2ZMPReference:
             tuple(np.round(command_grid.reshape(-1), 10)),
             float(gait_cycle_s),
             float(swing_height_m),
-            float(com_height_m),
+            com_height_m,
+            root_height_m,
             float(single_double_support_ratio),
             int(phase_samples),
             float(ik_damping),
@@ -275,6 +285,7 @@ class WR2ZMPReference:
                 gait_cycle_s=gait_cycle_s,
                 swing_height_m=swing_height_m,
                 com_height_m=com_height_m,
+                root_height_m=root_height_m,
                 single_double_support_ratio=single_double_support_ratio,
                 phase_samples=phase_samples,
                 ik_damping=ik_damping,
@@ -303,7 +314,8 @@ class WR2ZMPReference:
         self._command_grid_numpy = np.asarray(command_grid)
         self._gait_cycle_s = float(gait_cycle_s)
         self._swing_height_m = float(swing_height_m)
-        self._com_height_m = float(com_height_m)
+        self._com_height_m = diagnostics.com_height_m
+        self._root_height_m = diagnostics.root_height_m
         self._home_root_height_m = float(home_qpos[2])
         self._single_double_support_ratio = float(single_double_support_ratio)
         self._foot_half_width_m = diagnostics.foot_half_width_m
@@ -341,10 +353,10 @@ class WR2ZMPReference:
             orientation_error = cls._orientation_error(
                 data.site_xmat[site_id].reshape(3, 3), target_orientation
             )
-            task_error = np.concatenate([position_error, orientation_error[:2]])
+            task_error = np.concatenate([position_error, orientation_error])
             if (
                 np.linalg.norm(position_error) < 1e-5
-                and np.linalg.norm(orientation_error[:2]) < 1e-4
+                and np.linalg.norm(orientation_error) < 1e-4
             ):
                 break
 
@@ -360,7 +372,7 @@ class WR2ZMPReference:
             task_jacobian = np.vstack(
                 [
                     jacobian_position[:, dof_indices],
-                    jacobian_rotation[:2, dof_indices],
+                    jacobian_rotation[:, dof_indices],
                 ]
             )
             regularized = task_jacobian @ task_jacobian.T + damping * np.eye(
@@ -382,7 +394,7 @@ class WR2ZMPReference:
         return (
             qpos[qpos_indices].copy(),
             float(np.linalg.norm(final_position_error)),
-            float(np.linalg.norm(final_orientation_error[:2])),
+            float(np.linalg.norm(final_orientation_error)),
         )
 
     @classmethod
@@ -397,7 +409,8 @@ class WR2ZMPReference:
         command_grid: np.ndarray,
         gait_cycle_s: float,
         swing_height_m: float,
-        com_height_m: float,
+        com_height_m: float | None,
+        root_height_m: float,
         single_double_support_ratio: float,
         phase_samples: int,
         ik_damping: float,
@@ -450,6 +463,28 @@ class WR2ZMPReference:
                 "site_orientation": data.site_xmat[site_id].reshape(3, 3).copy(),
             }
 
+        if com_height_m is None:
+            # TB keeps LIPM CoM height separate from pelvis/root height. Measure
+            # this model's actual crouched stance instead of borrowing root Z.
+            reference_qpos = home_qpos.copy()
+            reference_qpos[2] = root_height_m
+            for values in side_data.values():
+                joints, _, _ = cls._solve_leg_ik(
+                    model, data, home_qpos=reference_qpos,
+                    site_id=int(values["site_id"]),
+                    qpos_indices=np.asarray(values["qpos_indices"]),
+                    dof_indices=np.asarray(values["dof_indices"]),
+                    lower=np.asarray(values["lower"]), upper=np.asarray(values["upper"]),
+                    target_position=np.asarray(values["site_position"]),
+                    target_orientation=np.asarray(values["site_orientation"]),
+                    damping=ik_damping, max_iterations=ik_max_iterations,
+                )
+                reference_qpos[np.asarray(values["qpos_indices"])] = joints
+            data.qpos[:] = reference_qpos
+            mujoco.mj_forward(model, data)
+            com_height_m = float(data.subtree_com[torso_id, 2])
+        if com_height_m <= 0 or root_height_m <= 0:
+            raise ValueError("Reference root and CoM heights must be positive")
         foot_half_width_m = float(np.mean(np.abs(foot_lateral_positions)))
         angular_frequency = _TWO_PI / gait_cycle_s
         zmp_gain = 1.0 + com_height_m * angular_frequency**2 / _GRAVITY_M_S2
@@ -465,7 +500,7 @@ class WR2ZMPReference:
         ).copy()
         max_position_residual = 0.0
         max_orientation_residual = 0.0
-        root_height_offset = float(home_qpos[2] - com_height_m)
+        root_height_offset = float(home_qpos[2] - root_height_m)
 
         for command_index, (forward_speed, lateral_speed) in enumerate(command_grid):
             for phase_index, phase in enumerate(phase_grid):
@@ -528,6 +563,8 @@ class WR2ZMPReference:
         diagnostics = ZMPReferenceDiagnostics(
             command_samples_m_s=tuple(float(value) for value in np.unique(command_grid[:, 0])),
             command_samples_xy_m_s=tuple(tuple(map(float, value)) for value in command_grid),
+            root_height_m=float(root_height_m),
+            com_height_m=float(com_height_m),
             foot_half_width_m=foot_half_width_m,
             com_lateral_amplitude_m=com_lateral_amplitude_m,
             max_ik_position_residual_m=max_position_residual,
@@ -588,7 +625,7 @@ class WR2ZMPReference:
             com_lateral_m=float(com_y),
             zmp_lateral_m=float(zmp_y),
             com_lateral_acceleration_m_s2=float(com_acceleration_y),
-            root_height_m=self._com_height_m if is_walking else self._home_root_height_m,
+            root_height_m=self._root_height_m if is_walking else self._home_root_height_m,
             foot_forward_m=np.asarray(foot_x, dtype=np.float64),
             foot_lateral_m=np.asarray(foot_y, dtype=np.float64),
             foot_height_m=np.asarray(foot_z, dtype=np.float64),

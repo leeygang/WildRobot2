@@ -13,9 +13,9 @@ environment:
   # No magnetometer input; initial heading defines the local world frame.
   heading_observation: true
   active_groups: [leg]
-  # ToddlerBot's active pose regularizer, mapped into WR2's canonical 17-motor
+  # ToddlerBot's active pose regularizer, mapped into WR2's canonical 21-motor
   # order. Upper-body entries are zero because only legs are controlled.
-  pose_weights: [0.0, 0.0, 0.0, 0.0, 0.01, 1.0, 0.01, 5.0, 5.0, 0.0, 0.0, 0.0, 0.01, 1.0, 0.01, 5.0, 5.0]
+  pose_weights: [0.0, 0.0, 0.0, 0.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.0, 0.0, 0.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.0, 0.0]
   # ToddlerBot policy semantics: an unbounded action is a radian residual
   # around walk_home. Physical targets, rather than policy samples, are clipped.
   policy_action_scale_rad: 0.25
@@ -46,7 +46,7 @@ environment:
   feet_phase_tracking_sigma_m2: 0.0007
   min_feet_lateral_distance_m: 0.06
   contact_force_threshold_n: 1.0
-  target_torso_height_m: 0.301
+  target_torso_height_m: 0.288260761
   terminate_height_m: 0.20
   terminate_max_height_m: 1.0
   # Match ToddlerBot's active exp(-1000 * velocity_error^2) reward. The earlier
@@ -63,14 +63,14 @@ environment:
   torque_exposure_time_constant_s: 10.0
   # ToddlerBot strategy: direct PPO from scratch. The phase/command gait lookup
   # is privileged critic context, not an actor input, action baseline, or motor
-  # imitation reward. WR2's five-DOF trajectory is solved against its canonical
+  # imitation reward. WR2's six-DOF trajectory is solved against its canonical
   # MuJoCo foot sites and its lateral path satisfies the LIPM ZMP equation.
   zmp_reference:
     phase_samples: 36
     command_samples: 5
-    # A slightly deeper reference crouch keeps 0.20--0.25 m/s stance geometry
-    # reachable by WR2's five-DOF legs. The torso-height reward remains off.
-    com_height_m: 0.294
+    # LIPM CoM is measured from the model's crouched stance; root height is
+    # separately derived from grounded walk_home, not borrowed from TB.
+    com_height_m: null
     # Match ToddlerBot: single support lasts twice as long as double support.
     single_double_support_ratio: 2.0
     ik_damping: 0.0002

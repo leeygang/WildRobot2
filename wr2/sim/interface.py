@@ -265,11 +265,10 @@ def build_wr2_proprio_v3(
     active_indices: npt.ArrayLike,
     command_velocity: npt.ArrayLike,
 ) -> FloatArray:
-    """Build the 55-value walking frame used by the active-leg policy.
+    """Build a walking frame sized from the robot and active-action counts.
 
-    Joint position and velocity retain all 17 actuators, as in ToddlerBot,
-    while the previous-action field contains only the ten policy-controlled
-    leg joints.
+    Joint position and velocity retain all actuators, as in ToddlerBot,
+    while previous action contains only the policy-controlled leg joints.
     """
     if not np.isfinite(gait_phase_rad):
         raise ValueError("gait_phase_rad must be finite")

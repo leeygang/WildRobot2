@@ -16,6 +16,7 @@ environment:
   - 0.0
   - 0.01
   - 1.0
+  - 5.0
   - 0.01
   - 5.0
   - 5.0
@@ -24,9 +25,12 @@ environment:
   - 0.0
   - 0.01
   - 1.0
+  - 5.0
   - 0.01
   - 5.0
   - 5.0
+  - 0.0
+  - 0.0
   policy_action_scale_rad: 0.25
   action_delay_steps: 1
   privileged_linear_velocity_scale: 2.0
@@ -51,7 +55,7 @@ environment:
   feet_phase_tracking_sigma_m2: 0.0007
   min_feet_lateral_distance_m: 0.06
   contact_force_threshold_n: 1.0
-  target_torso_height_m: 0.301
+  target_torso_height_m: 0.288260761
   terminate_height_m: 0.2
   terminate_max_height_m: 1.0
   velocity_reward_sigma: 0.03162277660168379
@@ -62,7 +66,8 @@ environment:
   zmp_reference:
     phase_samples: 36
     command_samples: 5
-    com_height_m: 0.294
+    # Measure actual crouched CoM separately from model-derived root height.
+    com_height_m: null
     single_double_support_ratio: 2.0
     ik_damping: 0.0002
     ik_max_iterations: 120

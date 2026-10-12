@@ -94,8 +94,8 @@ class WalkingDiagnosticsTest(unittest.TestCase):
         np.testing.assert_allclose(
             turned.pipeline_state.q[7:], state.pipeline_state.q[7:]
         )
-        np.testing.assert_allclose(turned.obs["state"][57:], state.obs["state"][57:])
-        np.testing.assert_allclose(turned.obs["state"][55:57], [1, 0], atol=1e-6)
+        np.testing.assert_allclose(turned.obs["state"][67:], state.obs["state"][67:])
+        np.testing.assert_allclose(turned.obs["state"][65:67], [1, 0], atol=1e-6)
         for name in (
             "reference_heading",
             "previous_action",

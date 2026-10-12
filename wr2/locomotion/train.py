@@ -411,6 +411,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         f"IK residual={zmp.max_ik_position_residual_m * 1000.0:.2f}mm"
     )
     print(f"  ZMP preflight: {_format_zmp_preflight(zmp_preflight)}")
+    print(f"  Reference Z:   root={zmp.root_height_m:.3f}m CoM={zmp.com_height_m:.3f}m")
     print(
         "  Network:      "
         f"policy={list(training_config.network.policy_hidden_layer_sizes)} "

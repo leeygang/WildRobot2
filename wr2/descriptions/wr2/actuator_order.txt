@@ -1,13 +1,14 @@
 # Canonical WR2 actuator order.
 #
-# This preserves the WR1 17-actuator ABI.  The only naming difference is that
-# WR2 exposes the physical waist drive joint as waist_yaw_drive.
+# Hip-yaw model revision: six actuators per leg; neck/head remain inactive
+# during walking. This intentionally replaces the old 17-actuator ABI.
 waist_yaw_drive
 left_shoulder_pitch
 left_shoulder_roll
 left_elbow_pitch
 left_hip_pitch
 left_hip_roll
+left_hip_yaw
 left_knee_pitch
 left_ankle_pitch
 left_ankle_roll
@@ -16,6 +17,9 @@ right_shoulder_roll
 right_elbow_pitch
 right_hip_pitch
 right_hip_roll
+right_hip_yaw
 right_knee_pitch
 right_ankle_pitch
 right_ankle_roll
+neck_yaw
+head_pitch

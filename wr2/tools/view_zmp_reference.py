@@ -76,7 +76,13 @@ def _draw_reference_overlay(viewer, context, sample, root_x: float) -> None:
         viewer.cam.lookat[0] = actual_com[0]
         viewer.cam.lookat[1] = actual_com[1]
         root_y = context.data.qpos[1] - sample.com_lateral_m
-        planned_com = np.asarray([root_x, root_y + sample.com_lateral_m, sample.root_height_m])
+        is_walking = np.linalg.norm(
+            [sample.command_forward_m_s, sample.command_lateral_m_s]
+        ) >= 1e-6
+        com_height = (
+            context.reference.diagnostics.com_height_m if is_walking else actual_com[2]
+        )
+        planned_com = np.asarray([root_x, root_y + sample.com_lateral_m, com_height])
         planned_zmp = np.asarray([root_x, root_y + sample.zmp_lateral_m, 0.004])
         _add_sphere(scene, actual_com, 0.008, [1.0, 0.1, 0.1, 1.0])
         _add_sphere(scene, planned_com, 0.007, [1.0, 0.8, 0.1, 1.0])

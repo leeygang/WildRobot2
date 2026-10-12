@@ -103,6 +103,7 @@ def create_reference_context(
         gait_cycle_s=training_config.environment.gait_cycle_s,
         swing_height_m=training_config.environment.swing_height_m,
         com_height_m=zmp.com_height_m,
+        root_height_m=zmp.root_height_m,
         single_double_support_ratio=zmp.single_double_support_ratio,
         phase_samples=zmp.phase_samples,
         command_samples=len(commands_xy),
@@ -235,7 +236,7 @@ def validate_zmp_reference(
     minimum_support_margin = np.inf
     maximum_lipm_residual = 0.0
     joint_frames = []
-    com_height = context.training_config.environment.zmp_reference.com_height_m
+    com_height = context.reference.diagnostics.com_height_m
 
     for frame_index in range(samples):
         phase = frame_index * 2.0 * np.pi / samples

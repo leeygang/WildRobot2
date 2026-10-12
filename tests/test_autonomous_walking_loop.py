@@ -111,10 +111,10 @@ class AutonomousWalkingLoopTest(unittest.TestCase):
 
     def test_frozen_contract_includes_deployment_and_servo_fields(self):
         contract = _contract_snapshot(self.config.base_training_config)
-        self.assertEqual(contract["actor_observation"]["layout_id"], "wr2_proprio_v4")
+        self.assertEqual(contract["actor_observation"]["layout_id"], "wr2_proprio_v5")
         self.assertEqual(contract["actor_observation"]["history_frames"], 15)
         self.assertEqual(
-            contract["action"]["representation"], "normalized_joint_position"
+            contract["action"]["representation"], "joint_position_residual"
         )
         self.assertEqual(contract["active_groups"], ["leg"])
         self.assertEqual(

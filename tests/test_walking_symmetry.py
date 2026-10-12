@@ -38,18 +38,22 @@ class WalkingSymmetryTest(unittest.TestCase):
         cls.active = np.asarray(cls.env._active_indices)
 
     def test_model_derived_signs_are_not_copied_from_wr1(self):
-        np.testing.assert_allclose(self.signs, -1)
-        np.testing.assert_array_equal(self.source[self.source], np.arange(17))
+        names = self.env.robot.actuator_names
+        self.assertEqual(self.signs[names.index("left_hip_yaw")], -1)
+        self.assertEqual(self.signs[names.index("right_hip_yaw")], -1)
+        self.assertEqual(self.signs[names.index("neck_yaw")], -1)
+        self.assertEqual(self.signs[names.index("head_pitch")], 1)
+        np.testing.assert_array_equal(self.source[self.source], np.arange(21))
         np.testing.assert_allclose(self.signs * self.signs[self.source], 1)
         home = np.asarray(self.env._home_ctrl)
         np.testing.assert_allclose(home[self.source] * self.signs, home)
 
     def test_diagnostic_actor_projection_is_equivariant_for_all_history_frames(self):
-        observation = jax.random.normal(jax.random.PRNGKey(0), (2, 855))
-        weights = jp.linspace(-0.1, 0.1, 855 * 10).reshape(855, 10)
+        observation = jax.random.normal(jax.random.PRNGKey(0), (2, 1005))
+        weights = jp.linspace(-0.1, 0.1, 1005 * 12).reshape(1005, 12)
 
         def actor(obs, key):
-            return obs["state"] @ weights + jp.arange(10), {}
+            return obs["state"] @ weights + jp.arange(12), {}
 
         policy = projected_policy(
             actor, self.source, self.signs, self.active, heading=True
@@ -72,17 +76,21 @@ class WalkingSymmetryTest(unittest.TestCase):
     def test_model_and_entire_reference_grid_are_nearly_mirrored(self):
         result = verify_model_reference(self.env, self.model, self.source, self.signs)
         self.assertEqual(result["home_error_deg"]["max_abs"], 0)
-        self.assertEqual(result["limit_error_deg"]["max_abs"], 0)
+        self.assertLess(result["limit_error_deg"]["max_abs"], 1e-9)
         self.assertLess(result["fk_position_error_mm"]["max_abs"], 0.5)
         self.assertLess(result["reference_joint_error_deg"]["max_abs"], 0.1)
-        self.assertLess(result["reference_foot_error_mm"]["max_abs"], 0.1)
+        self.assertLess(result["reference_foot_displacement_error_mm"]["max_abs"], 0.1)
+        self.assertLess(
+            result["reference_foot_error_mm"]["max_abs"],
+            result["home_foot_error_mm"]["max_abs"] + 0.1,
+        )
         self.assertLess(result["leg_mass_matrix_relative_error"]["max_abs"], 0.002)
 
     def test_actor_transform_matches_a_physically_reflected_state(self):
         env = self.env
         state = env.reset(jax.random.PRNGKey(0))
         q = state.pipeline_state.q.at[env._joint_qpos_indices].add(
-            jp.linspace(-0.1, 0.1, 17)
+            jp.linspace(-0.1, 0.1, 21)
         )
         q = q.at[3:7].set(
             jp.asarray([0.98, 0.08, 0.06, 0.16])
@@ -101,7 +109,7 @@ class WalkingSymmetryTest(unittest.TestCase):
         reflected_qd = reflected_qd.at[:3].set(qd[:3] * jp.asarray([1, -1, 1]))
         reflected_qd = reflected_qd.at[3:6].set(qd[3:6] * jp.asarray([-1, 1, -1]))
         reflected = env.pipeline_init(reflected_q, reflected_qd)
-        command, action = jp.asarray([0.1, 0.02, 0.03]), jp.linspace(-0.1, 0.1, 10)
+        command, action = jp.asarray([0.1, 0.02, 0.03]), jp.linspace(-0.1, 0.1, 12)
         active_source = np.asarray(
             [list(self.active).index(int(self.source[j])) for j in self.active]
         )
@@ -135,7 +143,7 @@ class WalkingSymmetryTest(unittest.TestCase):
 
     def test_mirror_all_actor_frames_and_involution(self):
         values = jp.asarray(
-            np.random.default_rng(0).normal(size=(2, 855)), dtype=jp.float32
+            np.random.default_rng(0).normal(size=(2, 1005)), dtype=jp.float32
         )
 
         def mirror(x):
@@ -146,34 +154,34 @@ class WalkingSymmetryTest(unittest.TestCase):
         mirrored = jax.jit(mirror)(values)
         np.testing.assert_allclose(mirror(mirrored), values)
         original, reflected = (
-            np.asarray(values).reshape(2, 15, 57),
-            np.asarray(mirrored).reshape(2, 15, 57),
+            np.asarray(values).reshape(2, 15, 67),
+            np.asarray(mirrored).reshape(2, 15, 67),
         )
         np.testing.assert_allclose(reflected[..., :2], -original[..., :2])
         np.testing.assert_allclose(reflected[..., 2], original[..., 2])
         np.testing.assert_allclose(reflected[..., 3:5], -original[..., 3:5])
         np.testing.assert_allclose(
-            reflected[..., 49:52], original[..., 49:52] * [-1, 1, -1]
+            reflected[..., 59:62], original[..., 59:62] * [-1, 1, -1]
         )
         np.testing.assert_allclose(
-            reflected[..., 52:55], original[..., 52:55] * [1, -1, 1]
+            reflected[..., 62:65], original[..., 62:65] * [1, -1, 1]
         )
         np.testing.assert_allclose(
-            reflected[..., 55:57], original[..., 55:57] * [-1, 1]
+            reflected[..., 65:67], original[..., 65:67] * [-1, 1]
         )
-        for start in (5, 22):
+        for start in (5, 26):
             np.testing.assert_allclose(
-                reflected[..., start : start + 17],
+                reflected[..., start : start + 21],
                 original[..., start + self.source] * self.signs,
             )
 
     def test_heading_ablation_preserves_every_other_history_feature(self):
-        values = jp.arange(2 * 855, dtype=jp.float32).reshape(2, 855)
+        values = jp.arange(2 * 1005, dtype=jp.float32).reshape(2, 1005)
         hidden = jax.jit(ablate_heading)(values)
-        original, changed = values.reshape(2, 15, 57), hidden.reshape(2, 15, 57)
-        np.testing.assert_array_equal(changed[..., :55], original[..., :55])
-        np.testing.assert_array_equal(changed[..., 55], 0)
-        np.testing.assert_array_equal(changed[..., 56], 1)
+        original, changed = values.reshape(2, 15, 67), hidden.reshape(2, 15, 67)
+        np.testing.assert_array_equal(changed[..., :65], original[..., :65])
+        np.testing.assert_array_equal(changed[..., 65], 0)
+        np.testing.assert_array_equal(changed[..., 66], 1)
         np.testing.assert_array_equal(ablate_heading(hidden), hidden)
 
     def test_substep_replay_preserves_training_physics(self):

@@ -66,15 +66,16 @@ class ModelContractTest(unittest.TestCase):
     def test_zero_angle_home_pose(self):
         torso = self.root.find("worldbody/body[@name='torso']")
         self.assertIsNotNone(torso)
-        self.assertEqual(torso.get("pos"), "0 0 0.305000")
 
         key = self.root.find("keyframe/key[@name='home']")
         self.assertIsNotNone(key)
         qpos = [float(value) for value in key.get("qpos", "").split()]
         ctrl = [float(value) for value in key.get("ctrl", "").split()]
-        self.assertEqual(len(qpos), 25)
-        self.assertEqual(len(ctrl), 17)
-        self.assertEqual(qpos[:7], [0.0, 0.0, 0.305, 1.0, 0.0, 0.0, 0.0])
+        self.assertEqual(len(qpos), 29)
+        self.assertEqual(len(ctrl), 21)
+        self.assertAlmostEqual(float(torso.get("pos").split()[2]), qpos[2])
+        self.assertTrue(0.28 < qpos[2] < 0.30)
+        self.assertEqual(qpos[3:7], [1.0, 0.0, 0.0, 0.0])
         self.assertTrue(all(value == 0.0 for value in qpos[7:]))
         self.assertTrue(all(value == 0.0 for value in ctrl))
 
@@ -83,9 +84,9 @@ class ModelContractTest(unittest.TestCase):
         self.assertIsNotNone(key)
         qpos = [float(value) for value in key.get("qpos", "").split()]
         ctrl = [float(value) for value in key.get("ctrl", "").split()]
-        self.assertEqual(qpos[2], 0.304)
-        self.assertEqual(len(qpos), 25)
-        self.assertEqual(len(ctrl), 17)
+        self.assertTrue(0.28 < qpos[2] < 0.30)
+        self.assertEqual(len(qpos), 29)
+        self.assertEqual(len(ctrl), 21)
         self.assertEqual(ctrl[actuator_order().index("left_knee_pitch")], -0.24)
         self.assertEqual(ctrl[actuator_order().index("right_knee_pitch")], 0.24)
 

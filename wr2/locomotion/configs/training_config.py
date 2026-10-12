@@ -76,12 +76,13 @@ class DynamicsRandomization:
 class ZMPReferenceConfig:
     phase_samples: int
     command_samples: int
-    com_height_m: float
+    com_height_m: float | None
     single_double_support_ratio: float
     ik_damping: float
     ik_max_iterations: int
     max_position_residual_m: float
     max_orientation_residual_rad: float
+    root_height_m: float | None = None
 
 
 @dataclass(frozen=True)
@@ -303,7 +304,7 @@ def load_training_config(
         raise ValueError("domain_randomization.backlash_rad must be non-negative")
 
     env_raw = _mapping(root["environment"], "environment")
-    # Historical snapshots retain their v3 observation/reward contract.
+    # Missing heading flags preserve pre-heading features, not old robot dimensions.
     env_raw = {"heading_observation": False, "solver_iterations": 1, **env_raw}
     if isinstance(env_raw["solver_iterations"], bool):
         raise ValueError("environment.solver_iterations must be an integer")
@@ -338,7 +339,10 @@ def load_training_config(
         isinstance(value, str) and value for value in active_groups
     ):
         raise ValueError("environment.active_groups must be a list of names")
-    zmp_raw = _mapping(env_raw["zmp_reference"], "environment.zmp_reference")
+    zmp_raw = {
+        "root_height_m": None,
+        **_mapping(env_raw["zmp_reference"], "environment.zmp_reference"),
+    }
     zmp_fields = {field.name for field in fields(ZMPReferenceConfig)}
     _expect_keys(zmp_raw, zmp_fields, "environment.zmp_reference")
     zmp_integer_fields = {"phase_samples", "command_samples", "ik_max_iterations"}
@@ -348,7 +352,11 @@ def load_training_config(
             for name in zmp_integer_fields
         },
         **{
-            name: _float(zmp_raw[name], f"environment.zmp_reference.{name}")
+            name: (
+                None
+                if name in {"com_height_m", "root_height_m"} and zmp_raw[name] is None
+                else _float(zmp_raw[name], f"environment.zmp_reference.{name}")
+            )
             for name in zmp_fields - zmp_integer_fields
         },
     )
@@ -436,8 +444,10 @@ def load_training_config(
         raise ValueError(
             "environment.zmp_reference.phase_samples must be even and at least four"
         )
-    if zmp_reference.com_height_m <= 0.0:
+    if zmp_reference.com_height_m is not None and zmp_reference.com_height_m <= 0.0:
         raise ValueError("environment.zmp_reference.com_height_m must be positive")
+    if zmp_reference.root_height_m is not None and zmp_reference.root_height_m <= 0:
+        raise ValueError("environment.zmp_reference.root_height_m must be positive")
     if zmp_reference.single_double_support_ratio <= 0.0:
         raise ValueError(
             "environment.zmp_reference.single_double_support_ratio must be positive"
@@ -462,7 +472,7 @@ def load_training_config(
                 raise ValueError(f"environment.{name} must cover both signed XY deadzones")
     if environment.command_yaw_range_rad_s != (0.0, 0.0):
         raise ValueError(
-            "WR2's five-DOF legs support XY references, not turning; "
+            "WR2's current reference supports XY translation, not turning; "
             "environment.command_yaw_range_rad_s must be [0, 0]"
         )
 

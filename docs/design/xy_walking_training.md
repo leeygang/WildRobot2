@@ -4,17 +4,20 @@
 
 Use `wr2/locomotion/configs/ppo_walking_xy.yaml` for the new task: standing,
 forward/backward, left/right and diagonal translation. Turning is disabled.
-Historical forward-only configs and checkpoints are preserved; the autonomous
+The updated model has 12 leg actions. Old ten-action checkpoints are historical
+and cannot be restored on this model; the autonomous
 walking-agent campaign still has forward-only acceptance criteria. Use the
 manual training/evaluation commands below for this XY baseline.
 
 ToddlerBot has **two independent hip-yaw axes**, one in each leg. On 2xc each
 has a drive/driven gear pair (`left_hip_yaw_drive` / `left_hip_yaw_driven`,
-and the corresponding right pair). It also has waist yaw. WR2 has five
-actuated joints per leg, with hip pitch/roll but no hip yaw. Its waist yaw
-rotates the upper body relative to the pelvis; it does not independently
-orient either foot. Keep only the ten leg actions active. Neither XY training
-nor this change adds waist control or assumes TB-equivalent turning ability.
+and the corresponding right pair). It also has waist yaw. WR2's new export
+likewise has six actuated joints per leg, including independent hip yaw.
+Keep only the twelve leg actions active; waist, arms, neck and head stay at
+home. The mass/inertia of those inactive parts still affects walking.
+Turning remains a separate reference/command implementation, not something
+enabled automatically by adding the hip-yaw hardware. See
+[the model import and mass-property audit](hip_yaw_model_import.md).
 
 ## Command and PPO parity
 
@@ -37,13 +40,16 @@ the shared draw for X/Y. It is not a uniform Cartesian command box. Portable
 regression tests include golden outputs extracted from the current TB method.
 
 The new config retains Normal/log-std RSL-RL PPO, adaptive KL, existing network,
-rewards, action scale/delay, observation/history layout, domain randomization,
+rewards, action scale/delay, domain randomization,
 servo model and Newton-10 physics. Mirror coefficient is zero. This is an
 expanded-task TB-default baseline, not a controlled mirror-only experiment.
+The new model requires 1005 actor / 1740 critic inputs and twelve leg actions;
+all six-DOF pose weights and reflection transforms follow the current geometry.
 
-Measured canonical home hip-to-foot heights: WR2 0.25206 m, TB2xc 0.24350 m.
-Length ratio 1.035 implies dynamically similar speed/time scale sqrt(ratio)
-about 1.017. Retain TB's initial speed bounds, 0.72 s cycle, 0.04 m swing and
+Measured canonical walk-home hip-to-foot height: WR2 0.23820 m, compared with
+TB2xc home 0.24350 m. Length ratio 0.9782 implies dynamically similar
+speed/time scale sqrt(ratio) about 0.9891. Retain TB's initial speed bounds,
+0.72 s cycle, 0.04 m swing and
 20 ms control, documenting this small scaling approximation. WR2's lower mass
 and different actuators remain represented in its model and hardware limits.
 
@@ -52,21 +58,23 @@ and different actuators remain represented in its model and hardware limits.
 The critic lookup now conditions on both X and Y and applies TB's
 `reference_heading - torso_heading` XY correction. Translation lookup bounds
 also cover rotated commands. The deployable actor receives no reference input;
-actor/critic observation sizes and all ten leg-action semantics are unchanged.
+actor receives the model-sized observation and uses twelve leg residuals.
 
-WR2 retains its existing periodic LIPM proxy and model-derived numerical
-five-DOF IK, rather than copying TB's six-DOF IK or its full preview-controller
+WR2 retains its existing periodic LIPM reference and model-derived numerical
+six-DOF IK, rather than copying TB's analytic IK or its full preview-controller
 trajectory. This is an explicit implementation difference, not exact planner
 parity. Lateral stepping moves the stance centers twice per cycle: an analytic
 second harmonic follows that advance, with each harmonic satisfying
 `ZMP = CoM - h/g * CoM_acceleration`. At zero lateral speed the historical
-forward reference is unchanged. The configured LIPM/root proxy height remains
-unchanged; it is not a measured physical whole-robot CoM height.
+forward trajectory equations are unchanged. LIPM CoM height is now measured
+from the actual crouched model, separately from the reference root height.
+The reference's additional 5 mm crouch respects WR2's 90-degree knee limits
+with full foot-orientation IK, without relaxing geometric gates.
 
 The initial uncompensated XY extension failed the extra heading-envelope
 support checks by about 4 mm. The lateral-advance correction passes every
-point of the 49-command lookup, including standing and envelope corners:
-minimum support margin about 8 mm, stance bottom height <=2.85 mm. Existing
+point of the 49-command lookup, including standing and envelope corners,
+plus four exact ranked diagonals: minimum support margin 8.96 mm. Existing
 ground/support/IK bounds are not relaxed. Tests independently check the LIPM
 acceleration by finite differences, physical joint ranges, reference continuity,
 stationary stance-foot XY motion and the heading correction.
@@ -82,6 +90,8 @@ walking, dynamic balance, continuous servo thermal safety or deployment readines
 
 ## Training and evaluation
 
+The updated CAD neck/head masses have been re-imported and geometry rechecked.
+They still need hardware mass/servo qualification before deployment.
 After pushing the preparation commit, on GPU:
 
 ```bash
@@ -93,7 +103,8 @@ uv run --extra training python -m wr2.locomotion.train \
 Launch without `--restore-checkpoint` for the fresh 1B baseline. Run ID is
 generated as `wr2_xy_<timestamp>_seed0`. There are 51 evaluations including
 step zero, roughly every 20M added transitions. Review intermediate results
-at 200M, not only the final model. Keep seed1 best120 as the forward reference.
+at 200M, not only the final model. Old forward checkpoints remain historical
+evidence; they cannot be replayed on the new dynamics for a paired comparison.
 For a bounded initial 200M run, append `--num-timesteps 200000000 --num-evals 11`.
 
 Each training evaluation covers ten fixed directions: X +/-0.05 and +/-0.10,

@@ -263,13 +263,13 @@ class RobotDescription:
             raise ValueError("control period must equal timestep times decimation")
 
         action_config = config["action"]
-        if action_config.get("representation") != "normalized_joint_position":
+        if action_config.get("representation") != "joint_position_residual":
             raise ValueError(
-                "WR2 requires the normalized_joint_position action contract"
+                "WR2 requires the joint_position_residual walking action contract"
             )
         normalized_range = action_config["normalized_range"]
         if normalized_range != [-1.0, 1.0]:
-            raise ValueError("WR2 v1 requires a normalized action range of [-1, 1]")
+            raise ValueError("Normalized-position tools require a range of [-1, 1]")
         history_frames = int(config["observation"]["history_frames"])
         if history_frames <= 0:
             raise ValueError("observation.history_frames must be positive")

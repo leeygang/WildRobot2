@@ -90,13 +90,13 @@ class XYWalkingTest(unittest.TestCase):
         self.assertEqual(self.config.network, forward.network)
         self.assertEqual(self.config.environment.command_yaw_range_rad_s, (0.0, 0.0))
         self.assertEqual(self.config.ppo.mirror_loss_coeff, 0.0)
-        self.assertEqual(self.env.action_size, 10)
+        self.assertEqual(self.env.action_size, 12)
         self.assertNotIn(
             self.env.robot.actuator_names.index("waist_yaw_drive"),
             np.asarray(self.env._active_indices),
         )
         self.assertEqual(
-            self.env.observation_size, {"state": (855,), "privileged_state": (1470,)}
+            self.env.observation_size, {"state": (1005,), "privileged_state": (1740,)}
         )
 
     def test_reference_geometry_covers_full_lookup_and_heading_envelope(self):
@@ -231,7 +231,7 @@ class XYWalkingTest(unittest.TestCase):
                 ) / (phase_step / omega) ** 2
                 implied_zmp = (
                     center.com_lateral_m
-                    - self.config.environment.zmp_reference.com_height_m
+                    - reference.diagnostics.com_height_m
                     / 9.81
                     * acceleration
                 )

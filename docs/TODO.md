@@ -1,9 +1,36 @@
 # WildRobot2 TODO plan
 
 This file tracks work that must not be inferred from simulation results or
-vendor headline specifications. Training may proceed with the current
-randomized provisional model, but the hardware-calibration items below must be
+vendor headline specifications. The new hip-yaw model now includes neck/head
+CAD mass properties; the hardware-calibration items below must still be
 completed before treating a policy as deployment-qualified.
+
+## Six-DOF model revision
+
+- [x] Replace the initial 1e-9 kg neck/head placeholders with the updated
+  exported CAD mass/inertia. Neck-yaw body is 5.087 g and head body 13.467 g;
+  re-imported model mass is 2.058328 kg. Home settling and full XY reference
+  geometry pass. See [the import evidence and commands](design/hip_yaw_model_import.md).
+- [ ] Compare the summed 2.058328 kg CAD mass with a scale and independently
+  check electronics/servo mass overrides. Positive CAD inertia is not proof of
+  measured hardware accuracy. Holding the head at home does not remove its
+  mass from walking dynamics; re-export and rerun the geometry gate after changes.
+- [ ] Identify the actual neck/head servo types, safe limits and home mounting.
+  Their exported `htd45hServo` class is provisional, not deployment-qualified.
+  Keep them inactive in walking PPO until a separate head-control task exists.
+- [ ] Run a fresh 12-action XY policy on the corrected CAD model. Old
+  ten-action forward checkpoints cannot be resumed on the 21-actuator model.
+  Validate the GPU CLI, inspect the 200M intermediates, and independently check
+  fixed XY directions plus standing/start/stop and random-command schedules.
+- [ ] Add turning/path-reference support after XY walking is validated. Hip-yaw
+  hardware now exists, but the reference and command sampler still exclude
+  pure turning; waist-only rotation is not a complete turning implementation.
+- [ ] Qualify faster reference envelopes before expanding beyond current TB
+  XY commands. In particular, 0.25 m/s fails the new model's stance-ground gate;
+  do not silently relax physical limits or geometric tolerances.
+
+The older walking entries below document the previous ten-action model.
+Its restore commands are historical, not valid continuations for this revision.
 
 ## Walking training
 
@@ -77,7 +104,8 @@ completed before treating a policy as deployment-qualified.
 - [ ] Pass the P0 walking gates at 0.10, 0.15, and 0.20 m/s under independent
   randomized confirmation.
 - [ ] Export the accepted policy and implement the physical runtime adapter for
-  `wr2_proprio_v3` and the limit-aware ten-leg-action contract.
+  `wr2_proprio_v5`: 21 measured joints, twelve leg residuals, 67-value frames,
+  fifteen-frame history, matching IMU-relative heading and 0.25-rad residual mapping.
 
 ## Hardware calibration required before deployment
 

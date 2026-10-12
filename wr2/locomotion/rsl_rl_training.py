@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections
+import hashlib
 import math
 import re
 import time
@@ -90,6 +91,17 @@ class RSLRLWrapper:
         self._jax_to_torch = jax_to_torch
         self._torch_to_jax = torch_to_jax
         self._keys = jax.random.split(reset_rng, num_envs)
+        if hasattr(env, "unwrapped") and hasattr(env.unwrapped, "robot"):
+            robot = env.unwrapped.robot
+            self.robot_contract = {
+                "model_sha256": hashlib.sha256(
+                    (robot.directory / "wr2_mjx.xml").read_bytes()
+                ).hexdigest(),
+                "actuator_names": list(robot.actuator_names),
+                "active_actuator_names": [
+                    robot.actuator_names[int(i)] for i in env.unwrapped._active_indices
+                ],
+            }
         self._reset_fn = jax.jit(env.reset)
         self._step_fn = jax.jit(env.step)
         self.last_state = self.reset()
@@ -242,6 +254,11 @@ def _jax_policy_factory(activation: str):
     def make_policy(parameters):
         def policy(observation, _key):
             value = observation["state"]
+            if value.shape[-1] != parameters[0][0].shape[1]:
+                raise ValueError(
+                    "Checkpoint observation shape differs from this robot model; "
+                    "use a fresh hip-yaw policy"
+                )
             for index, (weight, bias) in enumerate(parameters):
                 value = value @ weight.T + bias
                 if index + 1 < len(parameters):
@@ -393,12 +410,14 @@ class RSLPPOTrainer:
             "learning_rate": self.algorithm.learning_rate,
             "torch_rng_state": self.torch.get_rng_state(),
             "mirror_loss_coeff": self.config.ppo.mirror_loss_coeff,
-            "observation_layout": "wr2_proprio_v4"
+            "observation_layout": "wr2_proprio_v5"
             if self.config.environment.heading_observation
-            else "wr2_proprio_v3",
+            else "wr2_proprio_v5_without_heading",
         }
         if self.torch.cuda.is_available():
             state["torch_cuda_rng_state_all"] = self.torch.cuda.get_rng_state_all()
+        if hasattr(self.env, "robot_contract"):
+            state["robot_contract"] = self.env.robot_contract
         return state
 
     def save(self, path: Path) -> None:
@@ -413,14 +432,20 @@ class RSLPPOTrainer:
         )
         if checkpoint.get("backend", "rsl_rl") != "rsl_rl":
             raise ValueError(f"Not an RSL-RL checkpoint: {path}")
-        for name in ("actor.0.weight", "critic.0.weight"):
-            if (
-                checkpoint["model_state_dict"][name].shape
-                != self.policy.state_dict()[name].shape
-            ):
+        if (
+            hasattr(self.env, "robot_contract")
+            and checkpoint.get("robot_contract") != self.env.robot_contract
+        ):
+            raise ValueError(
+                "Checkpoint robot geometry/actuator contract differs; "
+                "start fresh training for the new model"
+            )
+        for name, value in self.policy.state_dict().items():
+            if checkpoint["model_state_dict"][name].shape != value.shape:
                 raise ValueError(
-                    "Checkpoint observation shape differs; migrate a v3 checkpoint "
-                    "with python -m wr2.tools.migrate_heading_checkpoint before v4 training"
+                    "Checkpoint robot/action/observation shape differs. The hip-yaw "
+                    "model requires fresh training; legacy heading migration cannot "
+                    "add the two leg actions or update its dynamics."
                 )
         self.policy.load_state_dict(checkpoint["model_state_dict"])
         self.algorithm.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])

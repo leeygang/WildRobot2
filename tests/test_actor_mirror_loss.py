@@ -59,10 +59,10 @@ class ActorMirrorLossTest(unittest.TestCase):
             env=SimpleNamespace(unwrapped=self.base_env),
             device=torch.device("cpu"),
             num_envs=4,
-            num_actions=10,
+            num_actions=12,
             get_observations=lambda: (
-                torch.zeros(4, 855),
-                {"observations": {"critic": torch.zeros(4, 1470)}},
+                torch.zeros(4, 1005),
+                {"observations": {"critic": torch.zeros(4, 1740)}},
             ),
         )
         return RSLPPOTrainer(
@@ -128,10 +128,10 @@ class ActorMirrorLossTest(unittest.TestCase):
             env=SimpleNamespace(unwrapped=self.base_env),
             device=torch.device("cpu"),
             num_envs=4,
-            num_actions=10,
+            num_actions=12,
             get_observations=lambda: (
-                torch.zeros(4, 855),
-                {"observations": {"critic": torch.zeros(4, 1470)}},
+                torch.zeros(4, 1005),
+                {"observations": {"critic": torch.zeros(4, 1740)}},
             ),
         )
         with patch.object(RSLPPOTrainer, "load", side_effect=AssertionError):
@@ -151,7 +151,7 @@ class ActorMirrorLossTest(unittest.TestCase):
         self.assertEqual(state["learning_rate"], fresh.ppo.learning_rate)
         self.assertEqual(state["mirror_loss_coeff"], 1.0)
         torch.testing.assert_close(
-            trainer.policy.log_std.exp(), torch.full((10,), 0.5), rtol=0, atol=0
+            trainer.policy.log_std.exp(), torch.full((12,), 0.5), rtol=0, atol=0
         )
 
     def test_mirror_off_config_changes_only_loss_budget_cadence_and_labels(self):
@@ -297,13 +297,13 @@ class ActorMirrorLossTest(unittest.TestCase):
             torch.testing.assert_close(
                 mirror.observations(actual), values, rtol=0, atol=0
             )
-            actions = torch.arange(20, dtype=torch.float32).reshape(2, 10)
+            actions = torch.arange(24, dtype=torch.float32).reshape(2, 12)
             torch.testing.assert_close(
                 mirror.actions(mirror.actions(actions)), actions, rtol=0, atol=0
             )
 
     def test_callback_is_original_first_and_does_not_augment_the_critic(self):
-        obs, actions = torch.ones(3, 855), torch.arange(30.0).reshape(3, 10)
+        obs, actions = torch.ones(3, 1005), torch.arange(36.0).reshape(3, 12)
         augmented_obs, augmented_actions = self.mirror(obs=obs, actions=actions)
         torch.testing.assert_close(augmented_obs[:3], obs)
         torch.testing.assert_close(augmented_obs[3:], self.mirror.observations(obs))
@@ -312,16 +312,16 @@ class ActorMirrorLossTest(unittest.TestCase):
         self.assertIsNone(self.mirror(obs=obs)[1])
         self.assertIsNone(self.mirror(actions=actions)[0])
         with self.assertRaisesRegex(ValueError, "critic"):
-            self.mirror(obs=torch.ones(3, 1470), obs_type="critic")
+            self.mirror(obs=torch.ones(3, 1740), obs_type="critic")
         with self.assertRaisesRegex(ValueError, "15 raw"):
-            self.mirror.observations(torch.ones(3, 57))
+            self.mirror.observations(torch.ones(3, 67))
 
-    def test_old_checkpoint_restores_actions_adam_lr_counters_and_rng_unchanged(self):
+    def test_same_model_checkpoint_restores_actions_adam_lr_counters_and_rng_unchanged(self):
         torch.manual_seed(17)
         source = ActorCritic(
-            855,
-            1470,
-            10,
+            1005,
+            1740,
+            12,
             actor_hidden_dims=[8, 4],
             critic_hidden_dims=[8, 4],
             noise_std_type="log",
@@ -355,7 +355,7 @@ class ActorMirrorLossTest(unittest.TestCase):
         self.assertEqual(treatment.completed_iterations, 5862)
         self.assertEqual(treatment.total_steps, 240107520)
         self.assertEqual(treatment.algorithm.learning_rate, 2.25e-5)
-        obs = torch.arange(855.0).repeat(4, 1) / 855
+        obs = torch.arange(1005.0).repeat(4, 1) / 1005
         torch.testing.assert_close(
             treatment.policy.act_inference(obs),
             control.policy.act_inference(obs),
@@ -370,7 +370,7 @@ class ActorMirrorLossTest(unittest.TestCase):
         torch.manual_seed(31)
         trainer = self.make_trainer()
         algorithm, policy = trainer.algorithm, trainer.policy
-        obs, critic = torch.randn(4, 855), torch.randn(4, 1470)
+        obs, critic = torch.randn(4, 1005), torch.randn(4, 1740)
         with torch.inference_mode():
             for _ in range(2):
                 algorithm.act(obs, critic)
@@ -404,7 +404,7 @@ class ActorMirrorLossTest(unittest.TestCase):
         self.assertGreater(losses["symmetry"], 0)
         self.assertLess(float(mse().detach()), before)
         mirrored_batch = captured[-1]
-        torch.testing.assert_close(mirrored_batch.grad[:8], torch.zeros(8, 10))
+        torch.testing.assert_close(mirrored_batch.grad[:8], torch.zeros(8, 12))
         self.assertGreater(float(mirrored_batch.grad[8:].abs().sum()), 0)
         self.assertTrue(
             all(
@@ -454,7 +454,7 @@ class ActorMirrorLossTest(unittest.TestCase):
         model = mujoco.MjModel.from_xml_path(str(robot.directory / "scene_mjx.xml"))
         source, signs = joint_reflection(model, robot.actuator_names)
         active = self.base_env._active_indices
-        action = torch.linspace(-5, 5, 10)[None, :]
+        action = torch.linspace(-5, 5, 12)[None, :]
 
         def targets(values):
             target = robot.home_position_rad.copy()

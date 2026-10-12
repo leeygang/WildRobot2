@@ -26,9 +26,9 @@ from wr2.tools.diagnose_walking import (
 
 
 def ablate_heading(observation):
-    """Diagnostic only: hide relative heading in every v4 actor history frame."""
-    frames = observation.reshape((*observation.shape[:-1], 15, 57))
-    return frames.at[..., 55:57].set(jp.asarray([0.0, 1.0])).reshape(observation.shape)
+    """Diagnostic only: hide the final heading pair in each actor frame."""
+    frames = observation.reshape((*observation.shape[:-1], 15, -1))
+    return frames.at[..., -2:].set(jp.asarray([0.0, 1.0])).reshape(observation.shape)
 
 
 def summarize_error(values):
@@ -182,7 +182,14 @@ def verify_model_reference(env, model, source, signs):
     ).tolist()
 
     lookup = np.asarray(env._zmp_reference._joint_lookup)
-    mirrored_lookup = np.roll(lookup, -lookup.shape[1] // 2, axis=1)
+    commands = env._zmp_reference._command_grid_numpy
+    mirrored_commands = commands * [1, -1]
+    command_source = np.argmin(
+        np.linalg.norm(commands[None] - mirrored_commands[:, None], axis=-1), axis=1
+    )
+    if not np.allclose(commands[command_source], mirrored_commands, atol=1e-9):
+        raise ValueError("Reference symmetry requires mirrored lateral commands")
+    mirrored_lookup = np.roll(lookup[command_source], -lookup.shape[1] // 2, axis=1)
     error = mirrored_lookup - lookup[..., source] * signs
     report["reference_joint_error_deg"] = summarize_error(
         np.rad2deg(error[..., active])
@@ -190,7 +197,7 @@ def verify_model_reference(env, model, source, signs):
     report["reference_joint_error_deg_per_joint"] = {
         names[j]: summarize_error(np.rad2deg(error[..., j])) for j in active
     }
-    reference_fk_error = []
+    lookup_feet = []
     for poses in lookup:
         feet = []
         for pose in poses:
@@ -198,11 +205,29 @@ def verify_model_reference(env, model, source, signs):
             data.qpos[qids] = pose
             mujoco.mj_forward(model, data)
             feet.append(data.site_xpos[sites].copy())
-        feet = np.asarray(feet)
-        reference_fk_error.append(
-            1000 * (np.roll(feet, -len(feet) // 2, axis=0) - feet[:, ::-1] @ REFLECTION)
-        )
-    report["reference_foot_error_mm"] = summarize_error(reference_fk_error)
+        lookup_feet.append(feet)
+    lookup_feet = np.asarray(lookup_feet)
+    reflected_feet = np.roll(
+        lookup_feet[command_source], -lookup.shape[1] // 2, axis=1
+    )
+    report["reference_foot_error_mm"] = summarize_error(
+        1000 * (reflected_feet - lookup_feet[:, :, ::-1] @ REFLECTION)
+    )
+    data.qpos[:] = np.asarray(env._default_qpos)
+    mujoco.mj_forward(model, data)
+    home_feet = data.site_xpos[sites].copy()
+    report["home_foot_error_mm"] = summarize_error(
+        1000 * (home_feet - home_feet[::-1] @ REFLECTION)
+    )
+    # CAD sole sites need not be perfectly mirrored. Check the generated motion
+    # relative to each actual home site, without changing or symmetrizing CAD.
+    displacement = lookup_feet - home_feet
+    reflected_displacement = np.roll(
+        displacement[command_source], -lookup.shape[1] // 2, axis=1
+    )
+    report["reference_foot_displacement_error_mm"] = summarize_error(
+        1000 * (reflected_displacement - displacement[:, :, ::-1] @ REFLECTION)
+    )
     return report
 
 

@@ -14,11 +14,11 @@ from wr2.reference.zmp_validation import (
 
 
 class ZMPReferenceValidationTest(unittest.TestCase):
-    COMMANDS_M_S = (0.10, 0.15, 0.20, 0.25)
+    COMMANDS_M_S = (0.10, 0.15, 0.20)
 
     @classmethod
     def setUpClass(cls):
-        cls.context = create_reference_context(cls.COMMANDS_M_S)
+        cls.context = create_reference_context((*cls.COMMANDS_M_S, 0.25))
 
     def test_target_command_geometry_passes_reference_gate(self):
         for command in self.COMMANDS_M_S:
@@ -33,6 +33,11 @@ class ZMPReferenceValidationTest(unittest.TestCase):
                 self.assertGreaterEqual(result.worst_swing_bottom_z_m, -0.002)
                 self.assertGreaterEqual(result.minimum_zmp_support_margin_m, -0.0005)
                 self.assertLessEqual(result.maximum_lipm_residual_m, 1e-6)
+
+    def test_reference_gate_rejects_unqualified_quarter_meter_per_second(self):
+        result = validate_zmp_reference(self.context, 0.25, samples=72)
+        self.assertFalse(result.passed)
+        self.assertGreater(result.worst_stance_bottom_z_m, 0.003)
 
     def test_ppo_preflight_covers_training_lookup_and_exact_eval_command(self):
         results = _validate_training_zmp_reference(load_training_config())

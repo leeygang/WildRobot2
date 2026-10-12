@@ -176,7 +176,7 @@ def projected_policy(policy, source, signs, active, *, heading):
     from wr2.tools.verify_walking_symmetry import mirror_actor
 
     source, signs, active = jp.asarray(source), jp.asarray(signs), jp.asarray(active)
-    lookup = jp.full(17, -1, dtype=jp.int32).at[active].set(jp.arange(len(active)))
+    lookup = jp.full(len(source), -1, dtype=jp.int32).at[active].set(jp.arange(len(active)))
     action_source = lookup[source[active]]
 
     def projected(observation, key):

@@ -6,11 +6,14 @@ control:
     decimation: 4
 
 action:
-    representation: normalized_joint_position
+    representation: joint_position_residual
+    policy_scale_rad: 0.25
+    active_groups: [leg]
     reference_keyframe: walk_home
     normalized_range: [-1.0, 1.0]
-    # -1 and +1 map to the configured joint limits; zero is their midpoint.
-    # walk_home is intentionally represented by a nonzero normalized action.
+    # Walking: target = clip(walk_home + policy_scale_rad * delayed_action).
+    # The range below belongs only to normalized-position utility commands,
+    # not to the unbounded Normal walking policy.
     # Keep zero until per-joint margins are supported: the upper-body neutral
     # pose still places shoulder-roll joints on CAD range endpoints.
     joint_limit_margin_rad: 0.0
@@ -19,13 +22,13 @@ action:
 # force, and base velocity are excluded from this deployment layout and used
 # only by the asymmetric critic and rewards during training.
 observation:
-    layout_id: wr2_proprio_v4
+    layout_id: wr2_proprio_v5
     fields:
         - {name: gait_phase, size: 2, units: "sin,cos"}
         - {name: command_velocity, size: 3, frame: torso, units: "m/s,m/s,rad/s"}
-        - {name: joint_position_error, size: 17, units: rad}
-        - {name: joint_velocity, size: 17, units: rad/s}
-        - {name: previous_active_action, size: 10, units: normalized}
+        - {name: joint_position_error, size: 21, units: rad}
+        - {name: joint_velocity, size: 21, units: rad/s}
+        - {name: previous_active_action, size: 12, units: residual}
         - {name: torso_angular_velocity, size: 3, frame: torso, units: rad/s}
         - {name: projected_gravity, size: 3, frame: torso, units: normalized}
         - {name: heading_error, size: 2, units: "sin,cos"}

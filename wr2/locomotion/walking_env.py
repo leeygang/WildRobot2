@@ -371,6 +371,7 @@ class WR2WalkingEnv(PipelineEnv):
             gait_cycle_s=self.config.gait_cycle_s,
             swing_height_m=self.config.swing_height_m,
             com_height_m=zmp_config.com_height_m,
+            root_height_m=zmp_config.root_height_m,
             single_double_support_ratio=zmp_config.single_double_support_ratio,
             phase_samples=zmp_config.phase_samples,
             command_samples=zmp_config.command_samples,
@@ -400,6 +401,10 @@ class WR2WalkingEnv(PipelineEnv):
         self._active_target_midpoint = jp.asarray(0.5 * (active_lower + active_upper))
         self._active_target_half_range = jp.asarray(0.5 * (active_upper - active_lower))
         self._policy_action_scale_rad = float(self.config.policy_action_scale_rad)
+        if not np.isclose(
+            self._policy_action_scale_rad, self.robot.config["action"]["policy_scale_rad"]
+        ):
+            raise ValueError("Training action scale differs from the robot policy contract")
         self._home_action = jp.zeros(self._action_size)
         pose_weights = np.asarray(self.config.pose_weights, dtype=np.float32)
         if pose_weights.shape != (self.robot.actuator_count,):
@@ -407,7 +412,10 @@ class WR2WalkingEnv(PipelineEnv):
                 "environment.pose_weights must contain one value per WR2 actuator"
             )
         self._pose_weights = jp.asarray(pose_weights) * self._active_mask
-        self._single_observation_size = 55 + 2 * self.config.heading_observation
+        self._single_observation_size = (
+            11 + 2 * self.robot.actuator_count + self._action_size
+            + 2 * self.config.heading_observation
+        )
         self._observation_history_frames = self.robot.observation_history_frames
         self._privileged_single_observation_size = (
             self._single_observation_size

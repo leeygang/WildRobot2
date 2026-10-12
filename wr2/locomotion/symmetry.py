@@ -34,25 +34,36 @@ def mirror_actor(observation, source, signs, active, *, heading=True):
     """Reflect every newest-first frame of WR2's actual JAX actor input."""
     import jax.numpy as jp
 
-    frame_size = 55 + 2 * heading
+    joint_count, action_count = len(source), len(active)
+    previous_start = 5 + 2 * joint_count
+    gyro_start = previous_start + action_count
+    gravity_start = gyro_start + 3
+    heading_start = gravity_start + 3
+    frame_size = heading_start + 2 * heading
     frames = observation.reshape((*observation.shape[:-1], -1, frame_size))
     mirrored = frames.at[..., :2].set(-frames[..., :2])
     mirrored = mirrored.at[..., 2:5].set(frames[..., 2:5] * jp.asarray([1, -1, -1]))
-    for start in (5, 22):
-        mirrored = mirrored.at[..., start : start + 17].set(
+    for start in (5, 5 + joint_count):
+        mirrored = mirrored.at[..., start : start + joint_count].set(
             frames[..., start + source] * signs
         )
     active_lookup = (
-        jp.full(17, -1, dtype=jp.int32).at[active].set(jp.arange(len(active)))
+        jp.full(joint_count, -1, dtype=jp.int32).at[active].set(jp.arange(action_count))
     )
     active_source = active_lookup[source[active]]
-    mirrored = mirrored.at[..., 39:49].set(
-        frames[..., 39 + active_source] * signs[active]
+    mirrored = mirrored.at[..., previous_start:gyro_start].set(
+        frames[..., previous_start + active_source] * signs[active]
     )
-    mirrored = mirrored.at[..., 49:52].set(frames[..., 49:52] * jp.asarray([-1, 1, -1]))
-    mirrored = mirrored.at[..., 52:55].set(frames[..., 52:55] * jp.asarray([1, -1, 1]))
+    mirrored = mirrored.at[..., gyro_start:gravity_start].set(
+        frames[..., gyro_start:gravity_start] * jp.asarray([-1, 1, -1])
+    )
+    mirrored = mirrored.at[..., gravity_start:heading_start].set(
+        frames[..., gravity_start:heading_start] * jp.asarray([1, -1, 1])
+    )
     if heading:
-        mirrored = mirrored.at[..., 55:57].set(frames[..., 55:57] * jp.asarray([-1, 1]))
+        mirrored = mirrored.at[..., heading_start:].set(
+            frames[..., heading_start:] * jp.asarray([-1, 1])
+        )
     return mirrored.reshape(observation.shape)
 
 
@@ -72,11 +83,8 @@ class ActorMirror:
             np.asarray(signs),
             np.asarray(active),
         )
-        if len(source) != 17 or len(active) != 10:
-            raise ValueError(
-                "Actor mirror requires the canonical 17 joints and 10 leg actions"
-            )
-        if not np.array_equal(source[source], np.arange(17)) or not np.all(
+        joint_count, action_count = len(source), len(active)
+        if not np.array_equal(source[source], np.arange(joint_count)) or not np.all(
             np.abs(signs) == 1
         ):
             raise ValueError(
@@ -84,20 +92,25 @@ class ActorMirror:
             )
         if not np.all(signs * signs[source] == 1):
             raise ValueError("Joint reflection signs must be involutive")
-        lookup = np.full(17, -1)
+        lookup = np.full(joint_count, -1)
         lookup[active] = np.arange(len(active))
         action_source = lookup[source[active]]
         if np.any(action_source < 0):
             raise ValueError("Active joints must include their reflected partners")
-        self.frame_size = 55 + 2 * heading
+        previous_start = 5 + 2 * joint_count
+        gyro_start = previous_start + action_count
+        gravity_start, heading_start = gyro_start + 3, gyro_start + 6
+        self.frame_size = heading_start + 2 * heading
         index, scale = np.arange(self.frame_size), np.ones(self.frame_size)
         scale[:2], scale[2:5] = -1, [1, -1, -1]
-        for start in (5, 22):
-            index[start : start + 17], scale[start : start + 17] = start + source, signs
-        index[39:49], scale[39:49] = 39 + action_source, signs[active]
-        scale[49:52], scale[52:55] = [-1, 1, -1], [1, -1, 1]
+        for start in (5, 5 + joint_count):
+            index[start : start + joint_count] = start + source
+            scale[start : start + joint_count] = signs
+        index[previous_start:gyro_start] = previous_start + action_source
+        scale[previous_start:gyro_start] = signs[active]
+        scale[gyro_start:gravity_start], scale[gravity_start:heading_start] = [-1, 1, -1], [1, -1, 1]
         if heading:
-            scale[55:57] = [-1, 1]
+            scale[heading_start:] = [-1, 1]
         self.observation_source = torch.tensor(index, dtype=torch.long, device=device)
         self.observation_signs = torch.tensor(scale, dtype=torch.float32, device=device)
         self.action_source = torch.tensor(
@@ -151,8 +164,8 @@ class ActorMirror:
         ).reshape(observation.shape)
 
     def actions(self, action):
-        if action.shape[-1] != 10:
-            raise ValueError("Actor mirror requires 10 leg residual actions")
+        if action.shape[-1] != len(self.action_source):
+            raise ValueError("Actor mirror action count differs from active leg joints")
         return action.index_select(-1, self.action_source) * self.action_signs
 
     def __call__(self, *, obs=None, actions=None, env=None, obs_type="policy"):

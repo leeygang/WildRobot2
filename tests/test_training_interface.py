@@ -112,9 +112,9 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
         observed, imu = env._observation(*arguments, reference_heading=reference)
         old_observed, _ = legacy._observation(*arguments, reference_heading=reference)
-        np.testing.assert_array_equal(observed["state"][:55], old_observed["state"])
+        np.testing.assert_array_equal(observed["state"][:65], old_observed["state"])
         np.testing.assert_array_equal(
-            jp.concatenate([observed["privileged_state"][:55], observed["privileged_state"][57:]]),
+            jp.concatenate([observed["privileged_state"][:65], observed["privileged_state"][67:]]),
             old_observed["privileged_state"],
         )
         noise = env.config.observation_noise
@@ -128,10 +128,10 @@ class TrainingInterfaceTest(unittest.TestCase):
         rotation = Rotation.from_rotvec(rotvec) * Rotation.from_quat(np.roll(true, -1))
         measured = jp.asarray(np.roll(rotation.as_quat(), 1))
         np.testing.assert_allclose(
-            observed["state"][55:57], heading_features(measured, reference), atol=1e-6
+            observed["state"][65:67], heading_features(measured, reference), atol=1e-6
         )
         np.testing.assert_allclose(
-            observed["state"][52:55], rotation.inv().apply([0, 0, -1]), atol=1e-6
+            observed["state"][62:65], rotation.inv().apply([0, 0, -1]), atol=1e-6
         )
 
     def test_heading_reward_change_is_only_full_orientation_on_identical_motion(self):
@@ -147,7 +147,7 @@ class TrainingInterfaceTest(unittest.TestCase):
                 state.pipeline_state.q.at[3:7].set(quaternion), state.pipeline_state.qd
             )
             state = state.replace(pipeline_state=pipeline)
-            return env.step(state, jp.zeros(10))
+            return env.step(state, jp.zeros(12))
 
         current, old = jax.jit(lambda: after_one_step(modern))(), jax.jit(
             lambda: after_one_step(legacy)
@@ -225,8 +225,8 @@ class TrainingInterfaceTest(unittest.TestCase):
         quaternion = np.array([np.cos(0.2), 0.0, 0.0, np.sin(0.2)], dtype=np.float32)
         observation = RobotObservation(
             time_s=0.0,
-            joint_position_rad=np.zeros(17, dtype=np.float32),
-            joint_velocity_rad_s=np.zeros(17, dtype=np.float32),
+            joint_position_rad=np.zeros(21, dtype=np.float32),
+            joint_velocity_rad_s=np.zeros(21, dtype=np.float32),
             torso_to_world_quat_wxyz=quaternion,
             angular_velocity_torso_rad_s=np.zeros(3, dtype=np.float32),
         )
@@ -235,7 +235,7 @@ class TrainingInterfaceTest(unittest.TestCase):
             reference_heading_rad=0.1,
             gait_phase_rad=0.0,
             home_position_rad=self.robot.home_position_rad,
-            previous_active_action=np.zeros(10),
+            previous_active_action=np.zeros(12),
             active_indices=self.robot.active_actuator_indices(),
             command_velocity=np.zeros(3),
         )
@@ -255,8 +255,8 @@ class TrainingInterfaceTest(unittest.TestCase):
             config = load_training_config(path)
         self.assertFalse(config.environment.heading_observation)
         environment = WR2WalkingEnv(config.environment, add_observation_noise=False)
-        self.assertEqual(environment._single_observation_size, 55)
-        self.assertEqual(environment._privileged_single_observation_size, 96)
+        self.assertEqual(environment._single_observation_size, 65)
+        self.assertEqual(environment._privileged_single_observation_size, 114)
 
     def test_transition_schedule_exposes_the_command_before_it_is_applied(self):
         from wr2.locomotion.evaluate import transition_environment
@@ -286,7 +286,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
         np.testing.assert_allclose(
             info["previous_action"],
-            np.broadcast_to(np.asarray(environment.home_action), (2, 10)),
+            np.broadcast_to(np.asarray(environment.home_action), (2, 12)),
             atol=1e-7,
         )
         np.testing.assert_allclose(
@@ -426,13 +426,13 @@ class TrainingInterfaceTest(unittest.TestCase):
         cls.training_config = load_training_config()
 
     def test_robot_description_matches_canonical_model(self):
-        self.assertEqual(self.robot.actuator_count, 17)
+        self.assertEqual(self.robot.actuator_count, 21)
         self.assertEqual(self.robot.actuator_names[0], "waist_yaw_drive")
-        self.assertEqual(self.robot.single_observation_size, 57)
+        self.assertEqual(self.robot.single_observation_size, 67)
         self.assertEqual(self.robot.observation_history_frames, 15)
-        self.assertEqual(self.robot.observation_size, 855)
+        self.assertEqual(self.robot.observation_size, 1005)
         self.assertEqual(
-            self.robot.config["observation"]["layout_id"], "wr2_proprio_v4"
+            self.robot.config["observation"]["layout_id"], "wr2_proprio_v5"
         )
         self.assertEqual(self.robot.control_period_s, 0.02)
         self.assertEqual(self.robot.simulation_timestep_s, 0.005)
@@ -440,8 +440,8 @@ class TrainingInterfaceTest(unittest.TestCase):
             self.robot.control_period_s / self.robot.simulation_timestep_s,
             4.0,
         )
-        np.testing.assert_array_equal(self.robot.neutral_position_rad, np.zeros(17))
-        expected_walk_home = np.zeros(17)
+        np.testing.assert_array_equal(self.robot.neutral_position_rad, np.zeros(21))
+        expected_walk_home = np.zeros(21)
         for name, value in {
             "left_hip_pitch": -0.12,
             "left_knee_pitch": -0.24,
@@ -559,7 +559,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         self.assertEqual(environment.privileged_actuator_force_scale, 0.1)
         self.assertEqual(environment.zmp_reference.phase_samples, 36)
         self.assertEqual(environment.zmp_reference.command_samples, 5)
-        self.assertEqual(environment.zmp_reference.com_height_m, 0.294)
+        self.assertIsNone(environment.zmp_reference.com_height_m)
         self.assertEqual(
             environment.zmp_reference.single_double_support_ratio,
             2.0,
@@ -660,11 +660,11 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
         state = jax.jit(environment.reset)(jax.random.PRNGKey(29))
         state = jax.jit(environment.step)(state, environment.home_action)
-        actor_frame = np.asarray(state.obs["state"][:57])
+        actor_frame = np.asarray(state.obs["state"][:67])
 
         self.assertTrue(np.isfinite(actor_frame).all())
-        self.assertAlmostEqual(np.linalg.norm(actor_frame[52:55]), 1.0, places=5)
-        self.assertAlmostEqual(np.linalg.norm(actor_frame[55:57]), 1.0, places=5)
+        self.assertAlmostEqual(np.linalg.norm(actor_frame[62:65]), 1.0, places=5)
+        self.assertAlmostEqual(np.linalg.norm(actor_frame[65:67]), 1.0, places=5)
         self.assertEqual(
             set(state.info["imu_state"]),
             {"gyro_colored", "gyro_bias", "gravity_colored", "gravity_bias"},
@@ -731,7 +731,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
         previous_action = environment.home_action
         action_delta = jp.asarray(
-            [0.10, -0.05, 0.02, -0.03, 0.04, -0.08, 0.06, -0.01, 0.07, -0.02]
+            [0.10, -0.05, 0.02, -0.03, 0.04, -0.08, 0.06, -0.01, 0.07, -0.02, 0.03, -0.04]
         )
         action = previous_action + action_delta
         expected = float(jp.sum(jp.square(action_delta)))
@@ -770,18 +770,18 @@ class TrainingInterfaceTest(unittest.TestCase):
             add_observation_noise=False,
         )
         state = environment.reset(jax.random.PRNGKey(29))
-        privileged_frame = np.asarray(state.obs["privileged_state"][:98])
+        privileged_frame = np.asarray(state.obs["privileged_state"][:116])
         _, _, linear_velocity, _ = environment._kinematic_observation(
             state.pipeline_state
         )
 
         np.testing.assert_allclose(
-            privileged_frame[74:77],
+            privileged_frame[88:91],
             2.0 * np.asarray(linear_velocity),
             atol=1e-7,
         )
         np.testing.assert_allclose(
-            privileged_frame[77:94],
+            privileged_frame[91:112],
             0.1 * np.asarray(state.pipeline_state.actuator_force),
             atol=1e-7,
         )
@@ -835,20 +835,20 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
 
         state = environment.reset(jax.random.PRNGKey(41))
-        frame = np.asarray(state.obs["privileged_state"][:98])
+        frame = np.asarray(state.obs["privileged_state"][:116])
         joint_position = np.asarray(
             state.pipeline_state.q[environment._joint_qpos_indices]
         )
-        np.testing.assert_allclose(frame[57:74], joint_position - home, atol=1e-7)
+        np.testing.assert_allclose(frame[67:88], joint_position - home, atol=1e-7)
         np.testing.assert_allclose(
-            np.asarray(state.obs["state"][:55])[5:22],
+            np.asarray(state.obs["state"][:65])[5:26],
             joint_position - home,
             atol=1e-7,
         )
 
         next_state = jax.jit(environment.step)(state, environment.home_action)
         jax.block_until_ready(next_state.obs)
-        next_frame = np.asarray(next_state.obs["privileged_state"][:98])
+        next_frame = np.asarray(next_state.obs["privileged_state"][:116])
         next_joint_position = np.asarray(
             next_state.pipeline_state.q[environment._joint_qpos_indices]
         )
@@ -861,7 +861,7 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
         self.assertFalse(np.allclose(next_reference, home))
         np.testing.assert_allclose(
-            next_frame[57:74],
+            next_frame[67:88],
             next_joint_position - next_reference,
             atol=1e-7,
         )
@@ -964,12 +964,12 @@ class TrainingInterfaceTest(unittest.TestCase):
         np.testing.assert_array_equal(completed_lengths, [5, 5, 5, 5])
         np.testing.assert_allclose(
             completed_previous_actions,
-            np.broadcast_to(np.asarray(environment.home_action), (4, 10)),
+            np.broadcast_to(np.asarray(environment.home_action), (4, 12)),
             atol=1e-7,
         )
         np.testing.assert_allclose(
             np.asarray(state.info["previous_action"]),
-            np.broadcast_to(np.asarray(commanded_action), (2, 10)),
+            np.broadcast_to(np.asarray(commanded_action), (2, 12)),
             atol=1e-7,
         )
 
@@ -1015,17 +1015,17 @@ class TrainingInterfaceTest(unittest.TestCase):
 
     def test_policy_distribution_matches_tb_unbounded_residual(self):
         networks = make_network_factory(self.training_config.network)(
-            {"state": self.robot.observation_size, "privileged_state": 1470},
-            10,
+            {"state": self.robot.observation_size, "privileged_state": 1740},
+            12,
         )
         distribution = networks.parametric_action_distribution
-        self.assertEqual(distribution.param_size, 10)
+        self.assertEqual(distribution.param_size, 12)
 
-        logits = (jp.linspace(-20.0, 20.0, 10), jp.ones(10))
+        logits = (jp.linspace(-20.0, 20.0, 12), jp.ones(12))
         action = np.asarray(distribution.mode(logits))
         np.testing.assert_allclose(
             action,
-            np.linspace(-20.0, 20.0, 10, dtype=np.float32),
+            np.linspace(-20.0, 20.0, 12, dtype=np.float32),
             atol=2e-6,
         )
 
@@ -1037,13 +1037,13 @@ class TrainingInterfaceTest(unittest.TestCase):
         )
         np.testing.assert_allclose(
             np.asarray(distribution.mode(initial_logits))[0],
-            np.zeros(10),
+            np.zeros(12),
             atol=1e-6,
         )
         initial_distribution = distribution.create_dist(initial_logits)
         np.testing.assert_allclose(
             np.asarray(initial_distribution.scale)[0],
-            np.full(10, self.training_config.network.init_noise_std),
+            np.full(12, self.training_config.network.init_noise_std),
             atol=1e-6,
         )
 
@@ -1051,23 +1051,23 @@ class TrainingInterfaceTest(unittest.TestCase):
         from brax.training.acme import running_statistics, specs
 
         networks = make_network_factory(self.training_config.network)(
-            {"state": self.robot.observation_size, "privileged_state": 1470},
-            10,
+            {"state": self.robot.observation_size, "privileged_state": 1740},
+            12,
         )
         normalizer = running_statistics.init_state(
             {
                 "state": specs.Array((self.robot.observation_size,), jp.float32),
-                "privileged_state": specs.Array((1470,), jp.float32),
+                "privileged_state": specs.Array((1740,), jp.float32),
             }
         )
         actor = jp.zeros((1, self.robot.observation_size))
         observations = {
             "state": actor,
-            "privileged_state": jp.zeros((1, 1470)),
+            "privileged_state": jp.zeros((1, 1740)),
         }
         changed_privileged = {
             **observations,
-            "privileged_state": jp.ones((1, 1470)),
+            "privileged_state": jp.ones((1, 1740)),
         }
 
         policy_parameters = networks.policy_network.init(jax.random.PRNGKey(43))
@@ -1090,7 +1090,7 @@ class TrainingInterfaceTest(unittest.TestCase):
 
     def test_zero_action_maps_to_joint_range_midpoint(self):
         targets = self.robot.action.targets(
-            np.zeros(17),
+            np.zeros(21),
             self.robot.home_position_rad,
             self.robot.lower_limit_rad,
             self.robot.upper_limit_rad,
@@ -1118,7 +1118,7 @@ class TrainingInterfaceTest(unittest.TestCase):
 
     def test_action_is_clipped_and_respects_joint_limits(self):
         targets = self.robot.action.targets(
-            np.full(17, 10.0),
+            np.full(21, 10.0),
             self.robot.home_position_rad,
             self.robot.lower_limit_rad,
             self.robot.upper_limit_rad,
@@ -1129,7 +1129,7 @@ class TrainingInterfaceTest(unittest.TestCase):
 
     def test_active_action_expands_without_hidden_joint_limit_clipping(self):
         active = self.robot.active_actuator_indices(("leg",))
-        self.assertEqual(active.size, 10)
+        self.assertEqual(active.size, 12)
         for value in (-1.0, 1.0):
             targets = self.robot.action.active_targets(
                 np.full(active.size, value),
@@ -1157,7 +1157,7 @@ class TrainingInterfaceTest(unittest.TestCase):
             add_observation_noise=False,
         )
         self.assertEqual(environment.config.policy_action_scale_rad, 0.25)
-        np.testing.assert_array_equal(environment.home_action, np.zeros(10))
+        np.testing.assert_array_equal(environment.home_action, np.zeros(12))
 
         action = jp.linspace(-2.0, 2.0, environment.action_size)
         target = np.asarray(environment._policy_target(action))
@@ -1237,8 +1237,8 @@ class TrainingInterfaceTest(unittest.TestCase):
     def test_identity_pose_observation_layout(self):
         observation = RobotObservation(
             time_s=0.0,
-            joint_position_rad=np.zeros(17, dtype=np.float32),
-            joint_velocity_rad_s=np.zeros(17, dtype=np.float32),
+            joint_position_rad=np.zeros(21, dtype=np.float32),
+            joint_velocity_rad_s=np.zeros(21, dtype=np.float32),
             torso_to_world_quat_wxyz=np.array([1, 0, 0, 0], dtype=np.float32),
             angular_velocity_torso_rad_s=np.zeros(3, dtype=np.float32),
         )
@@ -1252,18 +1252,18 @@ class TrainingInterfaceTest(unittest.TestCase):
             active_indices=active,
             command_velocity=np.zeros(3),
         )
-        self.assertEqual(actor_observation.shape, (57,))
+        self.assertEqual(actor_observation.shape, (67,))
         np.testing.assert_allclose(actor_observation[:2], [1, 0], atol=1e-6)
-        np.testing.assert_allclose(actor_observation[52:55], [0, 0, -1])
-        np.testing.assert_allclose(actor_observation[55:], [0, 1])
+        np.testing.assert_allclose(actor_observation[62:65], [0, 0, -1])
+        np.testing.assert_allclose(actor_observation[65:], [0, 1])
 
         history = update_wr2_observation_history(
             actor_observation,
             history_frames=self.robot.observation_history_frames,
         )
         self.assertEqual(history.shape, (self.robot.observation_size,))
-        np.testing.assert_array_equal(history[:57], actor_observation)
-        np.testing.assert_array_equal(history[57:], np.zeros(57 * 14))
+        np.testing.assert_array_equal(history[:67], actor_observation)
+        np.testing.assert_array_equal(history[67:], np.zeros(67 * 14))
 
         next_frame = actor_observation + 1.0
         history = update_wr2_observation_history(
@@ -1271,8 +1271,8 @@ class TrainingInterfaceTest(unittest.TestCase):
             history_frames=self.robot.observation_history_frames,
             previous_history=history,
         )
-        np.testing.assert_array_equal(history[:57], next_frame)
-        np.testing.assert_array_equal(history[57:114], actor_observation)
+        np.testing.assert_array_equal(history[:67], next_frame)
+        np.testing.assert_array_equal(history[67:134], actor_observation)
 
     def test_imu_mounting_rotation_is_removed(self):
         mount = np.asarray(self.robot.imu_sensor_to_torso_quat_wxyz)

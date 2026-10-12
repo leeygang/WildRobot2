@@ -9,7 +9,7 @@ in CAD:
 * servo defaults and IMU sensors;
 * stable body names and actuator order;
 * simple, named foot collision boxes and foot-center sites; and
-* a zero-joint-angle standing pose.
+* model-derived foot boxes and ground-clearance standing poses.
 
 Run from the repository root with MuJoCo available, for example:
 
@@ -35,8 +35,7 @@ MODEL_NAME = "wr2.xml"
 SCENE_NAME = "scene.xml"
 ROOT_BODY_NAME = "torso"
 ROOT_JOINT_NAME = "torso_freejoint"
-HOME_HEIGHT_M = 0.305
-WALK_HOME_HEIGHT_M = 0.304
+HOME_CLEARANCE_M = 0.001
 WALK_HOME_JOINTS = {
     "right_hip_pitch": 0.12,
     "right_knee_pitch": 0.24,
@@ -46,15 +45,8 @@ WALK_HOME_JOINTS = {
     "left_ankle_pitch": -0.12,
 }
 
-# Derived from the Onshape foot mesh's axis-aligned bounds in the foot body
-# frame. MuJoCo box sizes are half-extents. In WR2's foot frame, +Y points
-# approximately downward and Z runs heel-to-toe.
-FOOT_BOX_POS = (0.0, 0.038500, -0.029060)
-FOOT_BOX_SIZE = (0.029400, 0.007500, 0.060000)
-FOOT_SITE_POS = (0.0, 0.046000, -0.029060)
-
-EXPECTED_ACTUATORS = 17
-EXPECTED_HINGES = 18
+EXPECTED_ACTUATORS = 21
+EXPECTED_HINGES = 22
 EXPECTED_SENSORS = {
     "torso_imu_gyro",
     "torso_imu_accel",
@@ -66,12 +58,14 @@ EXPECTED_SENSORS = {
 # name is the reliable side oracle; raw Onshape suffixes such as ``_2`` are not.
 BODY_NAME_BY_JOINT = {
     "right_hip_pitch": "right_hip_pitch_link",
-    "right_hip_roll": "right_upper_leg",
+    "right_hip_roll": "right_hip_roll_link",
+    "right_hip_yaw": "right_upper_leg",
     "right_knee_pitch": "right_lower_leg",
     "right_ankle_pitch": "right_ankle_pitch_link",
     "right_ankle_roll": "right_foot",
     "left_hip_pitch": "left_hip_pitch_link",
-    "left_hip_roll": "left_upper_leg",
+    "left_hip_roll": "left_hip_roll_link",
+    "left_hip_yaw": "left_upper_leg",
     "left_knee_pitch": "left_lower_leg",
     "left_ankle_pitch": "left_ankle_pitch_link",
     "left_ankle_roll": "left_foot",
@@ -81,6 +75,8 @@ BODY_NAME_BY_JOINT = {
     "left_shoulder_pitch": "left_shoulder_pitch_link",
     "left_shoulder_roll": "left_upper_arm",
     "left_elbow_pitch": "left_forearm",
+    "neck_yaw": "neck_yaw_link",
+    "head_pitch": "head",
 }
 
 
@@ -185,11 +181,50 @@ def _normalize_body_names(root: ET.Element) -> None:
         bodies_by_joint[joint_name].set("name", body_name)
 
 
-def _replace_foot_collisions(root: ET.Element) -> None:
+def _compile_root(root: ET.Element, assets: Path):
+    import mujoco
+
+    temporary = copy.deepcopy(root)
+    temporary.find("compiler").set("meshdir", str(assets))
+    return mujoco.MjModel.from_xml_string(ET.tostring(temporary, encoding="unicode"))
+
+
+def _foot_mesh_bounds(model, data, side: str):
+    import mujoco
+    import numpy as np
+
+    body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, f"{side}_foot")
+    mesh_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_MESH, "foot")
+    geoms = np.flatnonzero((model.geom_bodyid == body_id) & (model.geom_dataid == mesh_id))
+    if body_id < 0 or mesh_id < 0 or geoms.size == 0:
+        raise ValueError(f"Cannot identify {side} foot visual mesh")
+    geom_id = int(geoms[0])
+    start, count = int(model.mesh_vertadr[mesh_id]), int(model.mesh_vertnum[mesh_id])
+    world_vertices = (
+        model.mesh_vert[start : start + count] @ data.geom_xmat[geom_id].reshape(3, 3).T
+        + data.geom_xpos[geom_id]
+    )
+    body_vertices = (world_vertices - data.xpos[body_id]) @ data.xmat[body_id].reshape(3, 3)
+    lower, upper = body_vertices.min(axis=0), body_vertices.max(axis=0)
+    return 0.5 * (lower + upper), 0.5 * (upper - lower), body_id
+
+
+def _replace_foot_collisions(root: ET.Element, assets: Path) -> None:
+    import mujoco
+    import numpy as np
+
+    model = _compile_root(root, assets)
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
     for side in ("left", "right"):
         body = root.find(f".//body[@name='{side}_foot']")
         if body is None:
             raise ValueError(f"Missing normalized {side}_foot body")
+        center, size, body_id = _foot_mesh_bounds(model, data, side)
+        down = data.xmat[body_id].reshape(3, 3).T @ np.asarray([0.0, 0.0, -1.0])
+        sole_axis = int(np.argmax(np.abs(down)))
+        site_position = center.copy()
+        site_position[sole_axis] += np.sign(down[sole_axis]) * size[sole_axis]
 
         for geom in list(body.findall("geom")):
             if geom.get("class") == "collision":
@@ -205,8 +240,8 @@ def _replace_foot_collisions(root: ET.Element) -> None:
                     "name": f"{side}_foot_collision",
                     "type": "box",
                     "class": "collision",
-                    "pos": _numbers(FOOT_BOX_POS),
-                    "size": _numbers(FOOT_BOX_SIZE),
+                    "pos": _numbers(center),
+                    "size": _numbers(size),
                     "friction": "1 0.005 0.0001",
                     "material": "foot_material",
                 },
@@ -218,7 +253,7 @@ def _replace_foot_collisions(root: ET.Element) -> None:
                 {
                     "name": f"{side}_foot_center",
                     "type": "sphere",
-                    "pos": _numbers(FOOT_SITE_POS),
+                    "pos": _numbers(site_position),
                     "size": "0.003",
                     "group": "3",
                     "rgba": "0.9 0.1 0.1 0.8",
@@ -245,7 +280,9 @@ def _reorder_actuators(root: ET.Element, order: list[str]) -> None:
     actuator[:] = [by_name[name] for name in order]
 
 
-def _set_home_poses(root: ET.Element, actuator_order: list[str]) -> None:
+def _set_home_poses(root: ET.Element, actuator_order: list[str], assets: Path) -> None:
+    import mujoco
+    import numpy as np
     worldbody = root.find("worldbody")
     if worldbody is None:
         raise ValueError("The exported MJCF has no <worldbody>")
@@ -254,7 +291,7 @@ def _set_home_poses(root: ET.Element, actuator_order: list[str]) -> None:
         raise ValueError(f"Missing root body {ROOT_BODY_NAME!r}")
     if torso.find(f"freejoint[@name='{ROOT_JOINT_NAME}']") is None:
         raise ValueError(f"Missing root freejoint {ROOT_JOINT_NAME!r}")
-    torso.set("pos", f"0 0 {HOME_HEIGHT_M:.6f}")
+    torso.set("pos", "0 0 0")
 
     joints = worldbody.findall(".//joint")
     unsupported = [
@@ -273,10 +310,26 @@ def _set_home_poses(root: ET.Element, actuator_order: list[str]) -> None:
             keyframe.remove(key)
 
     joint_names = [joint.get("name", "") for joint in joints]
-    for key_name, root_height, joint_positions in (
-        ("home", HOME_HEIGHT_M, {}),
-        ("walk_home", WALK_HOME_HEIGHT_M, WALK_HOME_JOINTS),
+    model = _compile_root(root, assets)
+    data = mujoco.MjData(model)
+    for key_name, joint_positions in (
+        ("home", {}),
+        ("walk_home", WALK_HOME_JOINTS),
     ):
+        mujoco.mj_resetData(model, data)
+        for name, value in joint_positions.items():
+            joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
+            data.qpos[model.jnt_qposadr[joint_id]] = value
+        mujoco.mj_forward(model, data)
+        bottoms = []
+        for side in ("left", "right"):
+            geom_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, f"{side}_foot_collision")
+            bottoms.append(data.geom_xpos[geom_id, 2] - np.abs(
+                data.geom_xmat[geom_id].reshape(3, 3)[2]
+            ) @ model.geom_size[geom_id])
+        root_height = HOME_CLEARANCE_M - min(bottoms)
+        if key_name == "home":
+            torso.set("pos", _numbers([0, 0, root_height]))
         qpos = [0.0, 0.0, root_height, 1.0, 0.0, 0.0, 0.0]
         qpos.extend(joint_positions.get(name, 0.0) for name in joint_names)
         ctrl = [joint_positions.get(name, 0.0) for name in actuator_order]
@@ -409,9 +462,9 @@ def build_model(robot_dir: Path) -> tuple[Path, Path, Path, Path]:
     _inject_auxiliary_xml(root, robot_dir)
     _set_simulation_options(root)
     _normalize_body_names(root)
-    _replace_foot_collisions(root)
+    _replace_foot_collisions(root, canonical_assets)
     _reorder_actuators(root, order)
-    _set_home_poses(root, order)
+    _set_home_poses(root, order, canonical_assets)
     _validate_static_contract(root, order)
 
     canonical_model = robot_dir / MODEL_NAME
@@ -457,35 +510,9 @@ def validate_model(
         box_id = mujoco.mj_name2id(
             robot_model, mujoco.mjtObj.mjOBJ_GEOM, f"{side}_foot_collision"
         )
-        mesh_ids = [
-            geom_id
-            for geom_id in range(robot_model.ngeom)
-            if int(robot_model.geom_bodyid[geom_id]) == body_id
-            and int(robot_model.geom_type[geom_id]) == int(mujoco.mjtGeom.mjGEOM_MESH)
-            and int(robot_model.geom_dataid[geom_id]) >= 0
-        ]
-        if body_id < 0 or box_id < 0 or len(mesh_ids) != 2:
+        if body_id < 0 or box_id < 0:
             raise ValueError(f"Cannot identify {side} foot box and visual meshes")
-
-        # Select the larger visual mesh (the foot rather than hip_pitch_link).
-        mesh_geom_id = max(
-            mesh_ids,
-            key=lambda geom_id: int(
-                robot_model.mesh_vertnum[int(robot_model.geom_dataid[geom_id])]
-            ),
-        )
-        mesh_id = int(robot_model.geom_dataid[mesh_geom_id])
-        vertex_start = int(robot_model.mesh_vertadr[mesh_id])
-        vertex_count = int(robot_model.mesh_vertnum[mesh_id])
-        vertices = robot_model.mesh_vert[vertex_start : vertex_start + vertex_count]
-        geom_rotation = robot_data.geom_xmat[mesh_geom_id].reshape(3, 3)
-        world_vertices = vertices @ geom_rotation.T + robot_data.geom_xpos[mesh_geom_id]
-        body_rotation = robot_data.xmat[body_id].reshape(3, 3)
-        body_vertices = (world_vertices - robot_data.xpos[body_id]) @ body_rotation
-        lower = body_vertices.min(axis=0)
-        upper = body_vertices.max(axis=0)
-        mesh_center = 0.5 * (lower + upper)
-        mesh_half_size = 0.5 * (upper - lower)
+        mesh_center, mesh_half_size, _ = _foot_mesh_bounds(robot_model, robot_data, side)
         if not np.allclose(robot_model.geom_pos[box_id], mesh_center, atol=1e-4):
             raise ValueError(
                 f"{side} foot collision center is stale: "
@@ -548,6 +575,10 @@ def validate_model(
         f"Joints/sensors/equalities: {robot_model.njnt}/{robot_model.nsensor}/{robot_model.neq}"
     )
     print(f"Total modeled mass: {total_mass:.6f} kg")
+    for body_id in range(1, robot_model.nbody):
+        if robot_model.body_mass[body_id] <= 1e-8:
+            name = mujoco.mj_id2name(robot_model, mujoco.mjtObj.mjOBJ_BODY, body_id)
+            print(f"WARNING: {name} has placeholder mass/inertia; correct CAD mass properties before training qualification")
 
     settle_seconds = 2.0
     steps = round(settle_seconds / model.opt.timestep)
@@ -586,7 +617,7 @@ def validate_model(
         )
 
         failures = []
-        if not 0.295 <= float(root_xyz[2]) <= 0.310:
+        if not initial_qpos[2] - 0.010 <= float(root_xyz[2]) <= initial_qpos[2] + 0.005:
             failures.append(f"settled root Z is {root_xyz[2]:.6f} m")
         if max_xy_drift > 0.005:
             failures.append(f"horizontal drift is {max_xy_drift:.6f} m")
@@ -670,7 +701,7 @@ def main() -> int:
             f"MJX scene compiled with MuJoCo: nq={mjx_model.nq}, "
             f"nv={mjx_model.nv}, nu={mjx_model.nu}"
         )
-        print("WR2 model validation passed")
+        print("WR2 geometry/contract validation passed; mass and hardware qualification are separate")
     return 0
 
 

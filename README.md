@@ -62,7 +62,7 @@ uv run --extra training python -c 'import jax; print(jax.devices())'
 ```
 
 See [`docs/design/training_interface.md`](docs/design/training_interface.md)
-for the 15-frame, 855-value heading/phase-aware actor observation, ten-value leg action
+for the 15-frame, 1005-value heading/phase-aware actor observation, twelve-value leg action
 contract, and remaining hardware gates. The tracked training and hardware work
 is in [`docs/TODO.md`](docs/TODO.md). See
 [`the heading, stance/slip and clipping diagnostic review`](docs/design/walking_diagnostics_20261007.md)
@@ -76,25 +76,16 @@ Training values are defined in
 [`wr2/locomotion/configs/ppo_walking.yaml`](wr2/locomotion/configs/ppo_walking.yaml);
 the trainer accepts explicit CLI overrides and snapshots the effective YAML in
 every run directory.
-For the controlled 1B fresh-start run, use
-[`ppo_walking_fresh.yaml`](wr2/locomotion/configs/ppo_walking_fresh.yaml)
-without a restore checkpoint; see [the GPU command and checks](docs/design/fresh_walking_training.md).
 For signed forward/backward and lateral walking, use
 [`ppo_walking_xy.yaml`](wr2/locomotion/configs/ppo_walking_xy.yaml).
 It follows TB's XY command sampler with turning excluded; see
 [the scope, reference validation and GPU command](docs/design/xy_walking_training.md).
-For the controlled mirror-off comparison, use
-[`ppo_walking_mirror_off.yaml`](wr2/locomotion/configs/ppo_walking_mirror_off.yaml)
-from the original 920M checkpoint; see
-[the GPU command and phase-diverse held-out checks](docs/design/mirror_off_continuation.md).
-For the seed1 200M continuation, use
-[`ppo_walking_mirror_off_seed1.yaml`](wr2/locomotion/configs/ppo_walking_mirror_off_seed1.yaml)
-from the validated mirror-off 80M checkpoint; see
-[the confirmed review, seed semantics and GPU command](docs/design/mirror_off_seed1_continuation.md).
-For the seed2 forward-only 200M continuation, use
-[`ppo_walking_mirror_off_seed2.yaml`](wr2/locomotion/configs/ppo_walking_mirror_off_seed2.yaml)
-from the validated seed1 +120M checkpoint; see
-[the confirmed review and GPU command](docs/design/mirror_off_seed2_continuation.md).
+The [six-DOF model-import guide](docs/design/hip_yaw_model_import.md) documents
+both new hip yaws, 21 actuators, model-derived home/CoM geometry and validation.
+Neck/head stay outside walking actions; the updated export now includes their
+CAD mass properties. Start fresh: historical ten-leg-action
+checkpoints and their continuation/migration commands do not work on this model.
+Historical experiment guides remain as evidence for the previous hardware model.
 The bounded train/evaluate/promote campaign and Mac-to-GPU command are described
 in [`docs/design/walking_training_agent.md`](docs/design/walking_training_agent.md).
 That guide also covers the autonomous Mac supervisor, which analyzes each GPU

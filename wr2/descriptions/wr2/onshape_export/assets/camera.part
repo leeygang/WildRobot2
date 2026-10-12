@@ -1,13 +1,13 @@
 {
     "configuration": "default",
     "documentId": "0aff2ee80b9805c46c366c15",
-    "documentMicroversion": "1e004eb69487aaed4ddc2863",
-    "elementId": "63872e5423a1bf8daa955958",
+    "documentMicroversion": "02343c0f077297eca90509de",
+    "elementId": "0a794d8130cd7611c60527c3",
     "fullConfiguration": "default",
-    "id": "MVzUWpby/azKW3vkO",
+    "id": "MOiSgUSy9K9hSWn9n",
     "isStandardContent": false,
-    "name": "upper_leg_link <1>",
-    "partId": "RGDD",
+    "name": "camera <2>",
+    "partId": "JHD",
     "suppressed": false,
     "type": "Part"
 }
