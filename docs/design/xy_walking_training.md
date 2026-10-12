@@ -100,6 +100,13 @@ uv run --extra training python -m wr2.locomotion.train \
   --config wr2/locomotion/configs/ppo_walking_xy.yaml
 ```
 
+The trainer defaults `XLA_PYTHON_CLIENT_PREALLOCATE=false` before GPU backend
+imports, matching TB's `train_mjx.py:12` and WR1's training runtime. JAX grows
+its pool on demand instead of reserving 75% of VRAM before Torch allocates PPO
+storage. Startup logs print the effective setting; explicit environment
+overrides are preserved. Keep this setting false when sharing the RTX 5070
+between MJX and RSL-RL. See [JAX GPU memory allocation](https://docs.jax.dev/en/latest/gpu_memory_allocation.html).
+
 Launch without `--restore-checkpoint` for the fresh 1B baseline. Run ID is
 generated as `wr2_xy_<timestamp>_seed0`. There are 51 evaluations including
 step zero, roughly every 20M added transitions. Review intermediate results

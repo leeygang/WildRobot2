@@ -16,6 +16,10 @@ from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
 
+# Match ToddlerBot: JAX and Torch share the GPU, so do not reserve JAX's
+# default preallocated pool before Torch allocates its PPO rollout buffers.
+os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+
 import yaml
 
 from wr2.locomotion.configs import (
@@ -361,6 +365,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     print(f"  Output:       {output}")
     print(f"  PPO backend:  {training_config.ppo.backend}")
     print(f"  JAX backend:  {backend}")
+    print(f"  JAX memory:   preallocate={os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']}")
     print(f"  Devices:      {devices}")
     print(
         "  Observations: "

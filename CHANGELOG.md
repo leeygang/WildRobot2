@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-12
+
+- Fixed the omitted TB GPU startup setting: training now defaults
+  `XLA_PYTHON_CLIENT_PREALLOCATE=false` before importing GPU backends and logs
+  its effective value. This prevents JAX's default 75% reservation from starving
+  RSL-RL's Torch rollout storage. Explicit user overrides are preserved, as in
+  WR1's runtime; PPO, model, randomization, 2,048 environments and training
+  budgets remain unchanged. GPU memory fit still requires the GPU retry.
+- Verification: all 229 tests passed, including fresh-process startup ordering
+  and user-override regressions. A CPU XY smoke completed 80 transitions and
+  two native RSL-RL updates with finite policy, Adam state and metrics; it
+  skipped the ten-direction evaluator and does not establish CUDA memory fit.
+
 ## 2026-10-11
 
 ### Six-DOF hip-yaw model revision
