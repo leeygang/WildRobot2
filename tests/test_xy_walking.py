@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 import tempfile
 import unittest
 from dataclasses import replace
@@ -20,10 +21,14 @@ from wr2.locomotion.evaluate import (
 from wr2.locomotion.train import (
     _checkpoint_evaluation_xy_commands,
     _validate_training_zmp_reference,
+    parse_args as parse_training_args,
+    train,
 )
+from wr2.locomotion.walking_metrics import walking_score
 from wr2.locomotion.walking_env import WR2WalkingEnv, sample_tb_xy_command
 from wr2.reference.walk_zmp import periodic_foot_reference, reference_command_grid
 from wr2.reference.zmp_validation import (
+    ZMPGeometryResult,
     create_reference_context,
     validate_zmp_reference,
 )
@@ -156,6 +161,85 @@ class XYWalkingTest(unittest.TestCase):
         for x, y in commands:
             self.assertLessEqual((x / 0.1) ** 2 + (y / 0.05) ** 2, 1.0 + 1e-9)
         self.assertEqual(len(reference_command_grid((0.05, 0.1), (0.0, 0.0), 5)), 5)
+
+    def test_training_progress_keeps_headline_endpoint_and_transition_axes_aligned(self):
+        for xy_training, include_xy_error in ((True, True), (False, True), (True, False)):
+            with self.subTest(xy_training=xy_training, include_xy_error=include_xy_error):
+                metrics = {
+                    "eval/avg_episode_length": 1000.0,
+                    "eval/episode_forward_velocity_error_m_s_per_step": 0.0,
+                    "eval/episode_contact_phase_match_per_step": 0.85,
+                    "eval/episode_double_support_per_step": 0.1,
+                }
+                if include_xy_error:
+                    metrics["eval/episode_xy_velocity_error_m_s_per_step"] = 0.04
+                config = self.config if xy_training else replace(
+                    self.config,
+                    environment=replace(
+                        self.config.environment, command_lateral_range_m_s=(0.0, 0.0)
+                    ),
+                )
+                for index, _ in enumerate(_checkpoint_evaluation_xy_commands(config)):
+                    metrics.update({
+                        name.replace("eval/", f"eval_endpoint_{index}/"): value
+                        for name, value in tuple(metrics.items())
+                        if name.startswith("eval/")
+                    })
+                metrics["eval_transition/avg_episode_length"] = 1000.0
+                for category in ("standing", "walking", "start", "stop"):
+                    for suffix, value in (
+                        ("sample_count", 10.0),
+                        ("velocity_error_sum", 0.0),
+                        ("xy_velocity_error_sum", 0.4),
+                    ):
+                        metrics[f"eval_transition/episode_{category}_{suffix}"] = value
+
+                def fake_training(*args, progress_fn, policy_params_fn, **kwargs):
+                    progress_fn(0, metrics)
+                    policy_params_fn(0, None, {})
+
+                preflight = ZMPGeometryResult(0.1, 0.0, 1, (), 0.001, 0.0, 0.009, 0.0, 0.0)
+                output = io.StringIO()
+                with (
+                    tempfile.TemporaryDirectory() as folder,
+                    contextlib.redirect_stdout(output),
+                    patch("sys.argv", ["train", "--allow-cpu", "--run-id", "progress_test"]),
+                    patch("wr2.locomotion.walking_env.WR2WalkingEnv", return_value=self.env),
+                    patch("wr2.locomotion.train._validate_training_zmp_reference", return_value=(preflight,)),
+                    patch("wr2.locomotion.rsl_rl_training.train_rsl_ppo", side_effect=fake_training),
+                ):
+                    config = replace(config, output=replace(config.output, root=folder))
+                    train(parse_training_args(), config)
+                    report = json.loads(
+                        (Path(folder) / "progress_test/training_metrics.jsonl").read_text()
+                    )
+                    endpoint_scores = [
+                        item["walking_score"] for item in report["endpoint_evaluations"]
+                    ]
+                    if xy_training and not include_xy_error:
+                        self.assertIsNone(report["walking_score"])
+                        self.assertTrue(all(score is None for score in endpoint_scores))
+                        self.assertFalse((Path(folder) / "progress_test/best_checkpoint.json").exists())
+                    else:
+                        expected = walking_score(
+                            episode_length=1000.0,
+                            target_episode_length=1000,
+                            velocity_error_m_s=0.04 if xy_training else 0.0,
+                            velocity_sigma_m_s=config.environment.velocity_tracking_sigma,
+                            contact_match=0.85,
+                            double_support=0.1,
+                        )
+                        self.assertAlmostEqual(report["walking_score"], expected)
+                        self.assertTrue(all(score == report["walking_score"] for score in endpoint_scores))
+                        best = json.loads(
+                            (Path(folder) / "progress_test/best_checkpoint.json").read_text()
+                        )
+                        self.assertAlmostEqual(best["selection_score"], expected)
+                    if xy_training:
+                        self.assertIn("XY_MAE standing=0.040", output.getvalue())
+                        self.assertIn("XY_MAE=0.040" if include_xy_error else "XY_MAE=n/a", output.getvalue())
+                    else:
+                        self.assertIn("speed_MAE standing=0.000", output.getvalue())
 
     def test_cli_supports_xy_commands_standing_and_signed_forward(self):
         base = ["--checkpoint", "policy.pt", "--output", "report.json"]

@@ -2,6 +2,40 @@
 
 ## 2026-10-12
 
+### XY 200M review and TB-aligned continuation
+
+- Confirmed `wr2_xy_20261012_085006_seed0`: 200,007,680 transitions / 4,883
+  RSL-RL updates and eleven retained checkpoints. All ten final inline command
+  endpoints reach 1,000 steps without falls, but all drift backward. At forward
+  +0.10 m/s, actual X is -0.00908 m/s and XY MAE is 0.12147 m/s; return is
+  309.33, including 221.27 foot-phase reward versus only 0.27 velocity reward.
+  Scripted standing XY speed remains 0.05111 m/s. Inline checks omit actor
+  noise and vector model variation; continuous hardware safety is not proven.
+- Fixed primary XY headline scoring to use the same vector-error measurement
+  as endpoint selection. XY progress and conditional start/stop logs now show
+  XY MAE; forward-only behavior is preserved. Missing XY measurements remain
+  unscored, without silently substituting X error. Regression first reproduced
+  an incorrect 0.879 headline instead of 0.177 for 0.04 m/s lateral error.
+- Prepared an unchanged-reward 800M continuation from the final `params.pt`,
+  not `best_params.pt` (which is the untrained step-zero policy). Preserve
+  native policy/Adam/LR/counters/Torch RNG state, 2,048 environments, Newton-10
+  physics and servo/randomization settings. Forty-one evaluations retain
+  checkpoints every roughly 20M added transitions, reaching 1,000,038,400
+  cumulative transitions. See [review and GPU command](docs/design/xy_walking_training.md#confirmed-200m-review-and-continuation).
+- Verification: all 231 tests pass, including end-to-end headline/endpoint/
+  transition-axis regression, missing-XY handling, forward-only preservation
+  and the 800M update/evaluation cadence. The actual final-200M checkpoint
+  restores policy/Adam/LR/counters/CPU RNG/model contract exactly on Mac,
+  then completes 80 added transitions / two finite native RSL-RL updates.
+  The short smoke does not establish gait or CUDA-resume qualification.
+- Independent Mac readiness evaluation: one held-out seed (1101), four
+  environments, four cardinal directions plus their scripted start/stop
+  schedules; all 32 episodes reach 1,000 steps without falls/non-finite state.
+  Actor noise, vector model variation and reset/servo variation are enabled.
+  Tracking remains poor, and scripted standing XY speed is 0.0533-0.0565 m/s.
+  This reproduces the learning gap, not a reporting artifact; the small sample
+  is not final walking/robustness or hardware qualification.
+
 - Fixed the omitted TB GPU startup setting: training now defaults
   `XLA_PYTHON_CLIENT_PREALLOCATE=false` before importing GPU backends and logs
   its effective value. This prevents JAX's default 75% reservation from starving

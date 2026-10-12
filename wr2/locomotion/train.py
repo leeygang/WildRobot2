@@ -483,6 +483,10 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
 
     training_started = time.monotonic()
     xy_training = training_config.environment.command_lateral_range_m_s != (0.0, 0.0)
+    velocity_error_metric = (
+        "episode_xy_velocity_error_m_s_per_step" if xy_training
+        else "episode_forward_velocity_error_m_s_per_step"
+    )
     progress_index = 0
     latest_params: dict[str, object] = {}
     best_selection_score = -math.inf
@@ -618,7 +622,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         episode_return = metric("eval/episode_reward")
         reward_per_step = metric("eval/episode_reward_per_step")
         episode_length = metric("eval/avg_episode_length")
-        velocity_error = metric("eval/episode_forward_velocity_error_m_s_per_step")
+        velocity_error = metric(f"eval/{velocity_error_metric}")
         contact_match = metric("eval/episode_contact_phase_match_per_step")
         double_support = metric("eval/episode_double_support_per_step")
         walking_score = None
@@ -644,10 +648,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 return metric(f"{prefix}{name}")
 
             endpoint_episode_length = endpoint_metric("avg_episode_length")
-            endpoint_velocity_error = endpoint_metric(
-                "episode_xy_velocity_error_m_s_per_step" if xy_training
-                else "episode_forward_velocity_error_m_s_per_step"
-            )
+            endpoint_velocity_error = endpoint_metric(velocity_error_metric)
             endpoint_contact_match = endpoint_metric(
                 "episode_contact_phase_match_per_step"
             )
@@ -772,11 +773,13 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             f"walking_score={show(walking_score)}",
             flush=True,
         )
+        xy_tracking_text = f"XY_MAE={show(velocity_error)} " if xy_training else ""
         print(
             "  └─ track : "
             f"cmd_vx={show(metric('eval/episode_command_forward_m_s_per_step'))} "
             f"vx={show(metric('eval/episode_forward_velocity_m_s_per_step'))} "
             f"|vx-cmd|={show(metric('eval/episode_forward_velocity_error_m_s_per_step'))} "
+            f"{xy_tracking_text}"
             f"progress={show(metric('eval/episode_forward_progress_per_step'))} "
             f"vy={show(metric('eval/episode_lateral_velocity_m_s_per_step'))} "
             f"yaw_err={show(metric('eval/episode_yaw_rate_error_rad_s_per_step'))}",
@@ -802,12 +805,13 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         print(f"  └─ phase : speed_MAE_by_quarter={phase_errors}m/s", flush=True)
         if "eval_transition/avg_episode_length" in metrics:
             text = []
+            error_name = "xy_velocity_error" if xy_training else "velocity_error"
             for category in ("standing", "walking", "start", "stop"):
                 fraction = metric(
                     f"eval_transition/episode_{category}_sample_count"
                 )
                 error_sum = metric(
-                    f"eval_transition/episode_{category}_velocity_error_sum"
+                    f"eval_transition/episode_{category}_{error_name}_sum"
                 )
                 text.append(
                     f"{category}={show(error_sum / fraction if fraction and error_sum is not None else None)}"
@@ -816,7 +820,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 "  └─ switch: "
                 f"ep_len={show(metric('eval_transition/avg_episode_length'), '.0f')} "
                 f"fall={show(metric('eval_transition/episode_fall'), '.1%')} "
-                f"speed_MAE {' '.join(text)}m/s",
+                f"{'XY_MAE' if xy_training else 'speed_MAE'} {' '.join(text)}m/s",
                 flush=True,
             )
         if endpoint_evaluations:

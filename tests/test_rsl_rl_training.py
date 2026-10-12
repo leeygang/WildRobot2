@@ -180,6 +180,16 @@ class RSLRLTrainingTest(unittest.TestCase):
         self.assertEqual(len(evaluations), 49)
         self.assertEqual(max(evaluations), iterations)
 
+    def test_xy_800m_continuation_reaches_tb_budget_and_keeps_20m_cadence(self):
+        iterations = learning_iterations(800_000_000, 2048, 20)
+        self.assertEqual(iterations, 19_532)
+        self.assertEqual(200_007_680 + iterations * 2048 * 20, 1_000_038_400)
+        evaluations = sorted(evaluation_iterations(iterations, 41))
+        self.assertEqual(len(evaluations), 40)
+        self.assertEqual(evaluations[-1], iterations)
+        intervals = np.diff([0, *evaluations]) * 2048 * 20
+        self.assertLessEqual(np.abs(intervals - 20_000_000).max(), 40_960)
+
     def test_rsl_minibatch_uses_rollout_transitions_not_brax_batch_size(self):
         self.assertEqual(rsl_minibatch_size(4096, 20, 16), 5120)
         self.assertEqual(rsl_minibatch_size(2048, 20, 8), 5120)

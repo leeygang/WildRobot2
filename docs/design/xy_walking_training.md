@@ -83,7 +83,9 @@ A full-variation Mac native smoke completes 80 transitions and two RSL-RL PPO
 updates with finite model, Adam state and metrics. It skips held-out evaluation.
 The full ten-condition CLI smoke was stopped during expensive first CPU
 evaluation/cold compilation, before any update; it is not counted as passed.
-The complete training/evaluation CLI still needs confirmation on GPU.
+The subsequent `wr2_xy_20261012_085006_seed0` GPU run completed 200,007,680
+transitions / 4,883 native updates and all eleven evaluation checkpoints.
+This confirms the full GPU path, not walking or hardware qualification.
 
 These are reference geometry/implementation checks, not proof of learned
 walking, dynamic balance, continuous servo thermal safety or deployment readiness.
@@ -123,6 +125,73 @@ direction's walking score based on XY-vector tracking error, not X error alone.
 Primary progress metrics still show fixed forward 0.10 for historical comparison.
 The existing training transition evaluator remains forward-only; independent
 scripted XY transitions below are required before promotion.
+
+## Confirmed 200M review and continuation
+
+The first six-DOF XY run learned stable alternating stepping, not commanded
+translation. All ten final inline endpoints reached 1,000 steps without falls,
+but all moved backward: at X +0.10, actual X was -0.00908 m/s with 0.12147 m/s
+mean instantaneous XY error. Lateral +/-0.05 commands produced actual Y of
++0.00508/+0.00355 m/s. Forward return rose 201.55 to 309.33, with 221.27 from
+foot-height tracking and only 0.27 from XY velocity tracking. The standing
+part of the scripted forward schedule still had 0.05111 m/s XY speed.
+Inline evaluation disables actor noise and omits vector model variation,
+while retaining local reset/servo variation; these are not held-out guarantees.
+
+The reporting fix makes the primary headline score use the same XY error as
+endpoint ranking, and logs sample-count-normalized XY start/stop errors.
+Historical forward-only scoring remains unchanged. Missing XY measurements
+remain unscored rather than falling back to X error. Reward computation,
+PPO, reference, physics, servo model and randomization are unchanged.
+
+`best_params.pt` for this run is the untrained step-zero policy, because its
+worst-direction score exceeds all trained checkpoints. Continue from the
+**final `params.pt`**, not that selected-best file. Its SHA256 is
+`f2033077df91a2db70371087083b66ff72f8b4d89b23e14af4df03a7bedc0e19`.
+The model hash matches the current twelve-action geometry. After pushing the
+preparation commit from Mac, run on GPU:
+
+```bash
+git pull --ff-only
+uv run --extra training python -m wr2.locomotion.train \
+  --config wr2/locomotion/configs/ppo_walking_xy.yaml \
+  --num-timesteps 800000000 --num-evals 41 \
+  --restore-checkpoint results/wr2_walking/wr2_xy_20261012_085006_seed0/params.pt
+```
+
+This adds 19,532 updates / 800,030,720 actual transitions, reaching cumulative
+24,415 updates / 1,000,038,400 transitions, the TB-aligned 1B budget.
+The 41 evaluations include the restored step-zero policy and retain checkpoints
+roughly every 20M **added** transitions. Run IDs are generated automatically;
+checkpoint filenames and progress steps are run-relative, while native
+`total_steps` and `iteration` counters remain cumulative. Full policy/Adam/LR/
+Torch RNG/model-contract restoration is retained. Expected restored LR is
+1.5e-5 and mean residual std 0.06903 (about 0.99 degrees of target noise),
+not the fresh-policy std of 0.5. Simulation state is reset on resume.
+
+Keep the original run and every intermediate checkpoint. Review at each 200M
+milestone; extending the budget is not a guarantee that the learned stepping
+pattern will acquire command tracking. Do not add acquisition-only rewards or
+reset exploration as part of this continuation. The existing TB velocity and
+foot-phase kernels are preserved; see the local-code references above.
+
+Preparation verification: all 231 tests pass, including an end-to-end progress
+regression (headline, endpoint ranking, XY switch log, missing-XY handling and
+forward-only preservation) and the 800M cadence calculation. A native Mac
+smoke restores the actual final-200M policy/Adam/LR/counters/CPU RNG/model
+contract exactly, completes 80 added transitions / two finite PPO updates
+with full configured variation, and saves matching cumulative counters.
+Its five-step episodes and omitted evaluator test startup, not walking quality
+or CUDA restoration. No hardware motion is included.
+
+A separate full-variation CPU readiness probe evaluates seed 1101 with four
+environments, four cardinal directions and all four scripted start/stop
+schedules: 32 completed episodes, all 1,000 steps with no falls/non-finite
+states. It reproduces poor command tracking and 0.0533-0.0565 m/s standing
+XY speed. Reports are `results/wr2_xy_smoke/held_out_cardinal_200m_ready.json`
+and `held_out_transition_200m_ready.json`. This is a small-sample implementation
+check, not final robustness qualification or evidence that longer training
+will necessarily succeed.
 
 For numeric reference checks (Mac or GPU, no hardware):
 
