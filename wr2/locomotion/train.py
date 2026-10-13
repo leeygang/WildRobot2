@@ -29,6 +29,7 @@ from wr2.locomotion.configs import (
     training_config_to_dict,
 )
 from wr2.locomotion.walking_metrics import (
+    evaluate_xy_goal,
     minimum_foot_swing_fraction,
     walking_score as calculate_walking_score,
 )
@@ -131,7 +132,7 @@ def _checkpoint_evaluation_commands(
 
 def _worst_endpoint_score(scores: list[float | None]) -> float | None:
     """Return the conservative score only when every endpoint was evaluated."""
-    if not scores or any(score is None for score in scores):
+    if not scores or any(score is None or not math.isfinite(score) for score in scores):
         return None
     return min(float(score) for score in scores if score is not None)
 
@@ -153,6 +154,19 @@ def _checkpoint_evaluation_xy_commands(config: TrainingConfig) -> tuple[tuple[fl
     # TB samples an ellipse, not its enclosing box. Keep ranked diagonals
     # within that training distribution rather than evaluating box corners.
     commands.extend((x / math.sqrt(2), y / math.sqrt(2)) for x in xs for y in ys)
+    if config.checkpoints.qualification_goal is not None:
+        commands.append((0.0, 0.0))
+    return tuple(dict.fromkeys(commands))
+
+
+def _checkpoint_transition_xy_commands(config: TrainingConfig) -> tuple[tuple[float, float], ...]:
+    commands = ((config.ppo.evaluation_forward_command_m_s, 0.0),)
+    if config.environment.command_lateral_range_m_s != (0.0, 0.0):
+        commands += (
+            (config.environment.command_forward_range_m_s[0], 0.0),
+            (0.0, config.environment.command_lateral_range_m_s[0]),
+            (0.0, config.environment.command_lateral_range_m_s[1]),
+        )
     return tuple(dict.fromkeys(commands))
 
 
@@ -265,6 +279,32 @@ def smoke_test(steps: int, training_config: TrainingConfig | None = None) -> Non
     )
 
 
+def _training_provenance() -> dict:
+    from importlib import metadata
+    import subprocess
+
+    versions = {}
+    for package in ("jax", "jaxlib", "mujoco", "mujoco-mjx", "brax", "rsl-rl-lib", "torch", "numpy"):
+        try:
+            versions[package] = metadata.version(package)
+        except metadata.PackageNotFoundError:
+            versions[package] = None
+    root = Path(__file__).resolve().parents[2]
+    revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True,
+    )
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        cwd=root, capture_output=True, text=True,
+    )
+    return {
+        "git_commit": revision.stdout.strip() if revision.returncode == 0 else None,
+        "git_dirty": bool(status.stdout.strip()) if status.returncode == 0 else None,
+        "python": sys.version.split()[0],
+        "packages": versions,
+    }
+
+
 def _create_run_directory(
     output_root: Path,
     requested_run_id: str | None,
@@ -335,7 +375,10 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                     command_lateral_range_m_s=(command[1], command[1]),
                     zero_command_probability=0.0,
                 ),
-                add_observation_noise=False,
+                add_observation_noise=(
+                    training_config.ppo.evaluation_randomization
+                    and training_config.environment.randomization.enabled
+                ),
             ),
         )
         for command in evaluation_commands
@@ -444,6 +487,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         yaml.safe_dump(effective_config, sort_keys=False), encoding="utf-8"
     )
     run_config = {
+        "provenance": _training_provenance(),
         "run_id": run_id,
         "output": str(output),
         "source_config": str(args.config.resolve()),
@@ -495,7 +539,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     def save_best_checkpoint(params, candidate: dict[str, object]) -> None:
         nonlocal best_selection_score
         selection_score = float(candidate["selection_score"])
-        if selection_score <= best_selection_score:
+        if not math.isfinite(selection_score) or selection_score <= best_selection_score:
             return
         best_selection_score = selection_score
         if training_config.ppo.backend == "rsl_rl":
@@ -535,7 +579,28 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             if value is None:
                 return None
             array = np.asarray(value)
-            return float(array) if array.size == 1 else None
+            if array.size != 1:
+                return None
+            result = float(array.item())
+            return result if math.isfinite(result) else None
+
+        def qualification_for(prefix, command, *, transitions=False):
+            goal = training_config.checkpoints.qualification_goal
+            if goal is None:
+                return None
+            scoped = {
+                "eval/" + name.removeprefix(prefix): value
+                for name, value in metrics.items() if name.startswith(prefix)
+            }
+            try:
+                return evaluate_xy_goal(
+                    scoped, goal, command_xy_m_s=command,
+                    target_episode_length=training_config.environment.episode_length,
+                    velocity_sigma_m_s=training_config.environment.velocity_tracking_sigma,
+                    transitions=transitions,
+                ).to_dict()
+            except ValueError as error:
+                return {"passed": False, "error": str(error)}
 
         serializable_metrics = {
             name: np.asarray(value).tolist() for name, value in metrics.items()
@@ -654,7 +719,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             )
             endpoint_double_support = endpoint_metric("episode_double_support_per_step")
             endpoint_walking_score = None
-            if all(
+            if command != (0.0, 0.0) and all(
                 value is not None
                 for value in (
                     endpoint_episode_length,
@@ -684,7 +749,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 if command_speed > 0
                 and endpoint_forward_velocity is not None
                 and endpoint_lateral_velocity is not None
-                else endpoint_forward_velocity
+                else None
             )
             endpoint_fall_rate = endpoint_metric("episode_fall")
             endpoint_action_saturation = endpoint_metric(
@@ -700,7 +765,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 for value in (
                     endpoint_episode_length,
                     endpoint_fall_rate,
-                    endpoint_forward_velocity,
+                    projected_velocity,
                     endpoint_contact_match,
                     endpoint_double_support,
                     endpoint_action_saturation,
@@ -733,8 +798,27 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                     "double_support": endpoint_double_support,
                     "walking_score": endpoint_walking_score,
                     "acquisition_score": endpoint_acquisition_score,
+                    "qualification": qualification_for(prefix, command),
                 }
             )
+        qualification = None
+        if training_config.checkpoints.qualification_goal is not None:
+            transition_commands = _checkpoint_transition_xy_commands(training_config)
+            transition_results = [
+                {
+                    "command_xy_m_s": list(command),
+                    "qualification": qualification_for(
+                        f"eval_transition_endpoint_{index}/" if len(transition_commands) > 1 else "eval_transition/",
+                        command, transitions=True,
+                    ),
+                }
+                for index, command in enumerate(transition_commands)
+            ]
+            qualification = {
+                "passed": all(endpoint["qualification"]["passed"] for endpoint in endpoint_evaluations)
+                and all(result["qualification"]["passed"] for result in transition_results),
+                "transition_evaluations": transition_results,
+            }
         with metrics_path.open("a") as stream:
             stream.write(
                 json.dumps(
@@ -746,6 +830,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                         "eta_s": eta_s,
                         "walking_score": walking_score,
                         "endpoint_evaluations": endpoint_evaluations,
+                        "qualification": qualification,
                         "metrics": serializable_metrics,
                     }
                 )
@@ -932,18 +1017,28 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             )
         selection_metric = training_config.checkpoints.selection_metric
         endpoint_selection_score = _worst_endpoint_selection_score(
-            endpoint_evaluations,
+            [endpoint for endpoint in endpoint_evaluations if (
+                endpoint["command_forward_m_s"], endpoint["command_lateral_m_s"]
+            ) != (0.0, 0.0)],
             selection_metric,
         )
         primary_selection_score = (
             acquisition_score if selection_metric == "acquisition" else walking_score
         )
-        selection_score = (
-            endpoint_selection_score
-            if endpoint_selection_score is not None
-            else primary_selection_score
+        # Native training requires every configured endpoint. A missing/bad
+        # endpoint must not promote a candidate using its primary command.
+        selection_uses_endpoints = training_config.ppo.backend == "rsl_rl" or any(
+            name.startswith("eval_endpoint_") for name in metrics
         )
-        if training_config.checkpoints.keep_best and selection_score is not None:
+        selection_score = (
+            endpoint_selection_score if selection_uses_endpoints else primary_selection_score
+        )
+        if qualification is not None:
+            print(f"  └─ XY qualification: {'passed' if qualification['passed'] else 'not passed'}", flush=True)
+        if (
+            training_config.checkpoints.keep_best and selection_score is not None
+            and (qualification is None or qualification["passed"])
+        ):
             candidate = {
                 "step": step,
                 "eval_episode_reward": episode_return,
@@ -953,10 +1048,11 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 "selection_metric": selection_metric,
                 "selection_scope": (
                     "worst_endpoint"
-                    if endpoint_selection_score is not None
+                    if selection_uses_endpoints
                     else "primary_command"
                 ),
                 "selection_score": selection_score,
+                "qualification": qualification,
                 "evaluation": progress_index,
             }
             if latest_params.get("step") == step:

@@ -80,6 +80,10 @@ For signed forward/backward and lateral walking, use
 [`ppo_walking_xy.yaml`](wr2/locomotion/configs/ppo_walking_xy.yaml).
 It follows TB's XY command sampler with turning excluded; see
 [the scope, reference validation and GPU command](docs/design/xy_walking_training.md).
+The [corrected-physics XY continuation](docs/design/xy_physics_continuation.md)
+reviews the completed 1B run and prepares a 200M continuation with full-variation
+signed-direction, standing and start/stop qualification. Launch it with
+`./scripts/train_xy_physics.sh` on the training host.
 The [six-DOF model-import guide](docs/design/hip_yaw_model_import.md) documents
 both new hip yaws, 21 actuators, model-derived home/CoM geometry and validation.
 Neck/head stay outside walking actions; the updated export now includes their

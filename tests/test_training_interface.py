@@ -335,6 +335,12 @@ class TrainingInterfaceTest(unittest.TestCase):
             0.4,
         )
 
+    def test_checkpoint_selection_rejects_nonfinite_endpoints_in_either_order(self):
+        for invalid in (math.nan, math.inf, -math.inf):
+            for scores in ([0.8, invalid], [invalid, 0.8]):
+                with self.subTest(scores=scores):
+                    self.assertIsNone(_worst_endpoint_score(scores))
+
     def test_acquisition_checkpoint_ranking_prefers_safe_motion_over_standing(self):
         common = {
             "episode_length": 1000.0,

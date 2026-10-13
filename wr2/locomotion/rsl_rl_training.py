@@ -305,6 +305,11 @@ class _MultiCommandEvaluator:
                     if name.startswith("eval/")
                 }
             )
+            merged.update({
+                name.replace("eval_endpoint_", "eval_transition_endpoint_", 1): value
+                for name, value in metrics.items()
+                if name.startswith("eval_endpoint_")
+            })
         return merged
 
 
@@ -603,7 +608,6 @@ def train_rsl_ppo(
     import jax
     import torch
     from brax.envs import training as env_training
-    from brax.training import acting
 
     ppo = training_config.ppo
     if training_config.network.distribution_type != "normal":
@@ -642,16 +646,8 @@ def train_rsl_ppo(
     command_evaluators = tuple(
         (
             command,
-            acting.Evaluator(
-                env_training.wrap(
-                    evaluation_environment,
-                    episode_length=training_config.environment.episode_length,
-                ),
-                policy_factory,
-                num_eval_envs=ppo.num_eval_envs,
-                episode_length=training_config.environment.episode_length,
-                action_repeat=1,
-                key=evaluation_rng,
+            _make_evaluation_evaluator(
+                evaluation_environment, training_config, policy_factory, evaluation_rng
             ),
         )
         for command, evaluation_environment in evaluation_environments
@@ -697,25 +693,23 @@ def train_rsl_ppo(
     return final_path
 
 
-def _make_transition_evaluator(config, policy_factory, rng):
+def _make_evaluation_evaluator(environment, config, policy_factory, rng):
+    import jax
     from brax.envs import training as env_training
     from brax.training import acting
-    from wr2.locomotion.evaluate import transition_environment
-    from dataclasses import replace
+    from wr2.locomotion.domain_randomization import make_domain_randomizer
 
-    if config.environment.episode_length != 1000:
-        return None
-    environment = transition_environment(
-        replace(
-            config.environment,
-            command_forward_range_m_s=(config.ppo.evaluation_forward_command_m_s,) * 2,
-            command_lateral_range_m_s=(0.0, 0.0),
-        ),
-        add_observation_noise=False,
-    )
+    randomization_fn = None
+    if config.ppo.evaluation_randomization and config.environment.randomization.enabled:
+        randomization_rng, rng = jax.random.split(rng)
+        randomization_fn = partial(
+            make_domain_randomizer(config.environment.randomization),
+            rng=jax.random.split(randomization_rng, config.ppo.num_eval_envs),
+        )
     return acting.Evaluator(
         env_training.wrap(
-            environment, episode_length=config.environment.episode_length
+            environment, episode_length=config.environment.episode_length,
+            randomization_fn=randomization_fn,
         ),
         policy_factory,
         num_eval_envs=config.ppo.num_eval_envs,
@@ -723,3 +717,31 @@ def _make_transition_evaluator(config, policy_factory, rng):
         action_repeat=1,
         key=rng,
     )
+
+
+def _make_transition_evaluator(config, policy_factory, rng):
+    from wr2.locomotion.evaluate import transition_environment
+    from wr2.locomotion.train import _checkpoint_transition_xy_commands
+    from dataclasses import replace
+
+    if config.environment.episode_length != 1000:
+        return None
+    evaluators = tuple(
+        _make_evaluation_evaluator(
+            transition_environment(
+                replace(
+                    config.environment,
+                    command_forward_range_m_s=(x, x),
+                    command_lateral_range_m_s=(y, y),
+                ),
+                add_observation_noise=(
+                    config.ppo.evaluation_randomization and config.environment.randomization.enabled
+                ),
+            ),
+            config, policy_factory, rng,
+        )
+        for x, y in _checkpoint_transition_xy_commands(config)
+    )
+    if len(evaluators) == 1:
+        return evaluators[0]
+    return _MultiCommandEvaluator(evaluators, primary_index=0)

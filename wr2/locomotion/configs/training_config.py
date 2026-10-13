@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from wr2.locomotion.walking_metrics import WalkingGoal
+
 DEFAULT_TRAINING_CONFIG_PATH = Path(__file__).with_name("ppo_walking.yaml")
 
 
@@ -149,6 +151,7 @@ class PPOConfig:
     learning_rate_schedule: str
     training_metrics_steps: int
     mirror_loss_coeff: float = 0.0
+    evaluation_randomization: bool = False
 
 
 @dataclass(frozen=True)
@@ -166,6 +169,7 @@ class CheckpointConfig:
     save_every_evaluation: bool
     keep_best: bool
     selection_metric: str
+    qualification_goal: WalkingGoal | None = None
 
 
 @dataclass(frozen=True)
@@ -478,7 +482,7 @@ def load_training_config(
 
     ppo_raw = _mapping(root["ppo"], "ppo")
     # Old checkpoints/config snapshots retain the mirror-disabled PPO path.
-    ppo_raw = {"mirror_loss_coeff": 0.0, **ppo_raw}
+    ppo_raw = {"mirror_loss_coeff": 0.0, "evaluation_randomization": False, **ppo_raw}
     ppo_fields = {field.name for field in fields(PPOConfig)}
     _expect_keys(ppo_raw, ppo_fields, "ppo")
     ppo_integer_fields = {
@@ -506,6 +510,7 @@ def load_training_config(
                 "normalize_observations",
                 "normalize_advantage",
                 "learning_rate_schedule",
+                "evaluation_randomization",
             }
         },
         backend=str(ppo_raw["backend"]),
@@ -516,6 +521,9 @@ def load_training_config(
             ppo_raw["normalize_advantage"], "ppo.normalize_advantage"
         ),
         learning_rate_schedule=str(ppo_raw["learning_rate_schedule"]),
+        evaluation_randomization=_bool(
+            ppo_raw["evaluation_randomization"], "ppo.evaluation_randomization"
+        ),
     )
     if ppo.backend not in {"rsl_rl", "brax"}:
         raise ValueError("ppo.backend must be rsl_rl or brax")
@@ -583,6 +591,7 @@ def load_training_config(
         raise ValueError("network.init_noise_std must be positive")
 
     checkpoints_raw = _mapping(root["checkpoints"], "checkpoints")
+    checkpoints_raw = {"qualification_goal": None, **checkpoints_raw}
     checkpoint_fields = {field.name for field in fields(CheckpointConfig)}
     _expect_keys(checkpoints_raw, checkpoint_fields, "checkpoints")
     checkpoints = CheckpointConfig(
@@ -592,11 +601,23 @@ def load_training_config(
         ),
         keep_best=_bool(checkpoints_raw["keep_best"], "checkpoints.keep_best"),
         selection_metric=str(checkpoints_raw["selection_metric"]),
+        qualification_goal=(
+            None if checkpoints_raw["qualification_goal"] is None else WalkingGoal.from_mapping(
+                _mapping(checkpoints_raw["qualification_goal"], "checkpoints.qualification_goal"),
+                "checkpoints.qualification_goal",
+            )
+        ),
     )
     if checkpoints.selection_metric not in {"acquisition", "walking_score"}:
         raise ValueError(
             "checkpoints.selection_metric must be acquisition or walking_score"
         )
+    if checkpoints.qualification_goal is not None and (
+        ppo.backend != "rsl_rl" or environment.episode_length != 1000
+        or not ppo.evaluation_randomization or not environment.randomization.enabled
+        or environment.command_lateral_range_m_s == (0.0, 0.0)
+    ):
+        raise ValueError("XY qualification requires RSL-RL, 1000 steps, signed XY and randomized evaluation")
 
     output_raw = _mapping(root["output"], "output")
     _expect_keys(output_raw, {"root", "run_prefix"}, "output")

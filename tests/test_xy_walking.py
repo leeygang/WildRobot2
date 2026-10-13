@@ -1,4 +1,5 @@
 import contextlib
+import copy
 import io
 import json
 import tempfile
@@ -9,6 +10,7 @@ from unittest.mock import patch
 
 import jax
 import jax.numpy as jp
+import mujoco
 import numpy as np
 
 from wr2.locomotion.configs import load_training_config
@@ -20,13 +22,14 @@ from wr2.locomotion.evaluate import (
 )
 from wr2.locomotion.train import (
     _checkpoint_evaluation_xy_commands,
+    _checkpoint_transition_xy_commands,
     _validate_training_zmp_reference,
     parse_args as parse_training_args,
     train,
 )
 from wr2.locomotion.walking_metrics import walking_score
 from wr2.locomotion.walking_env import WR2WalkingEnv, sample_tb_xy_command
-from wr2.reference.walk_zmp import periodic_foot_reference, reference_command_grid
+from wr2.reference.walk_zmp import WR2ZMPReference, periodic_foot_reference, reference_command_grid
 from wr2.reference.zmp_validation import (
     ZMPGeometryResult,
     create_reference_context,
@@ -35,6 +38,7 @@ from wr2.reference.zmp_validation import (
 
 
 XY_CONFIG = Path("wr2/locomotion/configs/ppo_walking_xy.yaml")
+PHYSICS_CONFIG = Path("wr2/locomotion/configs/ppo_walking_xy_physics.yaml")
 
 
 class XYWalkingTest(unittest.TestCase):
@@ -83,6 +87,31 @@ class XYWalkingTest(unittest.TestCase):
                 self.assertGreater(
                     ((walking[:, 0] * x > 0) & (walking[:, 1] * y > 0)).mean(), 0.20
                 )
+
+    def test_physics_continuation_preserves_training_recipe_and_retains_checkpoints(self):
+        from wr2.agents.walking_training_agent import DEFAULT_AGENT_CONFIG, load_agent_config
+        from wr2.locomotion.rsl_rl_training import learning_iterations, evaluation_iterations
+
+        config = load_training_config(PHYSICS_CONFIG)
+        self.assertEqual(config.environment, self.config.environment)
+        self.assertEqual(config.network, self.config.network)
+        self.assertEqual(replace(
+            config.ppo, num_timesteps=self.config.ppo.num_timesteps,
+            num_evals=self.config.ppo.num_evals, evaluation_randomization=False,
+        ), self.config.ppo)
+        self.assertEqual(
+            config.checkpoints.qualification_goal,
+            load_agent_config(DEFAULT_AGENT_CONFIG).stages[-1].goal,
+        )
+        iterations = learning_iterations(config.ppo.num_timesteps, config.ppo.num_envs, config.ppo.unroll_length)
+        self.assertEqual(iterations, 4883)
+        self.assertEqual(iterations * 2048 * 20, 200_007_680)
+        self.assertEqual(len(evaluation_iterations(iterations, config.ppo.num_evals)), 10)
+        self.assertTrue(config.checkpoints.save_every_evaluation)
+        self.assertEqual(_checkpoint_evaluation_xy_commands(config)[-1], (0.0, 0.0))
+        self.assertEqual(_checkpoint_transition_xy_commands(config), (
+            (0.1, 0.0), (-0.1, 0.0), (0.0, -0.05), (0.0, 0.05),
+        ))
 
     def test_config_preserves_tb_recipe_and_waist_is_not_a_leg_action(self):
         forward = load_training_config(
@@ -240,6 +269,148 @@ class XYWalkingTest(unittest.TestCase):
                         self.assertIn("XY_MAE=0.040" if include_xy_error else "XY_MAE=n/a", output.getvalue())
                     else:
                         self.assertIn("speed_MAE standing=0.000", output.getvalue())
+
+    def test_xy_qualification_requires_standing_and_every_recovery_direction(self):
+        config = load_training_config(PHYSICS_CONFIG)
+        base = {
+            "eval/avg_episode_length": 1000.0,
+            "eval/episode_fall": 0.0,
+            "eval/episode_xy_velocity_error_m_s_per_step": 0.01,
+            "eval/episode_forward_velocity_error_m_s_per_step": 0.005,
+            "eval/episode_lateral_velocity_error_m_s_per_step": 0.005,
+            "eval/episode_yaw_rate_error_rad_s_per_step": 0.01,
+            "eval/episode_contact_phase_match_per_step": 0.9,
+            "eval/episode_left_foot_contact_per_step": 0.65,
+            "eval/episode_right_foot_contact_per_step": 0.65,
+            "eval/episode_double_support_per_step": 0.1,
+            "eval/episode_feet_phase_tracking_per_step": 1.4,
+            "eval/episode_actuator_torque_rms_nm_per_step": 0.8,
+            "eval/episode_actuator_torque_peak_nm_per_step": 2.5,
+            "eval/episode_sustained_torque_exposure_per_step": 0.8,
+            "eval/episode_action_saturation_fraction_per_step": 0.01,
+            "eval/episode_nonfinite_state": 0.0,
+        }
+        for mode in ("pass", "missing_transition", "bad_lateral_stop", "nonfinite_standing"):
+            with self.subTest(mode=mode):
+                metrics = {**base,
+                    "eval/episode_forward_velocity_m_s_per_step": 0.095,
+                    "eval/episode_lateral_velocity_m_s_per_step": 0.0,
+                }
+                for index, (x, y) in enumerate(_checkpoint_evaluation_xy_commands(config)):
+                    row = {**base,
+                        "eval/episode_forward_velocity_m_s_per_step": 0.95 * x,
+                        "eval/episode_lateral_velocity_m_s_per_step": 0.95 * y,
+                    }
+                    if (x, y) == (0.0, 0.0):
+                        row["eval/episode_feet_phase_tracking_per_step"] = 1.0
+                        if mode == "nonfinite_standing":
+                            row["eval/episode_xy_velocity_error_m_s_per_step"] = float("nan")
+                    metrics.update({name.replace("eval/", f"eval_endpoint_{index}/"): value for name, value in row.items()})
+                for index, _ in enumerate(_checkpoint_transition_xy_commands(config)):
+                    if mode == "missing_transition" and index == 3:
+                        continue
+                    row = dict(base)
+                    for category, count in (("standing", 450), ("walking", 550), ("start", 50), ("stop", 50)):
+                        row[f"eval/episode_{category}_sample_count"] = count
+                        row[f"eval/episode_{category}_xy_velocity_error_sum"] = count * (
+                            0.05 if mode == "bad_lateral_stop" and index == 3 and category == "stop" else 0.01
+                        )
+                    metrics.update({name.replace("eval/", f"eval_transition_endpoint_{index}/"): value for name, value in row.items()})
+
+                def fake_training(*args, progress_fn, policy_params_fn, **kwargs):
+                    policy_params_fn(0, None, {})
+                    progress_fn(0, metrics)
+
+                preflight = ZMPGeometryResult(0.1, 0.0, 1, (), 0.001, 0.0, 0.009, 0.0, 0.0)
+                with (
+                    tempfile.TemporaryDirectory() as folder,
+                    contextlib.redirect_stdout(io.StringIO()),
+                    patch("sys.argv", ["train", "--allow-cpu", "--run-id", "qualified_test"]),
+                    patch("wr2.locomotion.walking_env.WR2WalkingEnv", return_value=self.env),
+                    patch("wr2.locomotion.train._validate_training_zmp_reference", return_value=(preflight,)),
+                    patch("wr2.locomotion.rsl_rl_training.train_rsl_ppo", side_effect=fake_training),
+                ):
+                    run_config = replace(config, output=replace(config.output, root=folder))
+                    train(parse_training_args(), run_config)
+                    output = Path(folder) / "qualified_test"
+                    report = json.loads((output / "training_metrics.jsonl").read_text())
+                    self.assertEqual(report["qualification"]["passed"], mode == "pass")
+                    self.assertEqual(len(report["qualification"]["transition_evaluations"]), 4)
+                    self.assertEqual((output / "best_checkpoint.json").exists(), mode == "pass")
+
+    def test_invalid_or_missing_endpoint_cannot_fall_back_to_primary_score(self):
+        base_metrics = {
+            "eval/avg_episode_length": 1000.0,
+            "eval/episode_xy_velocity_error_m_s_per_step": 0.04,
+            "eval/episode_contact_phase_match_per_step": 0.85,
+            "eval/episode_double_support_per_step": 0.1,
+        }
+        for invalid in (None, float("nan"), float("inf")):
+            with self.subTest(invalid=invalid):
+                metrics = dict(base_metrics)
+                for index, _ in enumerate(_checkpoint_evaluation_xy_commands(self.config)):
+                    metrics.update({
+                        name.replace("eval/", f"eval_endpoint_{index}/"): value
+                        for name, value in base_metrics.items()
+                    })
+                key = "eval_endpoint_9/episode_xy_velocity_error_m_s_per_step"
+                if invalid is None:
+                    del metrics[key]
+                else:
+                    metrics[key] = invalid
+
+                def fake_training(*args, progress_fn, policy_params_fn, **kwargs):
+                    policy_params_fn(0, None, {})
+                    progress_fn(0, metrics)
+
+                preflight = ZMPGeometryResult(0.1, 0.0, 1, (), 0.001, 0.0, 0.009, 0.0, 0.0)
+                with (
+                    tempfile.TemporaryDirectory() as folder,
+                    contextlib.redirect_stdout(io.StringIO()),
+                    patch("sys.argv", ["train", "--allow-cpu", "--run-id", "invalid_endpoint"]),
+                    patch("wr2.locomotion.walking_env.WR2WalkingEnv", return_value=self.env),
+                    patch("wr2.locomotion.train._validate_training_zmp_reference", return_value=(preflight,)),
+                    patch("wr2.locomotion.rsl_rl_training.train_rsl_ppo", side_effect=fake_training),
+                ):
+                    config = replace(self.config, output=replace(self.config.output, root=folder))
+                    train(parse_training_args(), config)
+                    self.assertFalse((Path(folder) / "invalid_endpoint/best_checkpoint.json").exists())
+
+    def test_zmp_cache_rebuilds_after_joint_axis_change(self):
+        context = create_reference_context(
+            training_config=self.config, commands_xy_m_s=((0.0, 0.05),),
+        )
+        changed = copy.copy(context.model)
+        joint_id = mujoco.mj_name2id(changed, mujoco.mjtObj.mjOBJ_JOINT, "left_hip_roll")
+        axis = changed.jnt_axis[joint_id].copy()
+        basis = np.eye(3)[np.argmin(np.abs(axis))]
+        orthogonal = basis - axis * np.dot(axis, basis)
+        orthogonal /= np.linalg.norm(orthogonal)
+        changed.jnt_axis[joint_id] = np.cos(0.2) * axis + np.sin(0.2) * orthogonal
+        zmp = self.config.environment.zmp_reference
+        reference = WR2ZMPReference(
+            changed,
+            keyframe_id=mujoco.mj_name2id(changed, mujoco.mjtObj.mjOBJ_KEY, "walk_home"),
+            actuator_names=self.env.robot.actuator_names,
+            command_forward_range_m_s=(0.0, 0.0),
+            command_lateral_range_m_s=(0.05, 0.05),
+            command_vectors_m_s=((0.0, 0.05),),
+            gait_cycle_s=self.config.environment.gait_cycle_s,
+            swing_height_m=self.config.environment.swing_height_m,
+            com_height_m=zmp.com_height_m,
+            root_height_m=zmp.root_height_m,
+            single_double_support_ratio=zmp.single_double_support_ratio,
+            phase_samples=zmp.phase_samples,
+            command_samples=zmp.command_samples,
+            ik_damping=zmp.ik_damping,
+            ik_max_iterations=zmp.ik_max_iterations,
+            max_position_residual_m=zmp.max_position_residual_m,
+            max_orientation_residual_rad=zmp.max_orientation_residual_rad,
+        )
+        self.assertGreater(
+            np.max(np.abs(np.asarray(reference._joint_lookup) - np.asarray(context.reference._joint_lookup))),
+            0.001,
+        )
 
     def test_cli_supports_xy_commands_standing_and_signed_forward(self):
         base = ["--checkpoint", "policy.pt", "--output", "report.json"]

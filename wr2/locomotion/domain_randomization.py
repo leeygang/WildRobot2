@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 from functools import partial
 
 import jax
+import jax.numpy as jp
+import mujoco
+import numpy as np
 from brax import base
 
 from wr2.locomotion.configs import DynamicsRandomization
@@ -99,6 +103,27 @@ def make_domain_randomizer(
             "link.inertia.mass": link_mass,
             "link.inertia.i": link_inertia,
         }
+        # Match TB's host-side preparation. MJX consumes these constants in
+        # constraint rows; changing mass/inertia/armature alone leaves them stale.
+        model = copy.copy(system.mj_model)
+        data = mujoco.MjData(model)
+        constant_fields = (
+            "body_invweight0", "dof_invweight0", "body_subtreemass",
+            "dof_M0", "actuator_acc0", "tendon_invweight0",
+        )
+        constants = {name: [] for name in constant_fields}
+        samples = jax.device_get((body_mass, body_inertia, dof_armature))
+        for mass, inertia, armature in zip(*samples, strict=True):
+            model.body_mass[:] = mass
+            model.body_inertia[:] = inertia
+            model.dof_armature[:] = armature
+            mujoco.mj_setConst(model, data)
+            for name in constant_fields:
+                constants[name].append(getattr(model, name).copy())
+        replacements.update({
+            name: jp.asarray(np.stack(values), dtype=getattr(system, name).dtype)
+            for name, values in constants.items()
+        })
         in_axes = jax.tree.map(lambda _: None, system).tree_replace(
             {name: 0 for name in replacements}
         )

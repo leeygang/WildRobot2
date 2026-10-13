@@ -1,6 +1,8 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import jax
 import jax.numpy as jp
@@ -15,6 +17,8 @@ from wr2.locomotion.rsl_rl_training import (
     _actor_parameters_for_jax,
     _diagonal_gaussian_kl,
     _jax_policy_factory,
+    _make_evaluation_evaluator,
+    _make_transition_evaluator,
     _training_rng_keys,
     RSLRLWrapper,
     evaluation_iterations,
@@ -172,6 +176,65 @@ class RSLRLTrainingTest(unittest.TestCase):
         self.assertEqual(with_transition['eval_transition/value'], .25)
         self.assertEqual(with_transition['eval/value'], .10)
         self.assertEqual(with_transition['eval_endpoint_1/value'], .10)
+
+    def test_xy_transition_evaluator_preserves_every_direction_and_noise_setting(self):
+        from wr2.locomotion.configs import load_training_config
+
+        config = load_training_config("wr2/locomotion/configs/ppo_walking_xy_physics.yaml")
+        observed = []
+
+        def transition(environment_config, *, add_observation_noise):
+            command = (environment_config.command_forward_range_m_s[0], environment_config.command_lateral_range_m_s[0])
+            observed.append((command, add_observation_noise))
+            return SimpleNamespace(command=command)
+
+        class FakeEvaluator:
+            def __init__(self, value):
+                self.value = value
+
+            def run_evaluation(self, parameters, metrics):
+                return {"eval/value": self.value}
+
+        with (
+            patch("wr2.locomotion.evaluate.transition_environment", side_effect=transition),
+            patch("wr2.locomotion.rsl_rl_training._make_evaluation_evaluator", side_effect=lambda env, *args: FakeEvaluator(env.command)),
+        ):
+            transition_evaluator = _make_transition_evaluator(config, None, jax.random.PRNGKey(83))
+        metrics = _MultiCommandEvaluator(
+            (FakeEvaluator(9.0),), primary_index=0, transition_evaluator=transition_evaluator,
+        ).run_evaluation(None, {})
+        commands = ((0.1, 0.0), (-0.1, 0.0), (0.0, -0.05), (0.0, 0.05))
+        self.assertEqual(observed, [(command, True) for command in commands])
+        self.assertEqual(metrics["eval/value"], 9.0)
+        self.assertEqual(metrics["eval_transition/value"], commands[0])
+        for index, command in enumerate(commands):
+            self.assertEqual(metrics[f"eval_transition_endpoint_{index}/value"], command)
+
+    def test_randomized_evaluation_uses_independent_model_and_reset_keys(self):
+        from wr2.locomotion.configs import load_training_config
+
+        config = load_training_config("wr2/locomotion/configs/ppo_walking_xy_physics.yaml")
+        rng = jax.random.PRNGKey(84)
+        model_keys = []
+
+        def randomize(system, rng):
+            model_keys.append(np.asarray(rng))
+            return system, None
+
+        def wrap(environment, *, randomization_fn, **kwargs):
+            randomization_fn(environment.sys)
+            return environment
+
+        environment = SimpleNamespace(sys="model")
+        with (
+            patch("wr2.locomotion.domain_randomization.make_domain_randomizer", return_value=randomize),
+            patch("brax.envs.training.wrap", side_effect=wrap),
+            patch("brax.training.acting.Evaluator") as evaluator,
+        ):
+            _make_evaluation_evaluator(environment, config, None, rng)
+        model_rng, reset_rng = jax.random.split(rng)
+        np.testing.assert_array_equal(model_keys[0], jax.random.split(model_rng, 128))
+        np.testing.assert_array_equal(evaluator.call_args.kwargs["key"], reset_rng)
 
     def test_iteration_and_evaluation_cadence_matches_requested_steps(self):
         iterations = learning_iterations(1_000_000_000, 2048, 20)

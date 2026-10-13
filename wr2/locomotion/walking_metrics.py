@@ -139,6 +139,11 @@ def walking_score(
     double_support: float,
 ) -> float:
     """Rank policies by survival, commanded motion, and alternating support."""
+    if not all(math.isfinite(value) for value in (
+        episode_length, target_episode_length, velocity_error_m_s,
+        velocity_sigma_m_s, contact_match, double_support,
+    )):
+        return -math.inf
     survival = min(max(episode_length / target_episode_length, 0.0), 1.0)
     velocity_score = math.exp(-((velocity_error_m_s / velocity_sigma_m_s) ** 2))
     return (
@@ -159,8 +164,7 @@ def minimum_foot_swing_fraction(
     return min(1.0 - left_contact, 1.0 - right_contact)
 
 
-def _scalar(metrics: Mapping[str, Any], name: str) -> float:
-    key = _METRIC_NAMES[name]
+def _metric_scalar(metrics: Mapping[str, Any], key: str) -> float:
     if key not in metrics:
         raise ValueError(f"Evaluation metrics are missing {key}")
     value = metrics[key]
@@ -171,6 +175,10 @@ def _scalar(metrics: Mapping[str, Any], name: str) -> float:
     if not math.isfinite(result):
         raise ValueError(f"Evaluation metric {key} is not finite")
     return result
+
+
+def _scalar(metrics: Mapping[str, Any], name: str) -> float:
+    return _metric_scalar(metrics, _METRIC_NAMES[name])
 
 
 def evaluate_transition_goal(
@@ -287,6 +295,96 @@ def evaluate_walking_goal(
     return WalkingGoalResult(
         passed=all(gates.values()), score=score, gates=gates, values=values
     )
+
+
+def evaluate_xy_goal(
+    metrics: Mapping[str, Any],
+    goal: WalkingGoal,
+    *,
+    command_xy_m_s: tuple[float, float],
+    target_episode_length: int,
+    velocity_sigma_m_s: float,
+    transitions: bool = False,
+) -> WalkingGoalResult:
+    """Apply explicit WR2 acceptance thresholds to signed XY and recovery.
+
+    The legacy forward ratio/error thresholds apply to command projection and
+    instantaneous vector error. Recovery categories each use their own active
+    sample count and the same error ceiling. These are WR2 acceptance goals,
+    not a measured ToddlerBot performance baseline.
+    """
+    names = (
+        "episode_length", "fall_rate", "action_saturation_fraction",
+        "nonfinite_state", "actuator_torque_rms_nm", "mean_step_peak_torque_nm",
+        "sustained_torque_exposure", "yaw_rate_error_rad_s",
+    )
+    values = {name: _scalar(metrics, name) for name in names}
+    gates = {
+        "episode_length": values["episode_length"] >= goal.min_episode_length,
+        "fall_rate": values["fall_rate"] <= goal.max_fall_rate,
+        "action_saturation": values["action_saturation_fraction"] <= goal.max_action_saturation_fraction,
+        "finite_state": values["nonfinite_state"] <= goal.max_nonfinite_state,
+        "torque_rms": values["actuator_torque_rms_nm"] <= goal.max_actuator_torque_rms_nm,
+        "torque_peak": values["mean_step_peak_torque_nm"] <= goal.max_mean_step_peak_torque_nm,
+        "torque_exposure": values["sustained_torque_exposure"] <= goal.max_sustained_torque_exposure,
+        "yaw_rate_error": values["yaw_rate_error_rad_s"] <= goal.max_yaw_rate_error_rad_s,
+    }
+    score = 0.0
+    speed = math.hypot(*command_xy_m_s)
+    if not math.isfinite(speed):
+        raise ValueError("XY qualification requires a finite command")
+    if transitions:
+        for category in ("standing", "walking", "start", "stop"):
+            count = _metric_scalar(metrics, f"eval/episode_{category}_sample_count")
+            error = _metric_scalar(metrics, f"eval/episode_{category}_xy_velocity_error_sum")
+            if count <= 0 or error < 0:
+                raise ValueError(f"XY recovery requires positive {category} samples and nonnegative error")
+            name = f"{category}_xy_velocity_error_m_s"
+            values[name] = error / count
+            gates[f"{category}_xy_velocity_error"] = values[name] <= goal.max_forward_velocity_error_m_s
+    else:
+        error = _metric_scalar(metrics, "eval/episode_xy_velocity_error_m_s_per_step")
+        if error < 0:
+            raise ValueError("XY qualification requires nonnegative tracking error")
+        values["xy_velocity_error_m_s"] = error
+        if speed == 0:
+            gates["standing_xy_velocity_error"] = error <= goal.max_forward_velocity_error_m_s
+        else:
+            names = (
+                "forward_velocity_m_s", "lateral_velocity_m_s", "contact_phase_match",
+                "left_foot_contact_fraction", "right_foot_contact_fraction",
+                "double_support", "feet_phase_score", "forward_velocity_error_m_s",
+            )
+            values.update({name: _scalar(metrics, name) for name in names})
+            values["lateral_velocity_error_m_s"] = _metric_scalar(
+                metrics, "eval/episode_lateral_velocity_error_m_s_per_step"
+            )
+            x, y = command_xy_m_s
+            vx, vy = values["forward_velocity_m_s"], values["lateral_velocity_m_s"]
+            values["command_velocity_ratio"] = (x * vx + y * vy) / speed**2
+            values["orthogonal_velocity_m_s"] = (-y * vx + x * vy) / speed
+            values["minimum_foot_swing_fraction"] = minimum_foot_swing_fraction(
+                values["left_foot_contact_fraction"], values["right_foot_contact_fraction"]
+            )
+            score = walking_score(
+                episode_length=values["episode_length"],
+                target_episode_length=target_episode_length,
+                velocity_error_m_s=error,
+                velocity_sigma_m_s=velocity_sigma_m_s,
+                contact_match=values["contact_phase_match"],
+                double_support=values["double_support"],
+            )
+            gates.update({
+                "walking_score": score >= goal.min_walking_score,
+                "command_velocity_ratio": values["command_velocity_ratio"] + 1e-9 >= goal.min_forward_velocity_ratio,
+                "xy_velocity_error": error <= goal.max_forward_velocity_error_m_s,
+                "orthogonal_velocity": abs(values["orthogonal_velocity_m_s"]) <= goal.max_abs_lateral_velocity_m_s,
+                "contact_phase": values["contact_phase_match"] >= goal.min_contact_phase_match,
+                "bilateral_foot_use": values["minimum_foot_swing_fraction"] >= goal.min_each_foot_swing_fraction,
+                "double_support": values["double_support"] <= goal.max_double_support,
+                "feet_phase": values["feet_phase_score"] >= goal.min_feet_phase_score,
+            })
+    return WalkingGoalResult(all(gates.values()), score, gates, values)
 
 
 def walking_goal_to_dict(goal: WalkingGoal) -> dict[str, float]:

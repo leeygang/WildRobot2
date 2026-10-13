@@ -259,6 +259,11 @@ class WR2ZMPReference:
             tuple(np.round(model.jnt_range[joint_ids].reshape(-1), 10)),
             model.body_pos.tobytes(), model.body_quat.tobytes(),
             model.body_mass.tobytes(), model.site_pos.tobytes(),
+            home_qpos.tobytes(), model.qpos0.tobytes(),
+            model.body_parentid.tobytes(), model.body_ipos.tobytes(),
+            model.jnt_bodyid.tobytes(), model.jnt_pos.tobytes(), model.jnt_axis.tobytes(),
+            model.site_bodyid.tobytes(), model.site_quat.tobytes(),
+            model.actuator_trnid.tobytes(),
         )
         cache_key = (
             model_signature,

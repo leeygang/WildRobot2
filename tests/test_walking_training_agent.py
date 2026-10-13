@@ -23,6 +23,7 @@ from wr2.locomotion.configs import (
 from wr2.locomotion.walking_metrics import (
     evaluate_transition_goal,
     evaluate_walking_goal,
+    evaluate_xy_goal,
 )
 
 
@@ -54,6 +55,85 @@ class WalkingTrainingAgentTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.agent_config = load_agent_config(DEFAULT_AGENT_CONFIG)
+
+    def test_signed_xy_goal_uses_command_projection_and_instantaneous_error(self):
+        goal = self.agent_config.stages[-1].goal
+        for x, y in ((0.1, 0.0), (-0.1, 0.0), (0.0, 0.05), (0.0, -0.05), (0.07, -0.035)):
+            with self.subTest(command=(x, y)):
+                metrics = _good_metrics(**{
+                    "eval/episode_command_forward_m_s_per_step": x,
+                    "eval/episode_forward_velocity_m_s_per_step": 0.95 * x,
+                    "eval/episode_lateral_velocity_m_s_per_step": 0.95 * y,
+                    "eval/episode_xy_velocity_error_m_s_per_step": 0.01,
+                    "eval/episode_lateral_velocity_error_m_s_per_step": abs(0.05 * y),
+                })
+                result = evaluate_xy_goal(
+                    metrics, goal, command_xy_m_s=(x, y),
+                    target_episode_length=1000, velocity_sigma_m_s=0.0316227766,
+                )
+                self.assertTrue(result.passed)
+                self.assertAlmostEqual(result.values["command_velocity_ratio"], 0.95)
+                self.assertAlmostEqual(result.values["orthogonal_velocity_m_s"], 0.0)
+        for velocity, error in ((0.0, 0.05), (-0.05, 0.1)):
+            metrics["eval/episode_forward_velocity_m_s_per_step"] = 0.0
+            metrics["eval/episode_lateral_velocity_m_s_per_step"] = velocity
+            metrics["eval/episode_xy_velocity_error_m_s_per_step"] = error
+            result = evaluate_xy_goal(
+                metrics, goal, command_xy_m_s=(0.0, 0.05),
+                target_episode_length=1000, velocity_sigma_m_s=0.0316227766,
+            )
+            self.assertFalse(result.passed)
+            self.assertFalse(result.gates["command_velocity_ratio"])
+            self.assertFalse(result.gates["xy_velocity_error"])
+
+    def test_xy_standing_goal_does_not_require_walking_foot_phase_or_swing(self):
+        metrics = _good_metrics(**{
+            "eval/episode_xy_velocity_error_m_s_per_step": 0.01,
+            "eval/episode_left_foot_contact_per_step": 1.0,
+            "eval/episode_right_foot_contact_per_step": 1.0,
+            "eval/episode_double_support_per_step": 1.0,
+            "eval/episode_feet_phase_tracking_per_step": 1.0,
+        })
+        goal = self.agent_config.stages[-1].goal
+        for error, passed in ((0.01, True), (0.04, False)):
+            metrics["eval/episode_xy_velocity_error_m_s_per_step"] = error
+            result = evaluate_xy_goal(
+                metrics, goal, command_xy_m_s=(0.0, 0.0),
+                target_episode_length=1000, velocity_sigma_m_s=0.0316227766,
+            )
+            self.assertEqual(result.passed, passed)
+            self.assertNotIn("bilateral_foot_use", result.gates)
+        metrics["eval/episode_xy_velocity_error_m_s_per_step"] = float("nan")
+        with self.assertRaisesRegex(ValueError, "not finite"):
+            evaluate_xy_goal(
+                metrics, goal, command_xy_m_s=(0.0, 0.0),
+                target_episode_length=1000, velocity_sigma_m_s=0.0316227766,
+            )
+
+    def test_xy_recovery_gates_each_category_with_its_own_sample_count(self):
+        metrics = _good_metrics()
+        for category, count, error in (
+            ("standing", 450.0, 0.005), ("walking", 550.0, 0.01),
+            ("start", 50.0, 0.06), ("stop", 50.0, 0.05),
+        ):
+            metrics[f"eval/episode_{category}_sample_count"] = count
+            metrics[f"eval/episode_{category}_xy_velocity_error_sum"] = count * error
+        result = evaluate_xy_goal(
+            metrics, self.agent_config.stages[-1].goal, command_xy_m_s=(0.0, -0.05),
+            target_episode_length=1000, velocity_sigma_m_s=0.0316227766, transitions=True,
+        )
+        self.assertFalse(result.passed)
+        self.assertTrue(result.gates["standing_xy_velocity_error"])
+        self.assertTrue(result.gates["walking_xy_velocity_error"])
+        self.assertFalse(result.gates["start_xy_velocity_error"])
+        self.assertFalse(result.gates["stop_xy_velocity_error"])
+        self.assertAlmostEqual(result.values["stop_xy_velocity_error_m_s"], 0.05)
+        metrics["eval/episode_stop_sample_count"] = 0.0
+        with self.assertRaisesRegex(ValueError, "positive stop samples"):
+            evaluate_xy_goal(
+                metrics, self.agent_config.stages[-1].goal, command_xy_m_s=(0.0, -0.05),
+                target_episode_length=1000, velocity_sigma_m_s=0.0316227766, transitions=True,
+            )
 
     def test_campaign_uses_high_emergency_cycle_ceiling(self):
         self.assertEqual(

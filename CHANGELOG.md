@@ -1,5 +1,55 @@
 # Changelog
 
+## 2026-10-13
+
+### XY 1B review, randomized physics correction and next 200M
+
+- Confirmed `wr2_xy_20261012_140728_seed0`: 800,030,720 added / 1,000,038,400
+  cumulative transitions and 24,415 total updates. The saved best is the
+  retained 980,049,920-step policy. Final nominal evaluation completes 1,408
+  1,000-step episodes without falls, but signed XY tracking remains incomplete:
+  +0.10 X achieves +0.0627 m/s; +0.05/-0.05 Y achieves +0.0108/-0.0027 m/s.
+  Lateral XY MAE is 0.0573/0.0566 m/s, exceeding stationary-command error;
+  forward start/stop XY MAE is 0.0630/0.0578 m/s. Inline evaluation omitted
+  actor noise/model variation, so these are nominal results.
+- Fixed an active physics defect: randomized mass/inertia/armature now refresh
+  all six derived constant fields through native `mj_setConst`, following
+  ToddlerBot's host preparation. Native oracle tests cover uniform/nonuniform
+  mass changes, armature variation, batched axes and original-model preservation.
+  A paired frozen-policy probe changed XY MAE by at most 0.00036 m/s; this
+  does not establish the cause of the lateral learning gap.
+- Fixed nonfinite/incomplete endpoint promotion and geometry-dependent ZMP
+  cache invalidation. All completed-run scores were finite, and the selected
+  best matches its retained checkpoint; these two latent defects did not
+  demonstrably affect this run. Reference geometry/IK checks remain valid;
+  planned LIPM consistency is not executed whole-body ZMP qualification.
+- Added full-variation signed XY qualification: ten moving endpoints, reset
+  standing and four cardinal start/stop schedules, each with 128 episodes.
+  Existing WR2 robust-walking thresholds explicitly apply to signed command
+  projection and vector XY error, with separate standing/walking/start/stop
+  sample counts. All conditions must pass before writing `best_params.pt`;
+  every intermediate and final checkpoint remains retained. These are WR2
+  acceptance goals, not measured TB performance. Run metadata now records
+  source revision and dependency versions.
+- Prepared `ppo_walking_xy_physics.yaml` and `scripts/train_xy_physics.sh`:
+  200,007,680 added transitions / 4,883 updates, eleven retained evaluations,
+  restoring the retained 400,015,360-step checkpoint and reaching 600,023,040
+  cumulative transitions. Common-seed full-variation comparison covers 5,760
+  episodes: backward start/stop falls are 1/128 at 400M, 36/128 at 980M and
+  25/128 at final 1B. The 980M failing pair reproduces exactly in the production
+  transition/Brax evaluator. Choose 400M for fewer launch failures and stronger
+  forward response; its worse standing drift remains a gap. No policy fully
+  qualifies. Preserve full native resume and unchanged TB PPO/rewards, mirror-off behavior,
+  actuator parameters, gait timing and command distribution. See the
+  [confirmed review, qualification and launch guide](docs/design/xy_physics_continuation.md).
+- Verification: all 242 tests / 77 subtests pass; Ruff, shell syntax and diff
+  checks pass. The selected 400M and 980M checkpoints restore native policy/Adam/LR/
+  counters/CPU RNG/model contract exactly, completes two finite PPO updates
+  and saves finite state. The production randomized evaluator completes two
+  1,000-step lateral transition episodes, verifies all conditional sample
+  counts and correctly rejects their recovery errors. These CPU checks do
+  not establish CUDA memory fit or hardware qualification.
+
 ## 2026-10-12
 
 ### XY 200M review and TB-aligned continuation

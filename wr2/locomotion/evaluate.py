@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import functools
 import json
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Sequence
 
@@ -16,7 +16,7 @@ from wr2.locomotion.train import (
     _configure_backend_logging,
     _filter_optional_backend_import_messages,
 )
-from wr2.locomotion.walking_metrics import walking_score
+from wr2.locomotion.walking_metrics import evaluate_xy_goal, walking_score
 
 
 def transition_environment(config, *, add_observation_noise):
@@ -219,8 +219,8 @@ def evaluate_checkpoint(
                 zero_command_probability=0.0,
             ),
             # Independent confirmation includes configured observation noise,
-            # model variation, and reset/local actuator variation. Training
-            # progress disables the first two, not local actuator variation.
+            # model variation, and reset/local actuator variation, as in the
+            # new qualifying training evaluator.
             add_observation_noise=config.environment.randomization.enabled,
         )
         if transitions:
@@ -267,11 +267,29 @@ def evaluate_checkpoint(
                 ),
                 double_support=float(metrics["eval/episode_double_support_per_step"]),
             )
+            if score is not None and not np.isfinite(score):
+                score = None
+            qualification = None
+            if config.checkpoints.qualification_goal is not None:
+                if random_commands:
+                    qualification = {"passed": False, "error": "Random schedules require direction-conditioned qualification"}
+                else:
+                    try:
+                        qualification = evaluate_xy_goal(
+                            metrics, config.checkpoints.qualification_goal,
+                            command_xy_m_s=command_xy,
+                            target_episode_length=config.environment.episode_length,
+                            velocity_sigma_m_s=config.environment.velocity_tracking_sigma,
+                            transitions=transitions,
+                        ).to_dict()
+                    except ValueError as error:
+                        qualification = {"passed": False, "error": str(error)}
             result = {
                 "seed": int(seed),
                 "walking_score": score,
                 "conditional_tracking": _conditional_tracking(metrics),
                 "metrics": metrics,
+                "qualification": qualification,
             }
             seed_results.append(result)
             command_label = "random" if random_commands else f"({command_forward_m_s:.3f},{command_lateral_m_s:.3f})"
@@ -297,6 +315,16 @@ def evaluate_checkpoint(
 
     return {
         "schema_version": 3,
+        "qualification": (
+            None if config.checkpoints.qualification_goal is None else {
+                "passed": bool(seeds) and all(
+                    result["qualification"]["passed"]
+                    for command in command_results for result in command["seed_results"]
+                ),
+                "scope": "requested_commands_and_seeds",
+                "goal": asdict(config.checkpoints.qualification_goal),
+            }
+        ),
         "checkpoint": str(checkpoint_path),
         "backend": "rsl_rl" if rsl_checkpoint else "brax",
         "config": str(config_path.resolve()),
