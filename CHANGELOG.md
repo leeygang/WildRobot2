@@ -31,7 +31,7 @@
   every intermediate and final checkpoint remains retained. These are WR2
   acceptance goals, not measured TB performance. Run metadata now records
   source revision and dependency versions.
-- Prepared `ppo_walking_xy_physics.yaml` and `scripts/train_xy_physics.sh`:
+- Prepared `ppo_walking_xy_physics.yaml` and the direct trainer command:
   200,007,680 added transitions / 4,883 updates, eleven retained evaluations,
   restoring the retained 400,015,360-step checkpoint and reaching 600,023,040
   cumulative transitions. Common-seed full-variation comparison covers 5,760

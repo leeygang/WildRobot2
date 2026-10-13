@@ -179,18 +179,11 @@ updates**. Eleven evaluations retain the source at step zero and ten more
 checkpoints about 20M transitions apart. Evaluate intermediate policies before
 choosing a subsequent source; the final checkpoint is not assumed best.
 
-On the GPU host, after syncing this commit and ensuring the copied source run
-is present:
+From the repository root on the GPU host, after syncing this commit and ensuring
+the copied source run is present:
 
 ```bash
 uv sync --extra training
-./scripts/train_xy_physics.sh
-```
-
-The launch script supplies both the new configuration and the reviewed restore
-path. It invokes:
-
-```bash
 uv run --extra training python -m wr2.locomotion.train \
   --config wr2/locomotion/configs/ppo_walking_xy_physics.yaml \
   --restore-checkpoint results/wr2_walking/wr2_xy_20261012_140728_seed0/checkpoints/000200007680.pt
