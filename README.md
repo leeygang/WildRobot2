@@ -81,9 +81,13 @@ For signed forward/backward and lateral walking, use
 It follows TB's XY command sampler with turning excluded; see
 [the scope, reference validation and GPU command](docs/design/xy_walking_training.md).
 The [corrected-physics XY continuation](docs/design/xy_physics_continuation.md)
-reviews the completed 1B run and prepares a 200M continuation with full-variation
-signed-direction, standing and start/stop qualification. Run the trainer directly
-on the training host using the command in that guide.
+records the 1B review and subsequent 200M experiment. That continuation completed
+at 600M cumulative transitions; lateral tracking and backward launch stability
+remain incomplete. The next run is the
+[ToddlerBot paper walking baseline](docs/design/toddlerbot_paper_baseline.md):
+300M fresh transitions on the local published-era TB release, with complete
+paper rewards, pinned Brax/runtime and retained signed-command evaluations.
+Run its existing trainer directly using the command in that guide.
 The [six-DOF model-import guide](docs/design/hip_yaw_model_import.md) documents
 both new hip yaws, 21 actuators, model-derived home/CoM geometry and validation.
 Neck/head stay outside walking actions; the updated export now includes their

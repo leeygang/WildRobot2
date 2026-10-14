@@ -2,6 +2,58 @@
 
 ## 2026-10-13
 
+### Corrected-physics 200M review and published TB baseline
+
+- Confirmed `wr2_xy_physics_20261013_085712_seed0`: 200,007,680 added /
+  600,023,040 cumulative transitions, 4,883 added / 14,649 total updates and
+  eleven finite retained checkpoints. Recomputing 165 inline condition results
+  across 21,120 episodes reproduces the logged qualification decisions; no
+  checkpoint passes the complete suite. The run already uses
+  corrected randomized mass/inertia/armature constants. Longer continuation
+  improved some forward/standing errors, without closing lateral tracking.
+- Matched held-out evaluation (seed 12102, 2,304 episodes across 400M, legacy
+  600M and corrected 600M candidates) reproduces the source control exactly.
+  Corrected 600M achieves X +0.0741/-0.0838 m/s at ±0.10 commands, and Y
+  +0.00906/-0.00287 m/s at ±0.05 commands. Forward/backward XY MAE is
+  0.0623/0.0562 m/s; lateral MAE is 0.0570/0.0604 m/s. Standing instantaneous
+  XY speed decreases from 0.0374 to 0.0353 m/s, but backward start/stop falls
+  increase from 1/128 to 13/128. Inline backward transition falls likewise
+  increase from 2/128 to 23/128. No evidence justifies changing servo limits:
+  audited traces show no slew-limit or no-load overspeed hits. Final residual
+  action std is approximately 0.57 degrees. This is not TB parity.
+- Code comparison confirms current TB defaults and WR2 disable ZMP leg motor
+  imitation; the published TB recipe gives it weight 5. The available current
+  TB Brax archive becomes nonfinite at 232,816,640 transitions. Prepare a
+  fresh positive control on local TB `v1.0.0` (`59832cd`) with its pinned Brax
+  (`1414780`), full paper Table VI/VII parameters and original TB geometry,
+  reference, actuation and observations. Native Swish/tanh initialization is
+  different from current ELU/unbounded Normal initialization; adding only a
+  joint reward or resetting std to 0.5 would not reproduce this recipe.
+- Prepared 300M requested / 300,134,400 rounded transitions, fifteen retained
+  checkpoints every 20,008,960 transitions, plus fixed-seed full-variation
+  signed XY, standing and recovery measurements at each checkpoint. Added a
+  separate pinned training environment, the released TB/Brax randomizer
+  interface adapter, raw metrics/provenance, nonfinite-checkpoint abort and
+  correct latest-policy copying. The original TB checkout is intact; a local
+  preparation commit and exported patch make the isolated checkout portable.
+  No full training run has been launched. See the
+  [recipe comparison, measurements and direct GPU command](docs/design/toddlerbot_paper_baseline.md).
+- Fixed released TB reference-generator defects: NumPy interpolation had
+  aliased start/target foot poses; JAX regeneration used mutable indexing and
+  traced Python bounds/slices. Corrected NumPy generation reproduces five
+  full original cached trajectories within 8.1e-8 rad with identical stance
+  masks; JAX forward regeneration agrees within 9.5e-6 rad. The original cache
+  remains the training reference. Native swing
+  targets can exceed the actor's residual target range; imitation is a soft
+  reward, not a guarantee of exact reference tracking.
+- Verification: CPU Brax PPO completes 80 transitions / eight minibatch updates,
+  saves two finite checkpoints and completes 60 finite evaluation episodes
+  across all fifteen conditions. Latest-policy copying matches the actual
+  80-step file, and policy weights change between checkpoints. Native reset/
+  step comparison, nonfinite retention/abort and nine focused recipe/metric checks
+  pass. These reduced-horizon CPU checks do not establish walking performance
+  or CUDA memory fit.
+
 ### XY 1B review, randomized physics correction and next 200M
 
 - Confirmed `wr2_xy_20261012_140728_seed0`: 800,030,720 added / 1,000,038,400
