@@ -137,19 +137,33 @@ warm start, not exact continuation. Start this control fresh.
 
 ## Prepare another machine from local TB history
 
-From the WR2 root, after copying/syncing this WR2 commit and making the existing
-local TB repository available at `~/projects/toddlerbot`:
+The prepared Mac checkout is **not transferred by Git**: `.worktrees/` is
+ignored. Run this one-time setup on the GPU host, from its existing WR2 root
+(for example, `~/projects/WildRobot2`). Copy/sync the prepared WR2 commit first,
+including `docs/design/toddlerbot_paper_baseline.patch`. The GPU host's existing
+TB repository is `~/projects/ToddlerBot`; Linux path capitalization matters.
+
+The subshell stops at the first error and leaves the interactive shell in WR2.
+The first two Git commands check that the patch and released source are present
+before creating the new checkout.
 
 ```bash
-git clone --depth 1 --single-branch --branch v1.0.0 \
-  file://"$HOME/projects/toddlerbot" .worktrees/toddlerbot-paper
-cd .worktrees/toddlerbot-paper
-git switch -c paper-walking-baseline
-git am ../../docs/design/toddlerbot_paper_baseline.patch
-git config submodule.toddlerbot/brax.url https://github.com/hshi74/brax.git
-git submodule update --init --depth 1 toddlerbot/brax
-uv venv --python 3.10 .venv
-uv pip sync --python .venv/bin/python requirements-paper.lock
+(
+  set -eu
+  wr2_paper_root=$(git rev-parse --show-toplevel)
+  tb_paper_source="$HOME/projects/ToddlerBot"
+  git apply --numstat "$wr2_paper_root/docs/design/toddlerbot_paper_baseline.patch" >/dev/null
+  git -C "$tb_paper_source" rev-parse --verify 'v1.0.0^{commit}'
+  git clone --depth 1 --single-branch --branch v1.0.0 \
+    "file://$tb_paper_source" "$wr2_paper_root/.worktrees/toddlerbot-paper"
+  cd "$wr2_paper_root/.worktrees/toddlerbot-paper"
+  git switch -c paper-walking-baseline
+  git am "$wr2_paper_root/docs/design/toddlerbot_paper_baseline.patch"
+  git config submodule.toddlerbot/brax.url https://github.com/hshi74/brax.git
+  git submodule update --init --depth 1 toddlerbot/brax
+  uv venv --python 3.10 .venv
+  uv pip sync --python .venv/bin/python requirements-paper.lock
+)
 ```
 
 The patch is exported from local TB preparation commit
@@ -157,20 +171,29 @@ The patch is exported from local TB preparation commit
 without requiring a push to the original TB repository.
 On the already-prepared Mac checkout, these setup steps are complete.
 
-## Direct launch on the GPU host
-
-Check the backend in this environment:
+If the patch has not reached the GPU host, copy it from the Mac WR2 root before
+running setup. For the existing GPU host and checkout:
 
 ```bash
-cd ~/projects/wildrobot2/.worktrees/toddlerbot-paper
-.venv/bin/python -c 'import jax; print(jax.devices()); assert jax.default_backend() == "gpu"'
+scp docs/design/toddlerbot_paper_baseline.patch \
+  leeygang@linux-pc.local:/home/leeygang/projects/WildRobot2/docs/design/
 ```
 
-Then launch the existing trainer directly:
+## Direct launch on the GPU host
+
+After setup, from the WR2 root on the GPU host, check the backend and launch the
+existing trainer directly. The Git-derived path works with either capitalization
+of the WR2 directory. A failed `cd` or GPU check stops before the trainer runs.
 
 ```bash
-WANDB_MODE=offline .venv/bin/python -m toddlerbot.locomotion.train_mjx \
-  --robot toddlerbot --env walk --gin-files paper --skip-video
+(
+  set -eu
+  wr2_paper_root=$(git rev-parse --show-toplevel)
+  cd "$wr2_paper_root/.worktrees/toddlerbot-paper"
+  .venv/bin/python -c 'import jax; print(jax.devices()); assert jax.default_backend() == "gpu"'
+  WANDB_MODE=offline .venv/bin/python -m toddlerbot.locomotion.train_mjx \
+    --robot toddlerbot --env walk --gin-files paper --skip-video
+)
 ```
 
 Run output is `results/toddlerbot_walk_ppo_<timestamp>/` inside this checkout.
