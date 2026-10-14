@@ -1,0 +1,50 @@
+# Paper Tables VI/VII, with reward definitions from the TB v1.0.0 release.
+# https://arxiv.org/html/2502.00893v2
+# Load after walk.gin: python -m toddlerbot.locomotion.train_mjx --gin-files paper
+PPOConfig.num_timesteps = 300_000_000
+PPOConfig.num_envs = 1024
+PPOConfig.episode_length = 1000
+PPOConfig.unroll_length = 20
+PPOConfig.batch_size = 256
+PPOConfig.num_minibatches = 4
+PPOConfig.num_updates_per_batch = 4
+PPOConfig.discounting = 0.97
+PPOConfig.learning_rate = 0.0001
+PPOConfig.entropy_cost = 0.0005
+PPOConfig.clipping_epsilon = 0.2
+PPOConfig.policy_hidden_layer_sizes = (512, 256, 128)
+PPOConfig.value_hidden_layer_sizes = (512, 256, 128)
+PPOConfig.seed = 0
+
+# Fifteen trained checkpoints about 20M transitions apart; native initial eval
+# is disabled in this pinned fork. Quantitative evaluation replaces rendering.
+PPOConfig.num_evals = 16
+PPOConfig.num_eval_envs = 128
+PPOConfig.evaluate_xy = True
+PPOConfig.render_interval = 0
+
+RewardScales.torso_pos = 0.0
+RewardScales.torso_quat = 1.0
+RewardScales.lin_vel_xy = 5.0
+RewardScales.lin_vel_z = 1.0
+RewardScales.ang_vel_xy = 2.0
+RewardScales.ang_vel_z = 5.0
+RewardScales.leg_motor_pos = 5.0
+RewardScales.neck_motor_pos = 0.0
+RewardScales.arm_motor_pos = 0.0
+RewardScales.waist_motor_pos = 0.0
+RewardScales.feet_contact = 1.0
+RewardScales.feet_air_time = 500.0
+RewardScales.feet_clearance = 0.05
+RewardScales.feet_distance = 1.0
+RewardScales.feet_slip = 0.05
+RewardScales.align_ground = 1.0
+RewardScales.stand_still = 1.0
+RewardScales.torso_roll = 0.5
+RewardScales.torso_pitch = 0.5
+RewardScales.collision = 0.1
+RewardScales.leg_action_rate = 0.05
+RewardScales.leg_action_acc = 0.05
+RewardScales.motor_torque = 0.01
+RewardScales.energy = 0.05
+RewardScales.survival = 10.0

@@ -63,3 +63,6 @@ wr2 = [
 
 [tool.setuptools.packages.find]
 include = ["wr2*"]
+
+[tool.ruff]
+extend-exclude = ["third_party"]

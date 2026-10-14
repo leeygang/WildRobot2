@@ -1,27 +1,3 @@
-From 9502a6dec4651065f27312c7760518b1d8eb71c1 Mon Sep 17 00:00:00 2001
-From: Yonggang Li <ygli@meta.com>
-Date: Tue, 13 Oct 2026 21:01:17 -0700
-Subject: [PATCH] Prepare paper-aligned TB walking control with verified
- references and metrics
-
----
- requirements-paper.in                |  25 ++
- requirements-paper.lock              | 435 +++++++++++++++++++++++++++
- tests/test_paper_walking.py          | 272 +++++++++++++++++
- toddlerbot/algorithms/zmp_planner.py |   4 +-
- toddlerbot/algorithms/zmp_walk.py    |  12 +-
- toddlerbot/locomotion/evaluate_xy.py | 262 ++++++++++++++++
- toddlerbot/locomotion/mjx_env.py     |   6 +-
- toddlerbot/locomotion/paper.gin      |  50 +++
- toddlerbot/locomotion/ppo_config.py  |   2 +
- toddlerbot/locomotion/train_mjx.py   | 132 ++++++--
- 10 files changed, 1175 insertions(+), 25 deletions(-)
- create mode 100644 requirements-paper.in
- create mode 100644 requirements-paper.lock
- create mode 100644 tests/test_paper_walking.py
- create mode 100644 toddlerbot/locomotion/evaluate_xy.py
- create mode 100644 toddlerbot/locomotion/paper.gin
-
 diff --git a/requirements-paper.in b/requirements-paper.in
 new file mode 100644
 index 0000000..1002d5b
@@ -496,10 +472,10 @@ index 0000000..883ab97
 +    # via etils
 diff --git a/tests/test_paper_walking.py b/tests/test_paper_walking.py
 new file mode 100644
-index 0000000..e07c88d
+index 0000000..167940c
 --- /dev/null
 +++ b/tests/test_paper_walking.py
-@@ -0,0 +1,272 @@
+@@ -0,0 +1,281 @@
 +"""Paper configuration and measurement contracts; no hardware access."""
 +
 +import os
@@ -768,6 +744,15 @@ index 0000000..e07c88d
 +                finite = json.loads((checkpoint / "finite.json").read_text())
 +                self.assertEqual(finite["parameters_finite"], not bad_parameters)
 +                self.assertEqual(finite["metrics_finite"], bad_parameters)
++                provenance = json.loads((Path(folder) / "provenance.json").read_text())
++                self.assertEqual(
++                    provenance["brax_revision"],
++                    "14147806f6c25724ba830ba36764df3243889b0d",
++                )
++                if Path("SOURCE.json").is_file():
++                    self.assertEqual(
++                        provenance["upstream"], json.loads(Path("SOURCE.json").read_text())
++                    )
 +
 +
 +if __name__ == "__main__":
@@ -1195,7 +1180,7 @@ index b167c56..995106f 100644
      unroll_length: int = 20
      num_updates_per_batch: int = 4
 diff --git a/toddlerbot/locomotion/train_mjx.py b/toddlerbot/locomotion/train_mjx.py
-index 18627ba..2c35b77 100644
+index 18627ba..ac7c70e 100644
 --- a/toddlerbot/locomotion/train_mjx.py
 +++ b/toddlerbot/locomotion/train_mjx.py
 @@ -1,16 +1,21 @@
@@ -1279,10 +1264,15 @@ index 18627ba..2c35b77 100644
  
  
  def train(
-@@ -422,6 +432,35 @@ def train(
+@@ -422,6 +432,44 @@ def train(
      with open(os.path.join(exp_folder_path, "env_config.json"), "w") as f:
          json.dump(env_config_dict, f, indent=4)
  
++    source_metadata_path = Path("SOURCE.json")
++    source_metadata = (
++        json.loads(source_metadata_path.read_text())
++        if source_metadata_path.is_file() else {}
++    )
 +    provenance = {
 +        "source_revision": subprocess.check_output(
 +            ["git", "rev-parse", "HEAD"], text=True
@@ -1290,9 +1280,13 @@ index 18627ba..2c35b77 100644
 +        "source_dirty": bool(subprocess.check_output(
 +            ["git", "status", "--porcelain"], text=True
 +        ).strip()),
-+        "brax_revision": subprocess.check_output(
-+            ["git", "-C", "toddlerbot/brax", "rev-parse", "HEAD"], text=True
-+        ).strip(),
++        "brax_revision": (
++            source_metadata["brax_revision"] if source_metadata
++            else subprocess.check_output(
++                ["git", "-C", "toddlerbot/brax", "rev-parse", "HEAD"], text=True
++            ).strip()
++        ),
++        "upstream": source_metadata,
 +        "packages": {
 +            name: importlib.metadata.version(name)
 +            for name in ("jax", "jaxlib", "mujoco", "mujoco-mjx", "brax", "flax",
@@ -1315,7 +1309,7 @@ index 18627ba..2c35b77 100644
      # Print the env config
      print("Env Config:")
      print(json.dumps(env_config_dict, indent=4))  # Pretty-print the config
-@@ -431,6 +470,7 @@ def train(
+@@ -431,6 +479,7 @@ def train(
          os.path.join("toddlerbot", "locomotion"),
          os.path.join(exp_folder_path, "locomotion"),
      )
@@ -1323,7 +1317,7 @@ index 18627ba..2c35b77 100644
  
      wandb.init(
          project="ToddlerBot",
-@@ -448,6 +488,21 @@ def train(
+@@ -448,6 +497,21 @@ def train(
          orbax_checkpointer.save(path, params, force=True, save_args=save_args)
          policy_path = os.path.join(path, "policy")
          model.save_params(policy_path, (params[0], params[1].policy))
@@ -1345,7 +1339,7 @@ index 18627ba..2c35b77 100644
  
      learning_rate_schedule_fn = optax.cosine_decay_schedule(
          train_cfg.learning_rate,
-@@ -476,10 +531,40 @@ def train(
+@@ -476,10 +540,40 @@ def train(
              body_mass_attr_range=body_mass_attr_range,
          )
  
@@ -1386,7 +1380,7 @@ index 18627ba..2c35b77 100644
          episode_length=train_cfg.episode_length,
          unroll_length=train_cfg.unroll_length,
          num_minibatches=train_cfg.num_minibatches,
-@@ -502,22 +587,26 @@ def train(
+@@ -502,22 +596,26 @@ def train(
  
      times = [time.time()]
  
@@ -1422,7 +1416,7 @@ index 18627ba..2c35b77 100644
  
          episode_reward = float(metrics.get("eval/episode_reward", 0.0))
          if episode_reward > best_episode_reward:
-@@ -566,7 +655,9 @@ def evaluate(
+@@ -566,7 +664,9 @@ def evaluate(
          log_every (int, optional): The frequency (in steps) at which metrics are logged. Defaults to 100.
      """
      ppo_network = make_networks_factory(
@@ -1433,7 +1427,7 @@ index 18627ba..2c35b77 100644
      )
      make_policy = ppo_networks.make_inference_fn(ppo_network)
      policy_path = os.path.join("results", run_name, "best_policy")
-@@ -622,6 +713,11 @@ def main(args=None):
+@@ -622,6 +722,11 @@ def main(args=None):
          FileNotFoundError: If a specified gin configuration file or evaluation run is not found.
      """
      parser = argparse.ArgumentParser(description="Train the mjx policy.")
@@ -1445,7 +1439,7 @@ index 18627ba..2c35b77 100644
      parser.add_argument(
          "--robot",
          type=str,
-@@ -691,6 +787,7 @@ def main(args=None):
+@@ -691,6 +796,7 @@ def main(args=None):
      EnvClass = get_env_class(args.env)
      env_cfg = MJXConfig()
      train_cfg = PPOConfig()
@@ -1453,7 +1447,7 @@ index 18627ba..2c35b77 100644
  
      kwargs = {}
      if len(args.ref) > 0:
-@@ -765,7 +862,8 @@ def main(args=None):
+@@ -765,7 +871,8 @@ def main(args=None):
              raise FileNotFoundError(f"Run {args.eval} not found.")
      else:
          train(env, eval_env, make_networks_factory, train_cfg, run_name, args.restore)
@@ -1463,6 +1457,3 @@ index 18627ba..2c35b77 100644
  
  
  if __name__ == "__main__":
--- 
-2.53.0-Meta
-

@@ -1,0 +1,3 @@
+# Preserve whitespace in upstream source and the unified review diff.
+third_party/toddlerbot/** whitespace=-trailing-space,-blank-at-eof
+docs/design/toddlerbot_paper_baseline.patch whitespace=-trailing-space,-blank-at-eof

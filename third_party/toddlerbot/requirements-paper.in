@@ -1,0 +1,25 @@
+# TB v1.0.0 pins this Brax fork at 14147806f6c25724ba830ba36764df3243889b0d.
+-e toddlerbot/brax
+jax==0.4.28
+jaxlib==0.4.28
+jax[cuda12]==0.4.28; sys_platform == "linux"
+mujoco==3.2.4
+mujoco-mjx==3.2.4
+orbax-checkpoint==0.5.23
+flax==0.8.4
+optax==0.2.2
+chex==0.1.86
+numpy==1.26.4
+scipy==1.13.1
+control==0.9.4
+gin-config==0.5.0
+joblib==1.4.2
+lz4==4.3.3
+colorama==0.4.6
+line-profiler==4.2.0
+mediapy==1.2.2
+moviepy==1.0.3
+pyserial==3.5
+tqdm==4.66.5
+wandb==0.18.7
+tensorboard==2.19.0
