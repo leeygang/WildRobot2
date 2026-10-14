@@ -1,3 +1,132 @@
+diff --git a/.gitignore b/.gitignore
+index 1d2734c..183244e 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -136,6 +136,7 @@ celerybeat.pid
+ # Environments
+ .env
+ .venv
++.venv-paper/
+ env/
+ venv/
+ ENV/
+@@ -177,4 +178,4 @@ cython_debug/
+ 
+ # Datasets
+ datasets/*.lz4
+-toddlerbot/policies/checkpoints/teleop_model*
+\ No newline at end of file
++toddlerbot/policies/checkpoints/teleop_model*
+diff --git a/.gitmodules b/.gitmodules
+index 7357aca..923d9d6 100644
+--- a/.gitmodules
++++ b/.gitmodules
+@@ -1,3 +1,3 @@
+ [submodule "toddlerbot/brax"]
+ 	path = toddlerbot/brax
+-	url = git@github.com:hshi74/brax.git
++	url = https://github.com/hshi74/brax.git
+diff --git a/PAPER_WALKING.md b/PAPER_WALKING.md
+new file mode 100644
+index 0000000..03d3c1e
+--- /dev/null
++++ b/PAPER_WALKING.md
+@@ -0,0 +1,74 @@
++# Paper walking baseline
++
++Run the experiment directly in this ToddlerBot repository on branch
++`paper-walking-baseline`. The branch starts at the local `v1.0.0` release,
++`59832cde2be3ab029486958f2e5ba92604f87307`, and retains its Brax gitlink,
++`14147806f6c25724ba830ba36764df3243889b0d`.
++
++The reference is the [ToddlerBot paper, Tables VI and VII](https://arxiv.org/html/2502.00893v2).
++`paper.gin` sets all paper reward weights and a fresh 300M-step run, seed 0.
++Native actor initialization, home + 0.25 rad bounded actions, robot model,
++0.72 s gait, ZMP lookup, noise, randomization and command sampling are retained.
++The original ZMP cache SHA256 is
++`43b1363638bf974c52598ff92b1981fad7b43fe63d8b5c9787abfd617b370b39`.
++
++## Install the training environment
++
++Once the prepared branch is available in your existing TB checkout, run from
++its repository root. On the GPU host this is `~/projects/ToddlerBot`.
++
++```bash
++(
++  set -eu
++  git switch paper-walking-baseline
++  git submodule update --init --recursive
++  uv venv --python 3.10 .venv-paper
++  uv pip sync --python .venv-paper/bin/python requirements-paper.lock
++)
++```
++
++The separate `.venv-paper` environment uses Python 3.10, JAX/JAXlib 0.4.28,
++MuJoCo/MJX 3.2.4, the pinned Brax fork, Flax 0.8.4, Optax 0.2.2 and
++Orbax 0.5.23. Linux installs the matching CUDA 12 plugin. The existing `.venv`
++is preserved. Training requires no WR2 checkout or launcher script.
++
++## Launch the native trainer
++
++From the TB repository root on the GPU host:
++
++```bash
++(
++  set -eu
++  .venv-paper/bin/python -c 'import jax; print(jax.devices()); assert jax.default_backend() == "gpu"'
++  WANDB_MODE=offline .venv-paper/bin/python -m toddlerbot.locomotion.train_mjx \
++    --robot toddlerbot --env walk --gin-files paper --skip-video
++)
++```
++
++Start fresh. Native `--restore` is a policy/value/normalizer warm start; it does
++not restore Adam, RNG, counters or environment state. `--skip-video` skips the
++final video while retaining quantitative checkpoint evaluations.
++
++## Results and readiness
++
++Native rounding gives 300,134,400 transitions and 15 trained checkpoints,
++about 20M transitions apart. Each checkpoint has native reward evaluation and
++15 signed XY, diagonal, standing and start/stop conditions, 128 episodes each.
++Policy inference is deterministic during this quantitative suite; released
++noise, robot variation and pushes remain enabled. Nonfinite parameters or
++metrics stop training after retaining the checkpoint.
++
++Keep the complete `results/toddlerbot_walk_ppo_<timestamp>/` directory,
++including `metrics.jsonl`, `xy_evaluation.jsonl`, `provenance.json`, effective
++configs, dependency lock and all checkpoint directories. Compare intermediate
++checkpoints using signed velocity, instantaneous vector tracking error,
++standing speed, leg motor RMSE, survival and recovery.
++
++The reference fixes, native recipe and checkpoint/evaluation execution have
++passed CPU checks. GPU compatibility, memory fit and learned walking still
++require execution on the GPU host. The existing focused checks run with:
++
++```bash
++WANDB_MODE=disabled .venv-paper/bin/python -m unittest discover \
++  -s tests -p test_paper_walking.py -v
++```
+diff --git a/README.md b/README.md
+index 6753539..60a78ea 100644
+--- a/README.md
++++ b/README.md
+@@ -20,6 +20,9 @@ Built entirely in Python, it is **fully pip-installable** (python >= 3.10) for s
+ ## Setup
+ Refer to [this page](https://hshi74.github.io/toddlerbot/software/01_setup.html) for instructions to setup.
+ 
++For the pinned paper walking experiment on `paper-walking-baseline`, see
++[PAPER_WALKING.md](PAPER_WALKING.md).
++
+ 
+ ## Walkthrough
+ 
+@@ -91,4 +94,4 @@ If you use ToddlerBot for published research, please cite:
+ - The ToddlerBot codebase (including the documentation) is released under the [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE).
+ 
+ - The ToddlerBot design (Onshape document, STL files, etc.) is released under the [![License: CC BY-NC-SA](https://img.shields.io/badge/License-CC%20BY--NC--SA-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/), which allows you to use and build upon our work non-commercially.
+-The design of ToddlerBot is provided as-is and without warranty.
+\ No newline at end of file
++The design of ToddlerBot is provided as-is and without warranty.
 diff --git a/requirements-paper.in b/requirements-paper.in
 new file mode 100644
 index 0000000..1002d5b
@@ -472,10 +601,10 @@ index 0000000..883ab97
 +    # via etils
 diff --git a/tests/test_paper_walking.py b/tests/test_paper_walking.py
 new file mode 100644
-index 0000000..e07c88d
+index 0000000..52db77c
 --- /dev/null
 +++ b/tests/test_paper_walking.py
-@@ -0,0 +1,272 @@
+@@ -0,0 +1,277 @@
 +"""Paper configuration and measurement contracts; no hardware access."""
 +
 +import os
@@ -744,6 +873,11 @@ index 0000000..e07c88d
 +                finite = json.loads((checkpoint / "finite.json").read_text())
 +                self.assertEqual(finite["parameters_finite"], not bad_parameters)
 +                self.assertEqual(finite["metrics_finite"], bad_parameters)
++                provenance = json.loads((Path(folder) / "provenance.json").read_text())
++                self.assertEqual(
++                    provenance["brax_revision"],
++                    "14147806f6c25724ba830ba36764df3243889b0d",
++                )
 +
 +
 +if __name__ == "__main__":
