@@ -16,11 +16,11 @@ Implementation details come from local TB `v1.0.0`, commit
 the paper does not identify every runtime/initialization detail. Call this a
 **paper-aligned baseline**, not an exact replay of the authors' experiment.
 
-The prepared training source is vendored in `third_party/toddlerbot` inside
-WR2, including the pinned Brax runtime, original robot model, referenced meshes,
-arm datasets and original ZMP cache. A normal WR2 checkout includes these files.
-`SOURCE.json` records the upstream and preparation commits. Source was exported
-from the verified local release and pinned dependency; setup uses this WR2 copy.
+WR2 tracks the preparation patch and these setup instructions. The optional TB
+comparison run downloads the pinned release and its Brax dependency into
+`.worktrees/toddlerbot-paper`, an ignored directory inside the WR2 checkout.
+The model, meshes, arm datasets and original ZMP cache come from that dependency.
+WR2 training does not require the TB checkout.
 
 ## Effective recipe
 
@@ -85,8 +85,8 @@ schedule; do not substitute WR2's adaptive LR.
   deterministic quantitative XY suite. The optional explicit reset command
   leaves ordinary training resets unchanged. Quantitative evaluation uses a
   separate environment object and does not change training rewards or sampling.
-  Vendored runs record the WR2 Git commit and dirty status, with the original TB,
-  prepared TB and Brax pins under `upstream` in `provenance.json`.
+  `provenance.json` records the TB release commit, its modified status after
+  applying the preparation patch, the Brax commit and runtime/model fingerprints.
 - Add `--skip-video` to the existing trainer. Its native intermediate rendering
   is disabled for this run; no launcher wrapper is required. Video evaluation
   also gets the correct stacked network input dimensions.
@@ -138,26 +138,34 @@ Native checkpoints contain normalizer, policy and value parameters. They
 **do not contain Adam, RNG, counters or environment state**; `--restore` is a
 warm start, not exact continuation. Start this control fresh.
 
-## Self-contained setup
+## Optional TB comparison setup
 
-After copying/syncing this WR2 commit, run once from the WR2 root on the GPU host
-(for example, `~/projects/WildRobot2`). All training source and model/reference
-assets are Git-tracked inside WR2. `uv` installs the pinned Python packages into
-the separate TB environment.
+After syncing this WR2 commit, run once from the WR2 root on a new GPU host
+(for example, `~/projects/WildRobot2`). This creates the dependency checkout
+inside WR2; no existing `~/projects/ToddlerBot` folder is required. Git downloads
+the pinned upstream sources/assets and `uv` installs the locked Python packages
+into the separate TB environment. Dependency source, binaries and generated
+training output stay in the ignored `.worktrees/` directory.
 
 ```bash
 (
   set -eu
-  cd third_party/toddlerbot
+  mkdir -p .worktrees
+  git clone --depth 1 --branch v1.0.0 https://github.com/hshi74/toddlerbot.git .worktrees/toddlerbot-paper
+  cd .worktrees/toddlerbot-paper
+  test "$(git rev-parse HEAD)" = "59832cde2be3ab029486958f2e5ba92604f87307"
+  git -c submodule.toddlerbot/brax.url=https://github.com/hshi74/brax.git \
+    submodule update --init --depth 1 toddlerbot/brax
+  git apply ../../docs/design/toddlerbot_paper_baseline.patch
   uv venv --python 3.10 .venv
   uv pip sync --python .venv/bin/python requirements-paper.lock
 )
 ```
 
-The preparation changes relative to released TB `v1.0.0` are also recorded in
-`docs/design/toddlerbot_paper_baseline.patch` for review. They are already applied
-to the vendored files. Upstream licenses are retained with both packages. See
-[the source inventory](../../third_party/README.md).
+The small text patch contains the paper config, dependency lock, readiness
+checks and the fixes described above. It contains no model binaries or upstream
+package copies. Apply it once to a fresh release checkout. Upstream licenses
+remain in the dependency checkouts.
 
 ## Direct launch on the GPU host
 
@@ -168,26 +176,25 @@ of the WR2 directory. A failed `cd` or GPU check stops before the trainer runs.
 ```bash
 (
   set -eu
-  cd third_party/toddlerbot
+  cd .worktrees/toddlerbot-paper
   .venv/bin/python -c 'import jax; print(jax.devices()); assert jax.default_backend() == "gpu"'
   WANDB_MODE=offline .venv/bin/python -m toddlerbot.locomotion.train_mjx \
     --robot toddlerbot --env walk --gin-files paper --skip-video
 )
 ```
 
-Run output is `third_party/toddlerbot/results/toddlerbot_walk_ppo_<timestamp>/`.
+Run output is `.worktrees/toddlerbot-paper/results/toddlerbot_walk_ppo_<timestamp>/`.
 Keep the complete directory, including `metrics.jsonl`, `xy_evaluation.jsonl`,
 `provenance.json`, effective configs, dependency lock and all checkpoint folders.
 No full training run has been launched during preparation.
 
 ## Verification and transfer
 
-The self-contained export was checked byte-for-byte against its source Git
-blobs. A fresh WR2 clone installs the locked environment from package cache,
-imports TB/Brax from that clone, loads the complete walking environment
-(12 actions), and passes eight lightweight recipe/metric/provenance checks.
-The native reset/step integration and PPO smoke below were verified during
-the original preparation.
+The preparation patch applies to a fresh checkout of the pinned TB release.
+The native trainer imports from that checkout with the pinned Brax runtime.
+The locked dependency installation, complete walking environment (12 actions),
+native reset/step integration and PPO smoke below were verified during the
+original preparation.
 
 The CPU PPO smoke completes **80 transitions**, two rollout iterations / eight
 minibatch optimizer updates, and saves finite 40/80-step checkpoints. The policy
@@ -216,7 +223,7 @@ Focused configuration/reward/measurement checks, from the WR2 root:
 ```bash
 (
   set -eu
-  cd third_party/toddlerbot
+  cd .worktrees/toddlerbot-paper
   WANDB_MODE=disabled .venv/bin/python -m unittest discover \
     -s tests -p test_paper_walking.py -v
 )
@@ -229,7 +236,7 @@ batch/minibatches, horizon, budget and evaluation cadence are reduced:
 ```bash
 (
   set -eu
-  cd third_party/toddlerbot
+  cd .worktrees/toddlerbot-paper
   WANDB_MODE=disabled .venv/bin/python -m toddlerbot.locomotion.train_mjx \
     --gin-files paper --skip-video \
     --config-override 'PPOConfig.num_envs=2,PPOConfig.num_eval_envs=2,PPOConfig.num_timesteps=80,PPOConfig.num_evals=3,PPOConfig.batch_size=2,PPOConfig.num_minibatches=1,PPOConfig.episode_length=20'
@@ -252,7 +259,7 @@ affordable 200M stages, retaining the current 400M/600M policies as controls.
 
 - [ToddlerBot paper](https://arxiv.org/abs/2502.00893) and
   [public project](https://toddlerbot.github.io/).
-- Vendored released TB (paths relative to `third_party/toddlerbot`):
+- Released TB plus preparation patch (paths relative to `.worktrees/toddlerbot-paper`):
   `toddlerbot/locomotion/{walk.gin,mjx_config.py,mjx_env.py,train_mjx.py}`
   and `toddlerbot/reference/walk_zmp_ref.py`; pinned Brax
   `brax/training/agents/ppo/{networks.py,train.py}` and `brax/training/distribution.py`.

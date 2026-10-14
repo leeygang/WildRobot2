@@ -87,9 +87,10 @@ remain incomplete. The next run is the
 [ToddlerBot paper walking baseline](docs/design/toddlerbot_paper_baseline.md):
 300M fresh transitions on the local published-era TB release, with complete
 paper rewards, pinned Brax/runtime and retained signed-command evaluations.
-TB/Brax source and the required model/reference assets are vendored in this
-repository. Install the separate TB environment and run its existing trainer
-directly using the commands in that guide.
+The guide creates a pinned TB dependency checkout inside the ignored
+`.worktrees/` directory for that comparison run, applies the small preparation
+patch, and runs the native trainer in a separate environment. WR2 training
+does not require this optional checkout.
 The [six-DOF model-import guide](docs/design/hip_yaw_model_import.md) documents
 both new hip yaws, 21 actuators, model-derived home/CoM geometry and validation.
 Neck/head stay outside walking actions; the updated export now includes their
