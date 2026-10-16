@@ -147,9 +147,52 @@ def test_reward_normalization_preserves_tb_equivalent_motion():
     )
     actual = paper_reward_terms(**args)
     for name in expected:
-        assert float(actual[name]) == pytest.approx(float(expected[name]), abs=2e-6), (
-            name
+        # Landing impulses scale with cycle duration at a fixed control dt;
+        # their rates retain the same balance with continuous reward terms.
+        factor = s if name in ("feet_air_time", "feet_clearance") else 1.0
+        assert float(actual[name]) == pytest.approx(
+            float(expected[name]) * factor, abs=2e-6
+        ), name
+
+
+def test_landing_reward_rates_match_tb_at_fixed_control_timestep():
+    config = load_training_config(CONFIG).environment
+
+    def cycle_rates(scale, frames):
+        dt = 0.02
+        swing_frames = frames // 3
+        half = swing_frames // 2
+        heights = (
+            0.05
+            * scale**2
+            * np.concatenate([np.arange(half), np.arange(half - 1, -1, -1)])
+            / (half - 1)
         )
+        args = reward_inputs()
+        args.update(
+            scale=scale,
+            command=jp.asarray([0.1 * scale, 0.0, 0.0]),
+            linear_velocity=jp.asarray([0.1 * scale, 0.0, 0.0]),
+            contact=jp.ones(2, dtype=bool),
+            air_time=jp.full(2, swing_frames * dt),
+            air_distance=jp.full(2, heights.sum()),
+        )
+        terms = paper_reward_terms(**args)
+        duration = frames * dt
+        # Two landings per cycle; linearity lets us sum their accumulators.
+        return np.asarray(
+            [
+                float(terms["feet_air_time"]) * 500 * dt / duration,
+                float(terms["feet_clearance"]) * 0.05 * dt / duration,
+                float(terms["lin_vel_xy"]) * 5,
+            ]
+        )
+
+    # Native TB: 0.72 s / 36 ticks. WR2: rounded 0.60 s / 30 ticks.
+    native = cycle_rates(1.0, 36)
+    scaled = cycle_rates(config.normalization_scale, round(config.gait_cycle_s / 0.02))
+    np.testing.assert_allclose(native, [20 / 3, 1 / 1200, 5], rtol=2e-6)
+    np.testing.assert_allclose(scaled, native, rtol=2e-6)
 
 
 def test_preview_matches_native_four_state_tb_planner():

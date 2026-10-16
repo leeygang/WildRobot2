@@ -4,8 +4,9 @@
 # Root is 4mm lower than the prior reference to qualify the full training command grid.
 # value_loss_coef multiplies MSE; the native Brax adapter passes twice this value.
 # NormalTanh learns state-dependent scale; init_noise_std does not initialize this head.
-version: 0.28.0
-version_name: WR2 ToddlerBot paper recipe with measured geometry
+# Landing rewards retain TB's reward rates at the shared 20ms control timestep.
+version: 0.28.1
+version_name: WR2 ToddlerBot paper recipe with fixed-step landing rewards
 seed: 0
 environment:
   episode_length: 1000

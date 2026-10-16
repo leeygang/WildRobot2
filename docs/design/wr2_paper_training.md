@@ -1,5 +1,11 @@
 # Prepared WR2 paper walking experiment
 
+The original **0.28.0** transfer completed 300M steps with no qualifying
+checkpoint and substantial hopping. The [completed-run review](wr2_paper_result_20261016.md)
+records the TB comparison and diagnostics. **0.28.1** corrects landing-reward
+normalization at the shared 20 ms control timestep. Use a fresh run to test
+that correction and collect matched TB foot measurements before further changes.
+
 From the WR2 checkout on the GPU host, run a **fresh 300M-transition WR2
 experiment** through the regular trainer:
 
@@ -75,6 +81,12 @@ episode time and command. **`q_home` stays fixed** for action targets, motor
 observations and the native standing regularizer. The conflicting old global
 home-pose and prescribed foot-height-phase objective is absent from this recipe.
 The per-foot slip mask is corrected; frozen TB broadcasts that mask across axes.
+
+Landing air time remains in physical seconds; clearance divides the native
+height sample sum by `s²`. Both robots use 50 Hz control, so these event
+integrals must scale with cycle duration alongside continuous rewards.
+The original `air_time/s` and `clearance/s³` conversions inflated their relative
+reward rates by **21.35%**. Native coefficients 500 and 0.05 are retained.
 
 Actor frame order is phase, command, motor-minus-home, motor velocity, old
 applied action, gyro and unwrapped Euler angles. Critic order matches native TB:
@@ -199,4 +211,8 @@ checkpoint saving. Its metrics and parameters are finite; checkpoint reload
 also passed locally with Brax 0.14.1. Nine targeted trainer/evaluation tests
 pass after the relative checkpoint path fix, including a regression rerun
 with Brax 0.14.1. See the [dry-run audit](wr2_paper_dry_run_20261016.md).
-This verifies the training path; one rollout does not establish walking quality.
+The original 300M run also completed with finite metrics and checkpoints,
+but its [walking results](wr2_paper_result_20261016.md) fail the candidate gate.
+Four reward regressions pass for the 0.28.1 correction, including the new
+whole-cycle test that reproduced the 21.35% bias before the fix. The completed
+training results are from 0.28.0; 0.28.1 needs a fresh learning comparison.

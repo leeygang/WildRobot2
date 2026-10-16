@@ -1,6 +1,8 @@
 """Table VII rewards from the frozen ToddlerBot paper walking control.
 
-Velocities and air time use TB-equivalent units (v/s, omega*s, t/s).
+Velocities use TB-equivalent units (v/s, omega*s). At the shared 50Hz control
+rate, landing air time stays in seconds and clearance normalizes height only.
+Their cycle integrals then scale with duration, as continuous rewards do.
 Foot distances use the measured stance-width ratio. Torque stays in Nm.
 Reference: https://arxiv.org/html/2502.00893v2, Table VII.
 """
@@ -77,8 +79,8 @@ def paper_reward_terms(
         "arm_motor_pos": zero,
         "waist_motor_pos": zero,
         "feet_contact": jp.sum(contact == reference_contact).astype(jp.float32),
-        "feet_air_time": jp.sum(air_time * first_time) / scale * active,
-        "feet_clearance": jp.sum(air_distance * first_distance) / scale**3 * active,
+        "feet_air_time": jp.sum(air_time * first_time) * active,
+        "feet_clearance": jp.sum(air_distance * first_distance) / scale**2 * active,
         "feet_distance": range_reward(
             foot_distance,
             minimum_foot_distance,
