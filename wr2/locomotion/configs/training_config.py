@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass, fields
+from dataclasses import MISSING, asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +37,37 @@ class RewardWeights:
 
 
 @dataclass(frozen=True)
+class PaperRewardWeights:
+    """Table VII names and signs from the completed ToddlerBot paper control."""
+
+    torso_pos: float
+    torso_quat: float
+    lin_vel_xy: float
+    lin_vel_z: float
+    ang_vel_xy: float
+    ang_vel_z: float
+    leg_motor_pos: float
+    neck_motor_pos: float
+    arm_motor_pos: float
+    waist_motor_pos: float
+    feet_contact: float
+    feet_air_time: float
+    feet_clearance: float
+    feet_distance: float
+    feet_slip: float
+    align_ground: float
+    stand_still: float
+    torso_roll: float
+    torso_pitch: float
+    collision: float
+    leg_action_rate: float
+    leg_action_acc: float
+    motor_torque: float
+    energy: float
+    survival: float
+
+
+@dataclass(frozen=True)
 class ObservationNoise:
     joint_position_uniform_rad: float
     joint_velocity_uniform_rad_s: float
@@ -52,6 +83,9 @@ class ObservationNoise:
     projected_gravity_white_std_rad: float
     projected_gravity_amplitude_min: float
     projected_gravity_amplitude_max: float
+    joint_position_white_std_rad: float = 0.0
+    joint_velocity_white_std_rad_s: float = 0.0
+    euler_white_std_rad: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -72,6 +106,7 @@ class DynamicsRandomization:
     max_speed_scale: tuple[float, float]
     brake_torque_scale: tuple[float, float]
     passive_active_ratio_scale: tuple[float, float]
+    initial_torso_yaw_rad: tuple[float, float] = (0.0, 0.0)
 
 
 @dataclass(frozen=True)
@@ -85,6 +120,7 @@ class ZMPReferenceConfig:
     max_position_residual_m: float
     max_orientation_residual_rad: float
     root_height_m: float | None = None
+    method: str = "periodic_lipm"
 
 
 @dataclass(frozen=True)
@@ -122,8 +158,15 @@ class WalkingEnvConfig:
     torque_exposure_time_constant_s: float
     zmp_reference: ZMPReferenceConfig
     observation_noise: ObservationNoise
-    rewards: RewardWeights
+    rewards: RewardWeights | PaperRewardWeights
     randomization: DynamicsRandomization
+    recipe: str = "legacy"
+    normalization_scale: float = 1.0
+    turn_command_probability: float = 0.0
+    push_interval_steps: int = 0
+    push_linear_velocity_m_s: float = 0.0
+    push_angular_velocity_rad_s: float = 0.0
+    max_feet_lateral_distance_m: float = 0.13
 
 
 @dataclass(frozen=True)
@@ -139,7 +182,7 @@ class PPOConfig:
     discounting: float
     gae_lambda: float
     clipping_epsilon: float
-    max_grad_norm: float
+    max_grad_norm: float | None
     unroll_length: int
     batch_size: int
     num_minibatches: int
@@ -152,6 +195,7 @@ class PPOConfig:
     training_metrics_steps: int
     mirror_loss_coeff: float = 0.0
     evaluation_randomization: bool = False
+    evaluation_lateral_command_m_s: float | None = None
 
 
 @dataclass(frozen=True)
@@ -244,6 +288,10 @@ def _float_tuple(value: Any, name: str) -> tuple[float, ...]:
 
 
 def _numeric_dataclass(cls, raw: dict[str, Any], section: str):
+    raw = {
+        **{field.name: field.default for field in fields(cls) if field.default is not MISSING},
+        **raw,
+    }
     expected = {field.name for field in fields(cls)}
     _expect_keys(raw, expected, section)
     return cls(**{name: _float(raw[name], f"{section}.{name}") for name in expected})
@@ -272,8 +320,12 @@ def load_training_config(
     }
     _expect_keys(root, root_keys, "training config")
 
+    env_raw = _mapping(root["environment"], "environment")
+    recipe = str(env_raw.get("recipe", "legacy"))
+    if recipe not in {"legacy", "tb_paper"}:
+        raise ValueError("environment.recipe must be legacy or tb_paper")
     rewards = _numeric_dataclass(
-        RewardWeights,
+        PaperRewardWeights if recipe == "tb_paper" else RewardWeights,
         _mapping(root["reward_weights"], "reward_weights"),
         "reward_weights",
     )
@@ -285,7 +337,10 @@ def load_training_config(
     if any(value < 0.0 for value in asdict(observation_noise).values()):
         raise ValueError("observation_noise values must be non-negative")
 
-    random_raw = _mapping(root["domain_randomization"], "domain_randomization")
+    random_raw = {
+        "initial_torso_yaw_rad": [0.0, 0.0],
+        **_mapping(root["domain_randomization"], "domain_randomization"),
+    }
     random_fields = {field.name for field in fields(DynamicsRandomization)}
     _expect_keys(random_raw, random_fields, "domain_randomization")
     randomization = DynamicsRandomization(
@@ -299,6 +354,7 @@ def load_training_config(
         "target_bias_rad",
         "initial_torso_roll_rad",
         "initial_torso_pitch_rad",
+        "initial_torso_yaw_rad",
         "backlash_rad",
     }
     for name in random_fields - {"enabled"} - signed_or_zero_ranges:
@@ -307,9 +363,12 @@ def load_training_config(
     if randomization.backlash_rad[0] < 0.0:
         raise ValueError("domain_randomization.backlash_rad must be non-negative")
 
-    env_raw = _mapping(root["environment"], "environment")
     # Missing heading flags preserve pre-heading features, not old robot dimensions.
-    env_raw = {"heading_observation": False, "solver_iterations": 1, **env_raw}
+    env_raw = {
+        "heading_observation": False, "solver_iterations": 1,
+        **{field.name: field.default for field in fields(WalkingEnvConfig) if field.default is not MISSING},
+        **env_raw,
+    }
     if isinstance(env_raw["solver_iterations"], bool):
         raise ValueError("environment.solver_iterations must be an integer")
     nested_env_fields = {
@@ -334,7 +393,7 @@ def load_training_config(
         env_fields
         - integer_fields
         - boolean_fields
-        - {"active_groups"}
+        - {"active_groups", "recipe", "push_interval_steps"}
         - range_fields
         - vector_fields
     )
@@ -345,6 +404,7 @@ def load_training_config(
         raise ValueError("environment.active_groups must be a list of names")
     zmp_raw = {
         "root_height_m": None,
+        "method": "periodic_lipm",
         **_mapping(env_raw["zmp_reference"], "environment.zmp_reference"),
     }
     zmp_fields = {field.name for field in fields(ZMPReferenceConfig)}
@@ -361,10 +421,13 @@ def load_training_config(
                 if name in {"com_height_m", "root_height_m"} and zmp_raw[name] is None
                 else _float(zmp_raw[name], f"environment.zmp_reference.{name}")
             )
-            for name in zmp_fields - zmp_integer_fields
+            for name in zmp_fields - zmp_integer_fields - {"method"}
         },
+        method=str(zmp_raw["method"]),
     )
     environment = WalkingEnvConfig(
+        recipe=recipe,
+        push_interval_steps=int(env_raw["push_interval_steps"]),
         heading_observation=_bool(
             env_raw["heading_observation"], "environment.heading_observation"
         ),
@@ -396,6 +459,24 @@ def load_training_config(
     )
     if environment.action_delay_steps not in (0, 1):
         raise ValueError("environment.action_delay_steps must be 0 or 1")
+    if environment.normalization_scale <= 0:
+        raise ValueError("environment.normalization_scale must be positive")
+    if not 0 <= environment.turn_command_probability <= 1 - environment.zero_command_probability:
+        raise ValueError("standing and turning probabilities must sum to at most one")
+    if environment.push_interval_steps < 0 or min(environment.push_linear_velocity_m_s, environment.push_angular_velocity_rad_s) < 0:
+        raise ValueError("push intervals and velocities must be non-negative")
+    if isinstance(env_raw["push_interval_steps"], bool) or environment.push_interval_steps != float(env_raw["push_interval_steps"]):
+        raise ValueError("environment.push_interval_steps must be an integer")
+    if zmp_reference.method not in {"periodic_lipm", "tb_preview"}:
+        raise ValueError("environment.zmp_reference.method must be periodic_lipm or tb_preview")
+    if recipe == "tb_paper" and (zmp_reference.method != "tb_preview" or environment.active_groups != ("leg",)):
+        raise ValueError("the paper recipe requires tb_preview and leg-only actions")
+    if recipe == "tb_paper" and any(getattr(rewards, name) != 0 for name in (
+        "torso_pos", "neck_motor_pos", "arm_motor_pos", "waist_motor_pos",
+    )):
+        raise ValueError("the walking paper recipe requires zero torso-position and non-leg imitation weights")
+    if environment.max_feet_lateral_distance_m <= environment.min_feet_lateral_distance_m:
+        raise ValueError("the maximum foot distance must exceed the minimum")
     if environment.policy_action_scale_rad <= 0.0:
         raise ValueError("environment.policy_action_scale_rad must be positive")
     noise = environment.observation_noise
@@ -467,14 +548,14 @@ def load_training_config(
             "environment.zmp_reference.max_orientation_residual_rad must be positive"
         )
     if environment.command_lateral_range_m_s != (0.0, 0.0):
-        if environment.rewards.forward_progress != 0.0:
+        if recipe == "legacy" and environment.rewards.forward_progress != 0.0:
             raise ValueError("XY walking must not use the forward-only acquisition reward")
         for name in ("command_forward_range_m_s", "command_lateral_range_m_s"):
             low, high = getattr(environment, name)
             deadzone = environment.command_active_threshold_m_s
             if low > -deadzone or high < deadzone or deadzone <= 0.0:
                 raise ValueError(f"environment.{name} must cover both signed XY deadzones")
-    if environment.command_yaw_range_rad_s != (0.0, 0.0):
+    if recipe == "legacy" and environment.command_yaw_range_rad_s != (0.0, 0.0):
         raise ValueError(
             "WR2's current reference supports XY translation, not turning; "
             "environment.command_yaw_range_rad_s must be [0, 0]"
@@ -482,7 +563,10 @@ def load_training_config(
 
     ppo_raw = _mapping(root["ppo"], "ppo")
     # Old checkpoints/config snapshots retain the mirror-disabled PPO path.
-    ppo_raw = {"mirror_loss_coeff": 0.0, "evaluation_randomization": False, **ppo_raw}
+    ppo_raw = {
+        "mirror_loss_coeff": 0.0, "evaluation_randomization": False,
+        "evaluation_lateral_command_m_s": None, **ppo_raw,
+    }
     ppo_fields = {field.name for field in fields(PPOConfig)}
     _expect_keys(ppo_raw, ppo_fields, "ppo")
     ppo_integer_fields = {
@@ -511,8 +595,18 @@ def load_training_config(
                 "normalize_advantage",
                 "learning_rate_schedule",
                 "evaluation_randomization",
+                "max_grad_norm",
+                "evaluation_lateral_command_m_s",
             }
         },
+        max_grad_norm=(
+            None if ppo_raw["max_grad_norm"] is None
+            else _float(ppo_raw["max_grad_norm"], "ppo.max_grad_norm")
+        ),
+        evaluation_lateral_command_m_s=(
+            None if ppo_raw["evaluation_lateral_command_m_s"] is None
+            else _float(ppo_raw["evaluation_lateral_command_m_s"], "ppo.evaluation_lateral_command_m_s")
+        ),
         backend=str(ppo_raw["backend"]),
         normalize_observations=_bool(
             ppo_raw["normalize_observations"], "ppo.normalize_observations"
@@ -527,6 +621,8 @@ def load_training_config(
     )
     if ppo.backend not in {"rsl_rl", "brax"}:
         raise ValueError("ppo.backend must be rsl_rl or brax")
+    if recipe == "tb_paper" and ppo.backend != "brax":
+        raise ValueError("the paper recipe uses the native Brax trainer")
     if ppo.mirror_loss_coeff < 0.0:
         raise ValueError("ppo.mirror_loss_coeff must be non-negative")
     if ppo.mirror_loss_coeff > 0.0 and ppo.backend != "rsl_rl":
@@ -541,8 +637,11 @@ def load_training_config(
         raise ValueError("ppo.gae_lambda must be in (0, 1]")
     if ppo.clipping_epsilon <= 0.0:
         raise ValueError("ppo.clipping_epsilon must be positive")
-    if ppo.max_grad_norm <= 0.0:
-        raise ValueError("ppo.max_grad_norm must be positive")
+    if ppo.max_grad_norm is None:
+        if ppo.backend != "brax":
+            raise ValueError("ppo.max_grad_norm=null requires the brax backend")
+    elif ppo.max_grad_norm <= 0.0:
+        raise ValueError("ppo.max_grad_norm must be positive or null for Brax")
     if ppo.value_loss_coef < 0.0:
         raise ValueError("ppo.value_loss_coef must be non-negative")
     if ppo.desired_kl <= 0.0:
@@ -551,6 +650,8 @@ def load_training_config(
         raise ValueError("ppo.learning_rate_schedule must be adaptive or fixed")
     if ppo.evaluation_forward_command_m_s <= 0.0:
         raise ValueError("ppo.evaluation_forward_command_m_s must be positive")
+    if ppo.evaluation_lateral_command_m_s is not None and ppo.evaluation_lateral_command_m_s <= 0:
+        raise ValueError("ppo.evaluation_lateral_command_m_s must be positive")
     if not (
         environment.command_forward_range_m_s[0]
         <= ppo.evaluation_forward_command_m_s
@@ -608,10 +709,12 @@ def load_training_config(
             )
         ),
     )
-    if checkpoints.selection_metric not in {"acquisition", "walking_score"}:
+    if checkpoints.selection_metric not in {"acquisition", "walking_score", "paper_xy_error"}:
         raise ValueError(
-            "checkpoints.selection_metric must be acquisition or walking_score"
+            "checkpoints.selection_metric must be acquisition, walking_score or paper_xy_error"
         )
+    if (recipe == "tb_paper") != (checkpoints.selection_metric == "paper_xy_error"):
+        raise ValueError("paper_xy_error selection must be paired with the paper recipe")
     if checkpoints.qualification_goal is not None and (
         ppo.backend != "rsl_rl" or environment.episode_length != 1000
         or not ppo.evaluation_randomization or not environment.randomization.enabled

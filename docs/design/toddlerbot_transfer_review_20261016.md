@@ -7,6 +7,11 @@ paper reward, reference and native policy semantics**. Use WR2's existing
 Brax training entry point after fixing its adapters. Retain checkpoints
 through a 200–300M budget and select candidates using tracking and survival.
 
+The [prepared WR2 experiment](wr2_paper_training.md) implements this plan.
+Full-grid geometry qualification uses a fixed crouch 4 mm lower than the prior
+reference, recomputing the CoM scale to **0.824055** and evaluation horizon to
+**824 ticks**. The nominal geometry values below document the earlier proposal.
+
 The TB control supplies a useful walking reference at 180M/200M. Its final
 checkpoint regresses in survival. The completed WR2 continuation still uses
 the later TB code's different recipe, so another continuation of that policy
@@ -155,8 +160,9 @@ TB trainer. It needs concrete changes before launching:
 2. WR2 passes `fixed`/`adaptive` to Brax's `LRSchedule` enum. Both raise
    `ValueError`. Map them to **NONE / ADAPTIVE_KL**; select NONE for this control.
 3. TB native value loss is **0.25 × MSE**. Brax 0.14 implements
-   `0.5 × vf_loss_coefficient × MSE`, so use **0.5** for that parameter.
-   The current WR2 value setting 0.25 would halve the loss on the Brax route.
+   `0.5 × vf_loss_coefficient × MSE`. Keep WR2's config coefficient **0.25**
+   defined against actual MSE and convert it to **0.5** in the Brax adapter.
+   Passing the config value directly would halve the loss on the Brax route.
 4. Native TB does not clip gradient norms. The WR2 loader currently requires
    a positive norm; permit the native Brax `None` setting for this recipe.
 

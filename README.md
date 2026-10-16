@@ -83,14 +83,20 @@ It follows TB's XY command sampler with turning excluded; see
 The [corrected-physics XY continuation](docs/design/xy_physics_continuation.md)
 records the 1B review and subsequent 200M experiment. That continuation completed
 at 600M cumulative transitions; lateral tracking and backward launch stability
-remain incomplete. The next run is the
-[ToddlerBot paper walking baseline](docs/design/toddlerbot_paper_baseline.md):
-300M fresh transitions on the local published-era TB release, with complete
-paper rewards, pinned Brax/runtime and retained signed-command evaluations.
-Run that comparison directly in the ToddlerBot repository on branch
-`paper-walking-baseline`, using its separate `.venv-paper` environment and
-native trainer. The guide records the branch setup and a small review diff.
-WR2 training does not require a TB checkout.
+remain incomplete. The
+[ToddlerBot paper control](docs/design/toddlerbot_transfer_review_20261016.md)
+completed and supplies the recipe for the
+[prepared WR2 paper training experiment](docs/design/wr2_paper_training.md).
+Start the fresh 300M run through the regular trainer:
+
+```bash
+.venv/bin/python -m wr2.locomotion.train \
+  --config wr2/locomotion/configs/ppo_walking_paper.yaml
+```
+
+The guide records the full GPU batch check, fixed crouched home, normalized
+reference/commands and retained checkpoint comparison. Actor/critic inputs are
+975/1485 for this recipe. WR2 training is self-contained.
 The [six-DOF model-import guide](docs/design/hip_yaw_model_import.md) documents
 both new hip yaws, 21 actuators, model-derived home/CoM geometry and validation.
 Neck/head stay outside walking actions; the updated export now includes their

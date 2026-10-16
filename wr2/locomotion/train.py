@@ -140,6 +140,13 @@ def _worst_endpoint_score(scores: list[float | None]) -> float | None:
 def _checkpoint_evaluation_xy_commands(config: TrainingConfig) -> tuple[tuple[float, float], ...]:
     """Preserve forward endpoints; cover cardinal and diagonal XY commands."""
     env = config.environment
+    if env.recipe == "tb_paper":
+        from wr2.locomotion.paper_evaluation import CONDITIONS
+
+        return tuple(dict.fromkeys(
+            (x * env.normalization_scale, y * env.normalization_scale)
+            for _, (x, y), transitions in CONDITIONS if not transitions
+        ))
     if env.command_lateral_range_m_s == (0.0, 0.0):
         return tuple((x, 0.0) for x in _checkpoint_evaluation_commands(
             env.command_forward_range_m_s, config.ppo.evaluation_forward_command_m_s
@@ -160,6 +167,9 @@ def _checkpoint_evaluation_xy_commands(config: TrainingConfig) -> tuple[tuple[fl
 
 
 def _checkpoint_transition_xy_commands(config: TrainingConfig) -> tuple[tuple[float, float], ...]:
+    if config.environment.recipe == "tb_paper":
+        x, y = config.ppo.evaluation_forward_command_m_s, config.ppo.evaluation_lateral_command_m_s
+        return ((x, 0.0), (-x, 0.0), (0.0, -y), (0.0, y))
     commands = ((config.ppo.evaluation_forward_command_m_s, 0.0),)
     if config.environment.command_lateral_range_m_s != (0.0, 0.0):
         commands += (
@@ -195,6 +205,16 @@ def _validate_training_zmp_reference(
     from wr2.reference.walk_zmp import reference_command_grid
 
     environment = training_config.environment
+    if environment.recipe == "tb_paper":
+        from wr2.reference.zmp_validation import validate_paper_training_reference
+
+        print("Building and checking the TB-style WR2 XY/turn reference table...", flush=True)
+        results = validate_paper_training_reference(training_config)
+        failures = [f"({r.command_forward_m_s:.3f},{r.command_lateral_m_s:.3f},{r.command_yaw_rad_s:.3f}): {f}"
+                    for r in results for f in r.failures]
+        if failures:
+            raise RuntimeError("Paper reference preflight failed: " + "; ".join(failures[:5]))
+        return results
     zmp = environment.zmp_reference
     low, high = environment.command_forward_range_m_s
     varying_range = not math.isclose(low, high) or (
@@ -232,9 +252,15 @@ def _validate_training_zmp_reference(
 
 
 def _format_zmp_preflight(results) -> str:
-    commands = f"{len(results)} XY lookup points" if any(
-        item.command_lateral_m_s != 0.0 for item in results
-    ) else ",".join(f"{item.command_forward_m_s:.3f}" for item in results)
+    if hasattr(results[0], "command_yaw_rad_s"):
+        commands = f"{len(results)} XY/turn lookup points"
+        optimal_margin_mm = min(result.minimum_optimal_cop_support_margin_m for result in results) * 1000.0
+        optimal_info = f" optimal_COP_margin>={optimal_margin_mm:.2f}mm (soft preview cost)"
+    else:
+        optimal_info = ""
+        commands = f"{len(results)} XY lookup points" if any(
+            item.command_lateral_m_s != 0.0 for item in results
+        ) else ",".join(f"{item.command_forward_m_s:.3f}" for item in results)
     support_margin_mm = (
         min(result.minimum_zmp_support_margin_m for result in results) * 1000.0
     )
@@ -243,7 +269,7 @@ def _format_zmp_preflight(results) -> str:
     )
     return (
         f"commands=[{commands}] support_margin>={support_margin_mm:.2f}mm "
-        f"stance_z<={stance_height_mm:.2f}mm"
+        f"stance_z<={stance_height_mm:.2f}mm{optimal_info}"
     )
 
 
@@ -284,7 +310,7 @@ def _training_provenance() -> dict:
     import subprocess
 
     versions = {}
-    for package in ("jax", "jaxlib", "mujoco", "mujoco-mjx", "brax", "rsl-rl-lib", "torch", "numpy"):
+    for package in ("jax", "jaxlib", "mujoco", "mujoco-mjx", "brax", "rsl-rl-lib", "torch", "numpy", "scipy", "flax", "optax", "orbax-checkpoint"):
         try:
             versions[package] = metadata.version(package)
         except metadata.PackageNotFoundError:
@@ -365,6 +391,11 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         add_observation_noise=True,
     )
     evaluation_commands = _checkpoint_evaluation_xy_commands(training_config)
+    paper_recipe = training_config.environment.recipe == "tb_paper"
+    if paper_recipe:
+        # Brax's native evaluation is progress telemetry; the independent
+        # paper evaluator below measures all 15 conditions per checkpoint.
+        evaluation_commands = ((training_config.ppo.evaluation_forward_command_m_s, 0.0),)
     evaluation_environments = tuple(
         (
             command,
@@ -373,6 +404,8 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                     training_config.environment,
                     command_forward_range_m_s=(command[0], command[0]),
                     command_lateral_range_m_s=(command[1], command[1]),
+                    command_yaw_range_rad_s=(0.0, 0.0),
+                    turn_command_probability=0.0,
                     zero_command_probability=0.0,
                 ),
                 add_observation_noise=(
@@ -417,7 +450,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     )
     print(f"  Actions:      {environment.action_size} (leg joints active)")
     print(
-        "  Action map:   walk_home + "
+        "  Action map:   fixed q_home + "
         f"{training_config.environment.policy_action_scale_rad:.3f}rad * residual; "
         f"initial residual std={training_config.network.init_noise_std:.3f}"
     )
@@ -453,9 +486,9 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     )
     zmp = environment.zmp_reference_diagnostics
     print(
-        "  ZMP critic:   "
+        "  ZMP lookup:   "
         f"{len(zmp.command_samples_xy_m_s)} command x "
-        f"{training_config.environment.zmp_reference.phase_samples} phase lookup; "
+        f"{zmp.lookup_length if paper_recipe else training_config.environment.zmp_reference.phase_samples} frames; "
         f"IK residual={zmp.max_ik_position_residual_m * 1000.0:.2f}mm"
     )
     print(f"  ZMP preflight: {_format_zmp_preflight(zmp_preflight)}")
@@ -498,6 +531,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         "training_config": effective_config,
         "actuator_model": environment.robot.config["actuators"]["htd45hServo"],
         "policy_home_action": np.asarray(environment.home_action).tolist(),
+        "policy_home_motor_position_rad": np.asarray(environment._home_ctrl).tolist(),
         "policy_action_scale_rad": (
             training_config.environment.policy_action_scale_rad
         ),
@@ -516,6 +550,8 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             ).hexdigest(),
         },
         "zmp_reference_validation": [asdict(result) for result in zmp_preflight],
+        "zmp_reference_diagnostics": asdict(zmp),
+        "restore_semantics": "parameters_only_new_Adam_and_step_counter" if training_config.ppo.backend == "brax" else "RSL_checkpoint",
     }
     (output / "run_config.json").write_text(
         json.dumps(run_config, indent=2, sort_keys=True) + "\n"
@@ -535,6 +571,9 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     latest_params: dict[str, object] = {}
     best_selection_score = -math.inf
     pending_checkpoints: dict[int, dict[str, object]] = {}
+    paper_evaluator = None
+    paper_policy_factory = None
+    best_paper_error = math.inf
 
     def save_best_checkpoint(params, candidate: dict[str, object]) -> None:
         nonlocal best_selection_score
@@ -560,9 +599,54 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         )
 
     def receive_policy_params(step: int, _make_policy, params) -> None:
+        nonlocal paper_evaluator, paper_policy_factory, best_paper_error
         step = int(step)
         latest_params["step"] = step
         latest_params["value"] = params
+        if paper_recipe:
+            from wr2.locomotion.paper_evaluation import PaperEvaluator, selection_summary
+
+            if any(not np.isfinite(np.asarray(leaf)).all() for leaf in jax.tree.leaves(params)):
+                raise RuntimeError(f"Nonfinite PPO parameters at step {step}")
+            paper_policy_factory = _make_policy
+            if paper_evaluator is None:
+                paper_evaluator = PaperEvaluator(
+                    evaluation_environment, _make_policy, training_config.ppo.num_eval_envs,
+                    randomization_fn if training_config.ppo.evaluation_randomization else None,
+                )
+            print(f"Paper comparison at {step:,} steps: 15 conditions, seed 12102...", flush=True)
+            report = paper_evaluator.evaluate(params)
+            summary = selection_summary(report)
+            record = {"step": step, "summary": summary, **report}
+            evaluation_dir = output / "paper_evaluations"
+            evaluation_dir.mkdir(exist_ok=True)
+            (evaluation_dir / f"{step:012d}.json").write_text(json.dumps(record, allow_nan=False) + "\n")
+            with (output / "paper_evaluation_history.jsonl").open("a") as stream:
+                stream.write(json.dumps({"step": step, **summary}, allow_nan=False) + "\n")
+            print(
+                f"  paper: falls={summary['fall_count']}/{summary['episodes']} "
+                f"nonfinite={summary['nonfinite_count']} "
+                f"fixed walking XY MAE={summary['walking_xy_error_m_s']}m/s "
+                f"TB-equivalent={summary['walking_xy_error_TB_equivalent_m_s']}m/s",
+                flush=True,
+            )
+            if summary["nonfinite_count"]:
+                model.save_params(output / f"nonfinite_eval_params_{step}", params)
+                raise RuntimeError("Paper evaluation found nonfinite transitions; see its per-episode report")
+            if step == 0:
+                model.save_params(output / "initial_params", params)
+            elif training_config.checkpoints.keep_best and summary["eligible"] and summary["walking_xy_error_m_s"] < best_paper_error:
+                best_paper_error = summary["walking_xy_error_m_s"]
+                model.save_params(output / "best_params", params)
+                candidate = {
+                    "step": step, "selection_metric": "fixed_walking_xy_error_with_survival_gate",
+                    "selection_seed": 12102, "summary": summary,
+                    "confirmation_seed": 22102, "held_out_confirmation_required": True,
+                    "evaluation_report": str(evaluation_dir / f"{step:012d}.json"),
+                }
+                (output / "best_checkpoint.json").write_text(json.dumps(candidate, indent=2, allow_nan=False) + "\n")
+                print(f"  saved candidate at {step:,}; held-out confirmation follows training", flush=True)
+            return
         candidate = pending_checkpoints.pop(step, None)
         if candidate is not None:
             save_best_checkpoint(params, candidate)
@@ -571,6 +655,22 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         nonlocal best_selection_score, progress_index
         elapsed_s = time.monotonic() - training_started
         step = int(step)
+        if paper_recipe:
+            serialized = {name: np.asarray(value).tolist() for name, value in metrics.items()}
+            invalid = [name for name, value in metrics.items() if not np.isfinite(np.asarray(value)).all()]
+            if invalid:
+                raise RuntimeError(f"Nonfinite PPO metrics at step {step}: {invalid[:5]}")
+            if any(float(np.asarray(v)) > 0 for name, v in metrics.items() if name.endswith("nonfinite_state")):
+                raise RuntimeError(f"Nonfinite simulation state at PPO step {step}")
+            path = metrics_path if "eval/avg_episode_length" in metrics else rollout_metrics_path
+            with path.open("a") as stream:
+                stream.write(json.dumps({"step": step, "elapsed_s": elapsed_s, "metrics": serialized}, allow_nan=False) + "\n")
+            print(
+                f"PPO [{_format_duration(elapsed_s)}] steps={step:,} "
+                f"reward={serialized.get('eval/episode_reward', 'n/a')} "
+                f"loss={serialized.get('training/total_loss', 'n/a')}", flush=True,
+            )
+            return
         target_steps = training_config.ppo.num_timesteps
         progress_fraction = min(max(step / target_steps, 0.0), 1.0)
 
@@ -1087,6 +1187,12 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         return
 
     network_factory = make_network_factory(training_config.network)
+    from brax.training.agents.ppo.optimizer import LRSchedule
+
+    learning_rate_schedule = {
+        "fixed": LRSchedule.NONE,
+        "adaptive": LRSchedule.ADAPTIVE_KL,
+    }[ppo_config.learning_rate_schedule]
     checkpoint_path = (
         str(output / "checkpoints")
         if training_config.checkpoints.save_every_evaluation
@@ -1115,9 +1221,10 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         num_updates_per_batch=ppo_config.num_updates_per_batch,
         normalize_observations=ppo_config.normalize_observations,
         normalize_advantage=ppo_config.normalize_advantage,
-        vf_loss_coefficient=ppo_config.value_loss_coef,
+        # WR2's coefficient multiplies MSE; Brax applies an additional 0.5.
+        vf_loss_coefficient=2.0 * ppo_config.value_loss_coef,
         desired_kl=ppo_config.desired_kl,
-        learning_rate_schedule=ppo_config.learning_rate_schedule,
+        learning_rate_schedule=learning_rate_schedule,
         network_factory=network_factory,
         randomization_fn=randomization_fn,
         seed=training_config.seed,
@@ -1137,6 +1244,21 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     jax.block_until_ready(params)
     model.save_params(output / "params", params)
     print(f"Saved parameters to {output / 'params'}")
+    if paper_recipe and (output / "best_params").exists():
+        from wr2.locomotion.paper_evaluation import PaperEvaluator, selection_summary
+
+        print("Confirming the selected candidate on held-out seed 22102...", flush=True)
+        selected = model.load_params(output / "best_params")
+        selected_step = json.loads((output / "best_checkpoint.json").read_text())["step"]
+        confirmation = PaperEvaluator(
+            evaluation_environment, paper_policy_factory, ppo_config.num_eval_envs,
+            randomization_fn if ppo_config.evaluation_randomization else None, seed=22102,
+        ).evaluate(selected)
+        (output / "paper_confirmation_22102.json").write_text(
+            json.dumps({"step": selected_step, "checkpoint": "best_params",
+                        "checkpoint_sha256": hashlib.sha256((output / "best_params").read_bytes()).hexdigest(),
+                        "summary": selection_summary(confirmation), **confirmation}, allow_nan=False) + "\n"
+        )
 
 
 def _apply_cli_overrides(
@@ -1163,6 +1285,8 @@ def _apply_cli_overrides(
     if args.backend is not None:
         ppo_overrides["backend"] = args.backend
     ppo_config = replace(training_config.ppo, **ppo_overrides)
+    if training_config.environment.recipe == "tb_paper" and ppo_config.backend != "brax":
+        raise ValueError("the paper recipe requires the native Brax backend")
     if ppo_config.mirror_loss_coeff > 0.0 and ppo_config.backend != "rsl_rl":
         raise ValueError("ppo.mirror_loss_coeff requires the rsl_rl backend")
 

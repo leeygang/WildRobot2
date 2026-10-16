@@ -49,6 +49,80 @@ class ZMPGeometryResult:
         return not self.failures
 
 
+@dataclass(frozen=True)
+class PaperGeometryResult:
+    """Desired ZMP is checked; native unconstrained optimal COP is reported."""
+
+    command_forward_m_s: float
+    command_lateral_m_s: float
+    command_yaw_rad_s: float
+    samples: int
+    failures: tuple[str, ...]
+    worst_stance_bottom_z_m: float
+    minimum_zmp_support_margin_m: float
+    minimum_optimal_cop_support_margin_m: float
+    maximum_joint_step_rad: float
+
+    @property
+    def passed(self):
+        return not self.failures
+
+
+def validate_paper_training_reference(training_config):
+    """Check every frame of the canonical XY/turn lookup using actual WR2 boxes.
+
+    The native TB preview minimizes a soft COP cost; it does not constrain
+    optimal COP to a support polygon. Its excursions are diagnostics, whereas
+    desired ZMP support, grounded stance, penetration and finite IK are gates.
+    """
+    from wr2.reference.paper_walk import PaperWalkReference
+
+    robot = RobotDescription.load(include_local_calibration=False)
+    model = mujoco.MjModel.from_xml_path(str(robot.directory / "scene_mjx.xml"))
+    data = mujoco.MjData(model)
+    key = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "walk_home")
+    reference = PaperWalkReference(
+        model, keyframe_id=key, actuator_names=robot.actuator_names,
+        config=training_config.environment, control_dt=robot.control_period_s,
+        normalization_scale=training_config.environment.normalization_scale,
+    )
+    geoms = [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, f"{side}_foot_collision")
+             for side in ("left", "right")]
+    results = []
+    for command_index, command in enumerate(reference._host["commands"]):
+        failures = []
+        worst_stance, desired_margin, optimal_margin = -np.inf, np.inf, np.inf
+        qposes = reference._host["qpos"][command_index]
+        for frame, (qpos, stance, desired, optimal) in enumerate(zip(
+            qposes, reference._host["stance"][command_index],
+            reference._host["desired_cop"][command_index], reference._host["cop"][command_index], strict=True,
+        )):
+            if not np.isfinite(qpos).all():
+                failures.append(f"frame {frame}: nonfinite reference")
+                break
+            data.qpos[:] = qpos
+            mujoco.mj_forward(model, data)
+            bottoms = np.asarray([box_minimum_z(model, data, geom) for geom in geoms])
+            worst_stance = max(worst_stance, float(np.max(bottoms[stance])))
+            if np.any(bottoms[stance] > 0.003) or np.any(bottoms < -0.002):
+                failures.append(f"frame {frame}: foot bottoms {bottoms.tolist()}")
+            polygon = convex_hull_xy(np.concatenate([
+                box_projected_corners_xy(model, data, geom)
+                for geom, support in zip(geoms, stance, strict=True) if support
+            ]))
+            margin = point_support_margin(desired, polygon)
+            desired_margin = min(desired_margin, margin)
+            optimal_margin = min(optimal_margin, point_support_margin(optimal, polygon))
+            if margin < -0.0005:
+                failures.append(f"frame {frame}: desired ZMP outside support by {-margin:.6f}m")
+        joint_step = float(np.max(np.abs(np.diff(reference._host["motors"][command_index], axis=0))))
+        results.append(PaperGeometryResult(
+            *map(float, command), len(qposes), tuple(failures[:5]),
+            float(worst_stance), float(desired_margin), float(optimal_margin), joint_step,
+        ))
+    return tuple(results)
+
+
 def create_reference_context(
     commands_m_s: tuple[float, ...] = (),
     config_path: str | Path = DEFAULT_TRAINING_CONFIG_PATH,

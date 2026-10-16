@@ -1,0 +1,228 @@
+# Fresh Table VI/VII transfer through the regular WR2 trainer.
+# q_home is the fixed, grounded reference crouch; walking q_ref does not offset actions.
+# s=sqrt(WR2 crouched CoM / TB CoM); linear speed/time scale s, angular speed 1/s.
+# Root is 4mm lower than the prior reference to qualify the full training command grid.
+# value_loss_coef multiplies MSE; the native Brax adapter passes twice this value.
+# NormalTanh learns state-dependent scale; init_noise_std does not initialize this head.
+version: 0.28.0
+version_name: WR2 ToddlerBot paper recipe with measured geometry
+seed: 0
+environment:
+  episode_length: 1000
+  solver_iterations: 10
+  heading_observation: false
+  active_groups:
+  - leg
+  pose_weights:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  policy_action_scale_rad: 0.25
+  action_delay_steps: 1
+  privileged_linear_velocity_scale: 2.0
+  privileged_actuator_force_scale: 0.1
+  reset_joint_noise_rad: 0.0
+  reset_velocity_noise_rad_s: 0.0
+  command_forward_range_m_s:
+  - -0.08240547565448791
+  - 0.16481095130897583
+  command_lateral_range_m_s:
+  - -0.08240547565448791
+  - 0.08240547565448791
+  command_yaw_range_rad_s:
+  - -0.6067557962973414
+  - 0.6067557962973414
+  zero_command_probability: 0.2
+  command_resample_steps: 124
+  command_active_threshold_m_s: 0.04120273782724396
+  gait_cycle_s: 0.6
+  randomize_gait_phase_on_reset: false
+  swing_height_m: 0.033953312089212
+  feet_phase_tracking_sigma_m2: 0.0007
+  min_feet_lateral_distance_m: 0.05572793327513288
+  contact_force_threshold_n: 1.0
+  target_torso_height_m: 0.279260761
+  terminate_height_m: 0.17095853137434958
+  terminate_max_height_m: 0.34191706274869915
+  velocity_reward_sigma: 0.08240547565448791
+  velocity_tracking_sigma: 0.08240547565448791
+  yaw_tracking_sigma: 0.2427023185189366
+  height_tracking_sigma: 0.03
+  torque_exposure_time_constant_s: 10.0
+  zmp_reference:
+    phase_samples: 36
+    command_samples: 5
+    com_height_m: null
+    single_double_support_ratio: 2.0
+    ik_damping: 0.0002
+    ik_max_iterations: 120
+    max_position_residual_m: 0.001
+    max_orientation_residual_rad: 0.001
+    method: tb_preview
+    root_height_m: 0.279260761
+  recipe: tb_paper
+  normalization_scale: 0.8240547565448791
+  turn_command_probability: 0.3
+  push_interval_steps: 82
+  push_linear_velocity_m_s: 0.41202737827243957
+  push_angular_velocity_rad_s: 1.2135115925946829
+  max_feet_lateral_distance_m: 0.14489262651534549
+reward_weights:
+  torso_pos: 0.0
+  torso_quat: 1.0
+  lin_vel_xy: 5.0
+  lin_vel_z: 1.0
+  ang_vel_xy: 2.0
+  ang_vel_z: 5.0
+  leg_motor_pos: 5.0
+  neck_motor_pos: 0.0
+  arm_motor_pos: 0.0
+  waist_motor_pos: 0.0
+  feet_contact: 1.0
+  feet_air_time: 500.0
+  feet_clearance: 0.05
+  feet_distance: 1.0
+  feet_slip: 0.05
+  align_ground: 1.0
+  stand_still: 1.0
+  torso_roll: 0.5
+  torso_pitch: 0.5
+  collision: 0.1
+  leg_action_rate: 0.05
+  leg_action_acc: 0.05
+  motor_torque: 0.01
+  energy: 0.05
+  survival: 10.0
+observation_noise:
+  joint_position_uniform_rad: 0.0
+  joint_velocity_uniform_rad_s: 0.0
+  gyro_cutoff_hz: 0.35
+  gyro_colored_std_rad_s: 0.0
+  gyro_bias_walk_std_rad_s: 0.0
+  gyro_white_std_rad_s: 0.3033778981486707
+  gyro_amplitude_min: 0.8
+  gyro_amplitude_max: 2.0
+  projected_gravity_cutoff_hz: 0.25
+  projected_gravity_colored_std_rad: 0.0
+  projected_gravity_bias_walk_std_rad: 0.0
+  projected_gravity_white_std_rad: 0.0
+  projected_gravity_amplitude_min: 0.8
+  projected_gravity_amplitude_max: 1.2
+  joint_position_white_std_rad: 0.05
+  joint_velocity_white_std_rad_s: 2.4270231851893658
+  euler_white_std_rad: 0.1
+domain_randomization:
+  enabled: true
+  friction_scale:
+  - 0.7
+  - 1.3
+  damping_scale:
+  - 0.8
+  - 1.2
+  armature_scale:
+  - 0.8
+  - 1.2
+  frictionloss_scale:
+  - 0.7
+  - 1.3
+  kp_scale:
+  - 0.9
+  - 1.1
+  kv_scale:
+  - 0.9
+  - 1.1
+  torque_limit_scale:
+  - 0.9
+  - 1.0
+  body_mass_scale:
+  - 0.8
+  - 1.2
+  target_bias_rad:
+  - -0.02
+  - 0.02
+  initial_torso_roll_rad:
+  - 0.0
+  - 0.0
+  initial_torso_pitch_rad:
+  - 0.0
+  - 0.0
+  backlash_rad:
+  - 0.04
+  - 0.04
+  max_speed_scale:
+  - 0.9
+  - 1.0
+  brake_torque_scale:
+  - 0.9
+  - 1.0
+  passive_active_ratio_scale:
+  - 1.0
+  - 1.0
+  initial_torso_yaw_rad:
+  - 0.0
+  - 6.283185307179586
+ppo:
+  backend: brax
+  mirror_loss_coeff: 0.0
+  num_timesteps: 300000000
+  num_envs: 1024
+  num_evals: 16
+  evaluation_randomization: true
+  num_eval_envs: 128
+  evaluation_forward_command_m_s: 0.08240547565448791
+  learning_rate: 0.0001
+  entropy_cost: 0.0005
+  discounting: 0.97
+  gae_lambda: 0.95
+  clipping_epsilon: 0.2
+  max_grad_norm: null
+  unroll_length: 20
+  batch_size: 256
+  num_minibatches: 4
+  num_updates_per_batch: 4
+  normalize_observations: false
+  normalize_advantage: true
+  value_loss_coef: 0.25
+  desired_kl: 0.01
+  learning_rate_schedule: fixed
+  training_metrics_steps: 2000000
+  evaluation_lateral_command_m_s: 0.04120273782724396
+network:
+  policy_hidden_layer_sizes:
+  - 512
+  - 256
+  - 128
+  value_hidden_layer_sizes:
+  - 512
+  - 256
+  - 128
+  activation: silu
+  distribution_type: tanh_normal
+  noise_std_type: log
+  init_noise_std: 0.6941471805599453
+checkpoints:
+  save_every_evaluation: true
+  keep_best: true
+  selection_metric: paper_xy_error
+  qualification_goal: null
+output:
+  root: results/wr2_walking
+  run_prefix: wr2_paper

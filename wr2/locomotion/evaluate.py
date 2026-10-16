@@ -24,14 +24,16 @@ def transition_environment(config, *, add_observation_noise):
     import jax.numpy as jp
     from wr2.locomotion.walking_env import WR2WalkingEnv
 
-    if config.episode_length != 1000:
+    if config.episode_length != 1000 and config.recipe != "tb_paper":
         raise ValueError("The standing/walking schedule requires episode_length=1000")
 
     class TransitionEnvironment(WR2WalkingEnv):
         def _next_command(self, step_count, command, rng):
             # 3 s stand, 6 s walk, 3 s stand, 5 s walk, 3 s stand.
-            walking = ((step_count >= 150) & (step_count < 450)) | (
-                (step_count >= 600) & (step_count < 850)
+            scale = config.normalization_scale if config.recipe == "tb_paper" else 1.0
+            a, b, c, d = (round(t * scale) for t in (150, 450, 600, 850))
+            walking = ((step_count >= a) & (step_count < b)) | (
+                (step_count >= c) & (step_count < d)
             )
             return jp.where(
                 walking,
@@ -40,7 +42,7 @@ def transition_environment(config, *, add_observation_noise):
             )
 
     return TransitionEnvironment(
-        replace(config, zero_command_probability=1.0),
+        replace(config, zero_command_probability=1.0, turn_command_probability=0.0),
         add_observation_noise=add_observation_noise,
     )
 
@@ -157,6 +159,8 @@ def evaluate_checkpoint(
         raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint_path}")
 
     config = load_training_config(config_path)
+    if config.environment.recipe == "tb_paper":
+        raise ValueError("The paper recipe requires --paper-benchmark for its evaluation contract")
     if solver_iterations is not None:
         if solver_iterations < 1:
             raise ValueError("solver_iterations must be positive")
@@ -373,6 +377,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--solver-iterations", type=int)
     schedules = parser.add_mutually_exclusive_group()
     schedules.add_argument(
+        "--paper-benchmark", action="store_true",
+        help="TB's 15-condition per-episode suite, with normalized timing",
+    )
+    parser.add_argument(
+        "--engineering-horizon", action="store_true",
+        help="Use 20 seconds for --paper-benchmark, reported separately from TB normalization",
+    )
+    schedules.add_argument(
         "--transitions",
         action="store_true",
         help="Evaluate scripted standing/walking transitions over 1000 steps",
@@ -385,6 +397,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.random_commands and (args.commands is not None or args.xy_commands is not None):
         parser.error("--random-commands cannot be combined with --commands")
+    if args.paper_benchmark and (args.commands is not None or args.xy_commands is not None or args.random_commands or args.transitions):
+        parser.error("--paper-benchmark defines its own 15 conditions")
+    if args.engineering_horizon and not args.paper_benchmark:
+        parser.error("--engineering-horizon requires --paper-benchmark")
     return args
 
 
@@ -392,24 +408,66 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.num_envs <= 0:
         raise ValueError("--num-envs must be positive")
-    report = evaluate_checkpoint(
-        args.checkpoint,
-        config_path=args.config,
-        seeds=args.seeds,
-        forward_commands_m_s=args.commands,
-        num_envs=args.num_envs,
-        allow_cpu=args.allow_cpu,
-        transitions=args.transitions,
-        random_commands=args.random_commands,
-        solver_iterations=args.solver_iterations,
-        xy_commands_m_s=args.xy_commands,
-    )
+    if args.paper_benchmark:
+        report = evaluate_paper_checkpoint(args)
+    else:
+        report = evaluate_checkpoint(
+            args.checkpoint,
+            config_path=args.config,
+            seeds=args.seeds,
+            forward_commands_m_s=args.commands,
+            num_envs=args.num_envs,
+            allow_cpu=args.allow_cpu,
+            transitions=args.transitions,
+            random_commands=args.random_commands,
+            solver_iterations=args.solver_iterations,
+            xy_commands_m_s=args.xy_commands,
+        )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     print(f"Wrote evaluation report to {args.output}")
     return 0
+
+
+def evaluate_paper_checkpoint(args):
+    """Use the same evaluator as training, including held-out model/reset draws."""
+    _configure_backend_logging()
+    with _filter_optional_backend_import_messages():
+        import jax
+        from brax.io import model
+        from brax.training import types
+        from brax.training.acme import running_statistics
+        from brax.training.agents.ppo import checkpoint, networks as ppo_networks
+        from wr2.locomotion.domain_randomization import make_domain_randomizer
+        from wr2.locomotion.paper_evaluation import PaperEvaluator, selection_summary
+        from wr2.locomotion.ppo import make_network_factory
+        from wr2.locomotion.walking_env import WR2WalkingEnv
+
+    if jax.default_backend() != "gpu" and not args.allow_cpu:
+        raise RuntimeError("Paper evaluation requires a GPU; --allow-cpu is for development")
+    config = load_training_config(args.config)
+    if config.environment.recipe != "tb_paper":
+        raise ValueError("--paper-benchmark requires the paper recipe's recorded observation contract")
+    if args.solver_iterations is not None:
+        if args.solver_iterations < 1:
+            raise ValueError("solver_iterations must be positive")
+        config = replace(config, environment=replace(config.environment, solver_iterations=args.solver_iterations))
+    env = WR2WalkingEnv(config.environment, add_observation_noise=config.ppo.evaluation_randomization)
+    preprocess = running_statistics.normalize if config.ppo.normalize_observations else types.identity_observation_preprocessor
+    networks = make_network_factory(config.network)(env.observation_size, env.action_size, preprocess_observations_fn=preprocess)
+    make_policy = ppo_networks.make_inference_fn(networks)
+    params = checkpoint.load(str(args.checkpoint)) if args.checkpoint.is_dir() else model.load_params(args.checkpoint)
+    if any(not np.isfinite(np.asarray(leaf)).all() for leaf in jax.tree.leaves(params)):
+        raise ValueError("Checkpoint contains nonfinite parameters")
+    randomize = make_domain_randomizer(config.environment.randomization) if config.ppo.evaluation_randomization and config.environment.randomization.enabled else None
+    reports = []
+    for seed in args.seeds:
+        report = PaperEvaluator(env, make_policy, args.num_envs, randomize, seed=seed,
+                               engineering_horizon=args.engineering_horizon).evaluate(params)
+        reports.append({"summary": selection_summary(report), **report})
+    return {"checkpoint": str(args.checkpoint.resolve()), "config": str(args.config.resolve()), "seed_results": reports}
 
 
 if __name__ == "__main__":

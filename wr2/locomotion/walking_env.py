@@ -11,6 +11,8 @@ from brax.io import mjcf
 from mujoco.mjx._src import support as mjx_support
 
 from wr2.locomotion.configs import WalkingEnvConfig, load_training_config
+from wr2.locomotion.paper_rewards import paper_reward_terms
+from wr2.reference.paper_walk import PaperWalkReference
 from wr2.reference.walk_zmp import WR2ZMPReference, periodic_foot_reference
 from wr2.sim.robot import RobotDescription
 
@@ -19,7 +21,7 @@ _TWO_PI = 2.0 * np.pi
 
 
 def sample_tb_xy_command(rng: jax.Array, config: WalkingEnvConfig) -> jax.Array:
-    """TB's signed ellipse sampler, with its optional turning branch excluded."""
+    """TB's signed ellipse sampler, with standing and optional turning branches."""
     keys = jax.random.split(rng, 7)
     theta = jax.random.uniform(keys[3], (), minval=0.0, maxval=_TWO_PI)
     sine, cosine = jp.sin(theta), jp.cos(theta)
@@ -40,6 +42,17 @@ def sample_tb_xy_command(rng: jax.Array, config: WalkingEnvConfig) -> jax.Array:
         jp.asarray(0.0),
     ])
     standing = jax.random.uniform(keys[2], ()) < config.zero_command_probability
+    if config.turn_command_probability:
+        positive = jax.random.uniform(keys[5], ()) < 0.5
+        yaw_maximum = jp.where(positive, config.command_yaw_range_rad_s[1], -config.command_yaw_range_rad_s[0])
+        yaw_magnitude = jax.random.uniform(
+            keys[6], (), minval=deadzone / config.normalization_scale**2, maxval=yaw_maximum,
+        )
+        yaw = jp.where(positive, yaw_magnitude, -yaw_magnitude)
+        # TB uses the same branch draw for standing and turning.
+        branch = jax.random.uniform(keys[2], ())
+        turning = branch < config.zero_command_probability + config.turn_command_probability
+        command = jp.where(turning, jp.asarray([0.0, 0.0, yaw]), command)
     return jp.where(standing, jp.zeros(3), command)
 
 
@@ -225,6 +238,16 @@ def torso_orientation_error(quaternion: jax.Array, reference: jax.Array):
     return 2.0 * jp.arctan2(jp.linalg.norm(relative[1:]), jp.abs(relative[0]))
 
 
+def torso_euler(quaternion):
+    """ZYX Euler angles in radians, as in TB's quat2euler observation."""
+    w, x, y, z = quaternion
+    return jp.asarray([
+        jp.arctan2(2 * (w * x + y * z), 1 - 2 * (x*x + y*y)),
+        jp.arcsin(jp.clip(2 * (w * y - z * x), -1.0, 1.0)),
+        jp.arctan2(2 * (w * z + x * y), 1 - 2 * (y*y + z*z)),
+    ])
+
+
 class WR2WalkingEnv(PipelineEnv):
     """Flat-ground environment using only deployable actor observations."""
 
@@ -235,6 +258,7 @@ class WR2WalkingEnv(PipelineEnv):
         add_observation_noise: bool = True,
     ):
         self.config = config or load_training_config().environment
+        self._paper_recipe = self.config.recipe == "tb_paper"
         self.robot = RobotDescription.load(include_local_calibration=False)
         self.add_observation_noise = add_observation_noise
         self._joint_velocity_observation_scale = float(
@@ -362,24 +386,46 @@ class WR2WalkingEnv(PipelineEnv):
             [int(mj_model.jnt_dofadr[joint_id]) for joint_id in joint_ids]
         )
         zmp_config = self.config.zmp_reference
-        self._zmp_reference = WR2ZMPReference(
-            mj_model,
-            keyframe_id=key_id,
-            actuator_names=self.robot.actuator_names,
-            command_forward_range_m_s=self.config.command_forward_range_m_s,
-            command_lateral_range_m_s=self.config.command_lateral_range_m_s,
-            gait_cycle_s=self.config.gait_cycle_s,
-            swing_height_m=self.config.swing_height_m,
-            com_height_m=zmp_config.com_height_m,
-            root_height_m=zmp_config.root_height_m,
-            single_double_support_ratio=zmp_config.single_double_support_ratio,
-            phase_samples=zmp_config.phase_samples,
-            command_samples=zmp_config.command_samples,
-            ik_damping=zmp_config.ik_damping,
-            ik_max_iterations=zmp_config.ik_max_iterations,
-            max_position_residual_m=zmp_config.max_position_residual_m,
-            max_orientation_residual_rad=(zmp_config.max_orientation_residual_rad),
-        )
+        if self._paper_recipe:
+            self._zmp_reference = PaperWalkReference(
+                mj_model, keyframe_id=key_id, actuator_names=self.robot.actuator_names,
+                config=self.config, control_dt=self.robot.control_period_s,
+                normalization_scale=self.config.normalization_scale,
+            )
+            self._default_qpos = jp.asarray(self._zmp_reference.standing_qpos)
+            # TB's action origin and standing initialization share a fixed
+            # crouched home. This is constant for the entire paper run; the
+            # time-varying walking reference is used only for imitation/critic.
+            self._home_ctrl = self._default_qpos[self._joint_qpos_indices]
+            self._joint_velocity_observation_scale *= self.config.normalization_scale
+            self._privileged_linear_velocity_scale /= self.config.normalization_scale
+            self._paper_alignment_indices = jp.asarray([
+                [self.robot.actuator_names.index(f"{side}_{suffix}") for suffix in
+                 ("hip_pitch", "ankle_pitch", "knee_pitch")]
+                for side in ("left", "right")
+            ])
+            self._feet_size_ratio = float(
+                abs(home_data.xpos[foot_body_ids[0], 1] - home_data.xpos[foot_body_ids[1], 1]) / 0.0728
+            )
+        else:
+            self._zmp_reference = WR2ZMPReference(
+                mj_model,
+                keyframe_id=key_id,
+                actuator_names=self.robot.actuator_names,
+                command_forward_range_m_s=self.config.command_forward_range_m_s,
+                command_lateral_range_m_s=self.config.command_lateral_range_m_s,
+                gait_cycle_s=self.config.gait_cycle_s,
+                swing_height_m=self.config.swing_height_m,
+                com_height_m=zmp_config.com_height_m,
+                root_height_m=zmp_config.root_height_m,
+                single_double_support_ratio=zmp_config.single_double_support_ratio,
+                phase_samples=zmp_config.phase_samples,
+                command_samples=zmp_config.command_samples,
+                ik_damping=zmp_config.ik_damping,
+                ik_max_iterations=zmp_config.ik_max_iterations,
+                max_position_residual_m=zmp_config.max_position_residual_m,
+                max_orientation_residual_rad=(zmp_config.max_orientation_residual_rad),
+            )
 
         active_mask = np.asarray(
             [motor.group in self.config.active_groups for motor in self.robot.motors],
@@ -425,6 +471,10 @@ class WR2WalkingEnv(PipelineEnv):
             + 2
             + 2
         )
+        if self._paper_recipe:
+            self._privileged_single_observation_size = (
+                self._single_observation_size + self.robot.actuator_count + 3 + 4 + 6
+            )
         self._root_link_index = system.link_names.index("torso")
         self._foot_link_indices = jp.asarray(
             [
@@ -457,11 +507,11 @@ class WR2WalkingEnv(PipelineEnv):
 
     @property
     def home_action(self) -> jax.Array:
-        """Zero residual, which exactly reproduces ``walk_home``."""
+        """Zero residual, which reproduces the configured fixed home pose."""
         return self._home_action
 
     def _policy_target(self, action: jax.Array) -> jax.Array:
-        """Expand an unbounded policy residual around ``walk_home``."""
+        """Expand the policy action around the fixed home origin."""
         active_target = (
             self._home_ctrl[self._active_indices]
             + self._policy_action_scale_rad * action
@@ -474,6 +524,8 @@ class WR2WalkingEnv(PipelineEnv):
         return self._zmp_reference.diagnostics
 
     def _is_walking(self, command: jax.Array) -> jax.Array:
+        if getattr(self.config, "recipe", "legacy") == "tb_paper":
+            return jp.linalg.norm(command) > 1e-6
         return jp.linalg.norm(command) >= self.config.command_active_threshold_m_s
 
     def _sample_command(self, rng: jax.Array) -> jax.Array:
@@ -536,7 +588,16 @@ class WR2WalkingEnv(PipelineEnv):
         desired_contact: jax.Array,
         zmp_reference_active: jax.Array | None = None,
         reference_heading: jax.Array = 0.0,
+        reference_time_s: jax.Array = 0.0,
+        last_euler: jax.Array | None = None,
+        push_linear: jax.Array | None = None,
+        push_angular: jax.Array | None = None,
     ) -> tuple[dict[str, jax.Array], dict[str, jax.Array]]:
+        if self._paper_recipe:
+            return self._paper_observation(
+                pipeline_state, previous_action, command, gait_phase, rng, imu_state,
+                foot_contact, reference_time_s, last_euler, push_linear, push_angular,
+            )
         joint_position = pipeline_state.q[self._joint_qpos_indices]
         joint_velocity = pipeline_state.qd[self._joint_qvel_indices]
         torso_quat, angular_velocity, linear_velocity, projected_gravity = (
@@ -705,16 +766,61 @@ class WR2WalkingEnv(PipelineEnv):
         )
         return {"state": actor, "privileged_state": privileged}, next_imu_state
 
-    def _foot_contact(self, pipeline_state) -> jax.Array:
+    def _paper_observation(self, pipeline, last_action, command, phase, rng, imu,
+                           contact, time_s, last_euler, push_linear, push_angular):
+        motor = pipeline.q[self._joint_qpos_indices]
+        velocity = pipeline.qd[self._joint_qvel_indices]
+        quat, angular, linear, _ = self._kinematic_observation(pipeline)
+        euler = torso_euler(quat)
+        if last_euler is not None:
+            euler = last_euler + jp.mod(euler - last_euler + np.pi, _TWO_PI) - np.pi
+        reference, stance, _ = self._zmp_reference.get_reference(time_s, command)
+        scale = self.config.normalization_scale
+        prefix = [
+            jp.stack([jp.sin(phase), jp.cos(phase)]),
+            command * jp.asarray([1 / scale, 1 / scale, scale]),
+            motor - self._home_ctrl,
+            self._joint_velocity_observation_scale * velocity,
+            last_action,
+        ]
+        actor = jp.concatenate([*prefix, angular * scale, euler])
+        if self.add_observation_noise:
+            noise = self.config.observation_noise
+            start = 5
+            actor = actor.at[start:start + self.robot.actuator_count].add(
+                0.02 * jp.tanh(pipeline.actuator_force / 0.1)
+            )
+            noise_scale = jp.concatenate([
+                jp.zeros(5),
+                jp.full(self.robot.actuator_count, noise.joint_position_white_std_rad),
+                jp.full(self.robot.actuator_count, noise.joint_velocity_white_std_rad_s * self._joint_velocity_observation_scale),
+                jp.zeros(self.action_size),
+                jp.full(3, noise.gyro_white_std_rad_s * scale),
+                jp.full(3, noise.euler_white_std_rad),
+            ])
+            actor += noise_scale * jax.random.normal(rng, actor.shape)
+        privileged = jp.concatenate([
+            *prefix, motor - reference, self._privileged_linear_velocity_scale * linear,
+            angular * scale, euler, contact.astype(jp.float32), stance.astype(jp.float32),
+            jp.zeros(3) if push_linear is None else push_linear / scale,
+            jp.zeros(3) if push_angular is None else push_angular * scale,
+        ])
+        return {"state": actor, "privileged_state": privileged}, imu
+
+    def _contact_forces(self, pipeline_state) -> jax.Array:
         # This MuJoCo release indexes contact metadata through a host array, so
         # use static contact slots (as ToddlerBot does) rather than a traced
         # vmap index.
-        contact_force = jp.stack(
+        return jp.stack(
             [
                 mjx_support.contact_force(self.sys, pipeline_state, index, True)
                 for index in range(pipeline_state.contact.dist.shape[0])
             ]
         )
+
+    def _foot_contact(self, pipeline_state, contact_force=None) -> jax.Array:
+        if contact_force is None:
+            contact_force = self._contact_forces(pipeline_state)
         active = support_contact_active(
             pipeline_state.contact.dist,
             contact_force[:, :3],
@@ -745,7 +851,7 @@ class WR2WalkingEnv(PipelineEnv):
         """Insert the newest frame first, matching ToddlerBot's frame stack."""
         return jp.roll(history, frame_size).at[:frame_size].set(observation)
 
-    def reset(self, rng: jax.Array) -> State:
+    def reset(self, rng: jax.Array, command: jax.Array | None = None) -> State:
         (
             rng,
             joint_rng,
@@ -784,6 +890,15 @@ class WR2WalkingEnv(PipelineEnv):
             qpos = qpos.at[3:7].set(
                 _quaternion_multiply(_roll_pitch_quaternion(roll, pitch), qpos[3:7])
             )
+            if self._paper_recipe:
+                rng, yaw_rng = jax.random.split(rng)
+                yaw = jax.random.uniform(
+                    yaw_rng, (), minval=randomization.initial_torso_yaw_rad[0],
+                    maxval=randomization.initial_torso_yaw_rad[1],
+                )
+                qpos = qpos.at[3:7].set(_quaternion_multiply(
+                    jp.asarray([jp.cos(yaw / 2), 0.0, 0.0, jp.sin(yaw / 2)]), qpos[3:7]
+                ))
         qvel = jax.random.uniform(
             velocity_rng,
             (self.sys.nv,),
@@ -801,6 +916,8 @@ class WR2WalkingEnv(PipelineEnv):
             if randomization.enabled
             else jp.zeros(self.robot.actuator_count)
         )
+        if self._paper_recipe:
+            actuator_target_bias *= self._active_mask
         backlash = (
             jax.random.uniform(
                 backlash_rng,
@@ -849,7 +966,7 @@ class WR2WalkingEnv(PipelineEnv):
         pipeline_state = self.pipeline_init(
             qpos, qvel, ctrl=jp.zeros(self.robot.actuator_count)
         )
-        command = self._sample_command(command_rng)
+        command = self._sample_command(command_rng) if command is None else command
         is_walking = self._is_walking(command)
         random_phase = jax.random.uniform(phase_rng, (), maxval=_TWO_PI)
         gait_phase = jp.where(
@@ -857,7 +974,7 @@ class WR2WalkingEnv(PipelineEnv):
             random_phase,
             0.0,
         )
-        reference_heading = torso_heading(self._default_qpos[3:7])
+        reference_heading = torso_heading(qpos[3:7] if self._paper_recipe else self._default_qpos[3:7])
         previous_action = self._home_action
         foot_contact = self._foot_contact(pipeline_state)
         desired_contact = expected_foot_contacts(
@@ -865,6 +982,8 @@ class WR2WalkingEnv(PipelineEnv):
             is_walking,
             self.config.zmp_reference.single_double_support_ratio,
         )
+        if self._paper_recipe:
+            _, desired_contact, _ = self._zmp_reference.get_reference(0.0, command)
         imu_state = {
             "gyro_colored": jp.zeros(3),
             "gyro_bias": jp.zeros(3),
@@ -971,6 +1090,14 @@ class WR2WalkingEnv(PipelineEnv):
                 25,
             )
         )
+        if self._paper_recipe:
+            metrics.update({f"paper_reward/{name}": zero for name in vars(self.config.rewards)})
+            metrics.update({name: zero for name in (
+                "leg_motor_mse_rad2_per_step", "leg_motor_rmse_rad_per_step",
+                "bounded_action_saturation_fraction_per_step", "standing_speed_m_s_per_step",
+                "linear_push_m_s_per_step", "angular_push_rad_s_per_step",
+                "left_foot_displacement_m_per_step", "right_foot_displacement_m_per_step",
+            )})
         metrics = {name: jp.zeros_like(value) for name, value in metrics.items()}
         info = {
             "rng": rng,
@@ -992,6 +1119,17 @@ class WR2WalkingEnv(PipelineEnv):
             "reset_target": initial_target,
             "step_count": jp.zeros((), dtype=jp.int32),
         }
+        if self._paper_recipe:
+            info.update({
+                "last_applied_action": self._home_action,
+                "second_last_applied_action": self._home_action,
+                "last_euler": torso_euler(pipeline_state.x.rot[self._root_link_index]),
+                "reset_last_euler": torso_euler(pipeline_state.x.rot[self._root_link_index]),
+                "previous_contact": desired_contact,
+                "feet_air_time": jp.zeros(2), "feet_air_distance": jp.zeros(2),
+                "initial_foot_body_z": pipeline_state.x.pos[self._foot_link_indices, 2],
+                "push_linear": jp.zeros(3), "push_angular": jp.zeros(3),
+            })
         return State(pipeline_state, observation, zero, zero, metrics, info)
 
     def _controller_torque(
@@ -1085,9 +1223,31 @@ class WR2WalkingEnv(PipelineEnv):
         )
         target = previous_target + limited_delta
         target = jp.clip(target, self._ctrl_lower, self._ctrl_upper)
-        pipeline_state = self._pipeline_step_target(
-            state.pipeline_state, target, state.info["actuator_noise"]
-        )
+        source = state.pipeline_state
+        push_linear, push_angular = jp.zeros(3), jp.zeros(3)
+        if self._paper_recipe and self.config.randomization.enabled and self.config.push_interval_steps:
+            rng, push_lin_rng, push_ang_rng = jax.random.split(rng, 3)
+            push_mask = jp.mod(state.info["step_count"], self.config.push_interval_steps) == 0
+            push_linear = jax.random.uniform(
+                push_lin_rng, (3,), minval=-self.config.push_linear_velocity_m_s,
+                maxval=self.config.push_linear_velocity_m_s,
+            ) * push_mask
+            push_angular = jax.random.uniform(
+                push_ang_rng, (3,), minval=-self.config.push_angular_velocity_rad_s,
+                maxval=self.config.push_angular_velocity_rad_s,
+            ) * push_mask
+            # Native Brax integrates MuJoCo qvel, while the controller reads
+            # the Brax qd alias. Update both so the perturbation is simulated.
+            pushed_velocity = source.qd.at[:3].add(push_linear).at[3:6].add(push_angular)
+            source = source.replace(qd=pushed_velocity, qvel=pushed_velocity)
+        pipeline_state = self._pipeline_step_target(source, target, state.info["actuator_noise"])
+        if self._paper_recipe:
+            return self._paper_step(
+                state, action, applied_action, pipeline_state, target, rng,
+                observation_rng, command_rng, push_linear, push_angular,
+                unconstrained_target, desired_target, quantized_unclipped,
+                quantized_target, target_delta, limited_delta,
+            )
         torso_quat, angular_velocity, linear_velocity, projected_gravity = (
             self._kinematic_observation(pipeline_state)
         )
@@ -1437,6 +1597,157 @@ class WR2WalkingEnv(PipelineEnv):
             info=info,
         )
 
+    def _paper_step(self, state, action, applied_action, pipeline, target, rng,
+                    observation_rng, command_rng, push_linear, push_angular,
+                    unconstrained_target, desired_target, quantized_unclipped,
+                    quantized_target, target_delta, limited_delta):
+        """TB's reference/observation/reward timing with WR2's physical controller."""
+        dt = self.robot.control_period_s
+        time_s = state.info["step_count"] * dt
+        phase = jp.mod(_TWO_PI * time_s / self.config.gait_cycle_s, _TWO_PI)
+        command = state.info["command"]
+        reference, reference_contact, reference_height = self._zmp_reference.get_reference(time_s, command)
+        quat, angular, linear, gravity = self._kinematic_observation(pipeline)
+        euler = torso_euler(quat)
+        unwrapped_euler = state.info["last_euler"] + jp.mod(euler - state.info["last_euler"] + np.pi, _TWO_PI) - np.pi
+        heading = state.info["reference_heading"] + command[2] * dt
+        reference_quat = jp.asarray([jp.cos(heading / 2), 0.0, 0.0, jp.sin(heading / 2)])
+        orientation_error = torso_orientation_error(quat, reference_quat)
+        motor = pipeline.q[self._joint_qpos_indices]
+        motor_velocity = pipeline.qd[self._joint_qvel_indices]
+        forces = self._contact_forces(pipeline)
+        contact = self._foot_contact(pipeline, forces)
+        geom1, geom2 = pipeline.contact.geom1, pipeline.contact.geom2
+        collision_active = (
+            (pipeline.contact.dist < 0) & (jp.linalg.norm(forces[:, :3], axis=1) > 0.1)
+            & (geom1 != self._floor_geom_id) & (geom2 != self._floor_geom_id)
+        )
+        # Native TB counts both directions of each collider pair. Multiple
+        # contact points on one pair still represent one collision.
+        pairs = jp.minimum(geom1, geom2) * self.sys.ngeom + jp.maximum(geom1, geom2)
+        collision_count = 2 * jp.sum(jp.zeros(self.sys.ngeom**2, dtype=jp.bool_).at[pairs].max(collision_active))
+        foot_positions = pipeline.x.pos[self._foot_link_indices]
+        foot_distance = jp.abs(_inverse_rotate_vector(quat, foot_positions[0] - foot_positions[1])[1])
+        foot_velocity = pipeline.xd.vel[self._foot_link_indices, :2]
+        torso_z = pipeline.x.pos[self._root_link_index, 2]
+        unhealthy = torso_height_unhealthy(torso_z, self.config.terminate_height_m, self.config.terminate_max_height_m)
+        nonfinite = ~(jp.all(jp.isfinite(pipeline.q)) & jp.all(jp.isfinite(pipeline.qd)) & jp.all(jp.isfinite(action)))
+        terminal = unhealthy | nonfinite
+        terms = paper_reward_terms(
+            motor_position=motor, home_position=self._home_ctrl, reference_position=reference,
+            leg_indices=self._active_indices, alignment_indices=self._paper_alignment_indices,
+            motor_velocity=motor_velocity, torque=pipeline.actuator_force,
+            linear_velocity=linear, angular_velocity=angular, command=command,
+            orientation_error=orientation_error, euler=euler, action=action,
+            last_action=state.info["last_applied_action"], second_last_action=state.info["second_last_applied_action"],
+            contact=contact, previous_contact=state.info["previous_contact"],
+            reference_contact=reference_contact, air_time=state.info["feet_air_time"],
+            air_distance=state.info["feet_air_distance"], foot_velocity_xy=foot_velocity,
+            foot_distance=foot_distance, foot_distance_scale=self._feet_size_ratio,
+            minimum_foot_distance=self.config.min_feet_lateral_distance_m,
+            maximum_foot_distance=self.config.max_feet_lateral_distance_m,
+            collision_count=collision_count, terminal=terminal,
+            scale=self.config.normalization_scale,
+            deadzone=self.config.command_active_threshold_m_s / self.config.normalization_scale,
+        )
+        weighted = {name: getattr(self.config.rewards, name) * value for name, value in terms.items()}
+        reward = sum(weighted.values()) * dt
+        frames, imu = self._observation(
+            pipeline, state.info["last_applied_action"], command, phase, observation_rng,
+            state.info["imu_state"], state.info["backlash"], contact, reference_contact,
+            reference_time_s=time_s, last_euler=state.info["last_euler"],
+            push_linear=push_linear, push_angular=push_angular,
+        )
+        observation = {
+            name: self._stack_observation(frames[name], state.obs[name], size)
+            for name, size in (("state", self._single_observation_size),
+                               ("privileged_state", self._privileged_single_observation_size))
+        }
+        nonfinite |= ~jp.isfinite(reward) | ~jp.all(jp.isfinite(observation["state"])) | ~jp.all(jp.isfinite(observation["privileged_state"]))
+        terminal |= nonfinite
+        step_count = state.info["step_count"] + 1
+        reset_episode = terminal | (step_count >= self.config.episode_length)
+        next_command = self._next_command(step_count, command, command_rng)
+        mode_changed = self._is_walking(next_command) != self._is_walking(command)
+        age = jp.where(mode_changed, 0, state.info["command_age_steps"] + 1)
+        recovery_steps = round(25 * self.config.normalization_scale)
+
+        def reset_if_done(current, reset):
+            return jp.where(reset_episode, reset, current)
+
+        torque_squared = jp.square(pipeline.actuator_force)
+        exposure = self._torque_exposure_decay * state.info["torque_exposure"] + (1 - self._torque_exposure_decay) * torque_squared / self._torque_exposure_reference_nm**2
+        info = {
+            **state.info, "rng": rng,
+            "command": reset_if_done(next_command, state.info["reset_command"]),
+            "gait_phase": reset_if_done(phase, state.info["reset_gait_phase"]),
+            "reference_heading": reset_if_done(heading, state.info["reset_reference_heading"]),
+            "command_age_steps": reset_if_done(age, recovery_steps),
+            "previous_action": reset_if_done(action, self._home_action),
+            "last_applied_action": reset_if_done(applied_action, self._home_action),
+            "second_last_applied_action": reset_if_done(state.info["last_applied_action"], self._home_action),
+            "previous_target": reset_if_done(target, state.info["reset_target"]),
+            "last_euler": reset_if_done(unwrapped_euler, state.info["reset_last_euler"]),
+            "previous_contact": reset_if_done(contact, jp.ones(2, dtype=jp.bool_)),
+            "feet_air_time": reset_if_done((state.info["feet_air_time"] + dt) * ~contact, jp.zeros(2)),
+            "feet_air_distance": reset_if_done((state.info["feet_air_distance"] + foot_positions[:, 2] - state.info["initial_foot_body_z"]) * ~contact, jp.zeros(2)),
+            "push_linear": reset_if_done(push_linear, jp.zeros(3)),
+            "push_angular": reset_if_done(push_angular, jp.zeros(3)),
+            "torque_exposure": reset_if_done(exposure, jp.zeros_like(exposure)),
+            "imu_state": imu,
+            "step_count": reset_if_done(step_count, jp.zeros_like(step_count)),
+        }
+        active = self._active_indices
+        clipped = (jp.abs(unconstrained_target[active] - desired_target[active]) > 1e-7) | (jp.abs(quantized_unclipped[active] - quantized_target[active]) > 1e-7)
+        slew = jp.abs(target_delta[active] - limited_delta[active]) > 1e-7
+        foot_height = pipeline.site_xpos[self._foot_site_ids, 2] - self._home_foot_site_z
+        displacement = jp.linalg.norm(foot_positions[:, :2] - state.pipeline_state.x.pos[self._foot_link_indices, :2], axis=1)
+        # Keep the metrics tree stable through reset and JAX scans.
+        metrics = {name: jp.zeros_like(value) for name, value in state.metrics.items()}
+        metrics.update({f"paper_reward/{name}": value * dt for name, value in weighted.items()})
+        metrics.update({
+            "reward": reward, "reward_per_step": reward,
+            "velocity_xy": terms["lin_vel_xy"], "velocity_tracking_per_step": terms["lin_vel_xy"],
+            "yaw_rate": terms["ang_vel_z"], "yaw_tracking_per_step": terms["ang_vel_z"],
+            "upright": terms["torso_quat"], "upright_per_step": terms["torso_quat"],
+            "action_rate": terms["leg_action_rate"], "foot_slip": terms["feet_slip"],
+            "actuator_torque_squared": -jp.sum(torque_squared),
+            "actuator_torque_rms_nm_per_step": jp.sqrt(jp.mean(torque_squared)),
+            "actuator_torque_peak_nm_per_step": jp.max(jp.abs(pipeline.actuator_force)),
+            "sustained_torque_exposure_per_step": jp.max(exposure),
+            "command_forward_m_s_per_step": command[0],
+            "forward_velocity_m_s_per_step": linear[0],
+            "forward_velocity_error_m_s_per_step": jp.abs(linear[0] - command[0]),
+            "lateral_velocity_m_s_per_step": linear[1],
+            "yaw_rate_rad_s_per_step": angular[2], "yaw_rate_error_rad_s_per_step": jp.abs(angular[2] - command[2]),
+            "torso_height_m_per_step": torso_z,
+            "torso_tilt_rad_per_step": jp.arccos(jp.clip(-gravity[2], -1, 1)),
+            "action_abs_mean_per_step": jp.mean(jp.abs(action)), "action_max_abs_per_step": jp.max(jp.abs(action)),
+            "action_saturation_fraction_per_step": jp.mean(clipped.astype(jp.float32)),
+            "action_near_boundary_fraction_per_step": jp.mean((jp.abs(action) >= 0.9).astype(jp.float32)),
+            "bounded_action_saturation_fraction_per_step": jp.mean((jp.abs(action) >= 0.99).astype(jp.float32)),
+            "target_clipping_fraction_per_step": jp.mean(clipped.astype(jp.float32)),
+            "target_slew_limiting_fraction_per_step": jp.mean(slew.astype(jp.float32)),
+            "target_excursion_from_home_rad_per_step": jp.mean(jp.abs(self._policy_target(action)[active] - self._home_ctrl[active])),
+            "left_foot_contact_per_step": contact[0].astype(jp.float32),
+            "right_foot_contact_per_step": contact[1].astype(jp.float32),
+            "double_support_per_step": jp.all(contact).astype(jp.float32),
+            "contact_phase_match_per_step": terms["feet_contact"] / 2,
+            "left_foot_height_m_per_step": foot_height[0], "right_foot_height_m_per_step": foot_height[1],
+            "left_foot_target_height_m_per_step": reference_height[0], "right_foot_target_height_m_per_step": reference_height[1],
+            "feet_lateral_distance_m_per_step": foot_distance,
+            "fall": unhealthy.astype(jp.float32), "nonfinite_state": nonfinite.astype(jp.float32),
+            "left_foot_contact": contact[0].astype(jp.float32), "right_foot_contact": contact[1].astype(jp.float32),
+            "leg_motor_mse_rad2_per_step": -terms["leg_motor_pos"],
+            "leg_motor_rmse_rad_per_step": jp.sqrt(-terms["leg_motor_pos"]),
+            "standing_speed_m_s_per_step": jp.where(self._is_walking(command), 0.0, jp.linalg.norm(linear[:2])),
+            "linear_push_m_s_per_step": jp.linalg.norm(push_linear), "angular_push_rad_s_per_step": jp.linalg.norm(push_angular),
+            "left_foot_displacement_m_per_step": displacement[0], "right_foot_displacement_m_per_step": displacement[1],
+        })
+        metrics.update(self._motion_metrics(state.pipeline_state, pipeline, command, phase, heading, state.info["command_age_steps"]))
+        return state.replace(pipeline_state=pipeline, obs=observation, reward=reward,
+                             done=terminal.astype(jp.float32), metrics=metrics, info=info)
+
     def _motion_metrics(self, previous, current, command, phase, heading, age):
         """Trace path motion and conditional tracking without changing rewards."""
         _, _, velocity, _ = self._kinematic_observation(current)
@@ -1453,6 +1764,7 @@ class WR2WalkingEnv(PipelineEnv):
         error = jp.abs(velocity[0] - command[0])
         xy_error = jp.linalg.norm(velocity[:2] - command[:2])
         walking = self._is_walking(command)
+        recovery_steps = round(25 * self.config.normalization_scale) if getattr(self.config, "recipe", "legacy") == "tb_paper" else 25
         result = {
             "heading_error_rad_per_step": jp.abs(jp.arctan2(jp.sin(yaw), jp.cos(yaw))),
             "path_forward_displacement_m": path_delta[0],
@@ -1465,8 +1777,8 @@ class WR2WalkingEnv(PipelineEnv):
         categories = {
             "standing": ~walking,
             "walking": walking,
-            "start": walking & (age < 25),
-            "stop": (~walking) & (age < 25),
+            "start": walking & (age < recovery_steps),
+            "stop": (~walking) & (age < recovery_steps),
         }
         for name, active in categories.items():
             result[f"{name}_sample_count"] = active.astype(jp.float32)

@@ -3789,6 +3789,9 @@ training = [
     { name = "mujoco" },
     { name = "mujoco-mjx" },
     { name = "rsl-rl-lib" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "torch" },
     { name = "wandb" },
 ]
@@ -3813,6 +3816,7 @@ requires-dist = [
     { name = "rsl-rl-lib", marker = "extra == 'training'", specifier = "==2.3.3" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.12.12" },
     { name = "scipy", marker = "extra == 'sysid'", specifier = ">=1.11" },
+    { name = "scipy", marker = "extra == 'training'", specifier = ">=1.11" },
     { name = "torch", marker = "extra == 'training'", specifier = ">=2.7,<2.9" },
     { name = "wandb", marker = "extra == 'training'" },
 ]
