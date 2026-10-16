@@ -1,5 +1,9 @@
 # Next run: ToddlerBot paper walking baseline
 
+The TB control completed on 2026-10-16. See the
+[result audit and WR2 transfer review](toddlerbot_transfer_review_20261016.md)
+for reference checkpoints, recipe differences and the next WR2 experiment.
+
 ## Decision and scope
 
 Train **ToddlerBot first**, using the published walking recipe and the local
