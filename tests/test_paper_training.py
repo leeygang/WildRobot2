@@ -139,6 +139,73 @@ def test_native_ppo_update_and_parameter_only_restore(tmp_path):
         np.testing.assert_array_equal(original, loaded)
 
 
+def test_paper_evaluation_loads_relative_brax_checkpoint(tmp_path, monkeypatch):
+    from brax.training.acme import running_statistics
+    from brax.training.agents.ppo import checkpoint
+    from wr2.locomotion.evaluate import evaluate_paper_checkpoint
+
+    config = load_training_config(CONFIG)
+    env = TinyTrainingEnv()
+    factory = make_network_factory(config.network)
+    nets = factory(env.observation_size, env.action_size)
+    params = (
+        running_statistics.init_state(env.reset(jax.random.PRNGKey(0)).obs),
+        nets.policy_network.init(jax.random.PRNGKey(1)),
+        nets.value_network.init(jax.random.PRNGKey(2)),
+    )
+    checkpoint.save(
+        tmp_path,
+        1,
+        params,
+        checkpoint.network_config(
+            env.observation_size,
+            env.action_size,
+            False,
+            factory,
+        ),
+    )
+
+    def measure(loaded):
+        for expected, actual in zip(
+            jax.tree.leaves(params), jax.tree.leaves(loaded), strict=True
+        ):
+            np.testing.assert_array_equal(expected, actual)
+        return {
+            "normalization_scale": config.environment.normalization_scale,
+            "froude_velocity_m_s": 1.4,
+            "conditions": [
+                {
+                    "episodes": 1,
+                    "fall_count": 0,
+                    "nonfinite_count": 0,
+                    "transitions": False,
+                    "per_episode": {"walking": {"xy_error_m_s": [0.1]}},
+                }
+            ],
+        }
+
+    monkeypatch.setattr(
+        "wr2.locomotion.walking_env.WR2WalkingEnv", lambda *args, **kwargs: env
+    )
+    monkeypatch.setattr(
+        "wr2.locomotion.paper_evaluation.PaperEvaluator",
+        lambda *args, **kwargs: SimpleNamespace(evaluate=measure),
+    )
+    monkeypatch.chdir(tmp_path)
+    args = SimpleNamespace(
+        allow_cpu=True,
+        config=CONFIG,
+        checkpoint=Path("000000000001"),
+        solver_iterations=None,
+        seeds=(22102,),
+        num_envs=1,
+        engineering_horizon=False,
+    )
+    report = evaluate_paper_checkpoint(args)
+    assert report["checkpoint"] == str(tmp_path / "000000000001")
+    assert report["seed_results"][0]["summary"]["nonfinite_count"] == 0
+
+
 class EpisodeAccountingEnv(Env):
     """Two episodes: one finite fall at tick 2, one invalid transition at tick 3."""
 

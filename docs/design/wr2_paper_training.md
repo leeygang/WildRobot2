@@ -4,8 +4,7 @@ From the WR2 checkout on the GPU host, run a **fresh 300M-transition WR2
 experiment** through the regular trainer:
 
 ```bash
-uv sync --extra training --extra dev
-.venv/bin/python -m wr2.locomotion.train \
+uv run --extra training python -m wr2.locomotion.train \
   --config wr2/locomotion/configs/ppo_walking_paper.yaml
 ```
 
@@ -17,7 +16,7 @@ Before the long run, check compilation and memory with the **actual
 1024-environment × 20-step batch**, four PPO passes and 128 evaluation environments:
 
 ```bash
-.venv/bin/python -m wr2.locomotion.train \
+uv run --extra training python -m wr2.locomotion.train \
   --config wr2/locomotion/configs/ppo_walking_paper.yaml \
   --num-timesteps 20480 --num-evals 2
 ```
@@ -39,8 +38,10 @@ The [control result audit](toddlerbot_transfer_review_20261016.md) explains the
 WR2 gap and why TB 180M/200M are stronger references than its final checkpoint.
 
 This is a transfer of that recipe onto WR2 geometry and identified hardware.
-It uses WR2's installed **Brax 0.14.2**, JAX 0.6.2 and MuJoCo/MJX 3.14.0 in
-the locally verified runtime. Versions on the GPU are recorded at launch.
+It uses WR2's locked Brax 0.14 runtime, JAX 0.6.2 and MuJoCo/MJX 3.14.0.
+The GPU dry run recorded **Python 3.10.19 / Brax 0.14.1**; local CPU checks
+used Python 3.11 / Brax 0.14.2. The lock selects 0.14.1 below Python 3.11.
+Versions are recorded at launch.
 
 ## Effective recipe
 
@@ -175,7 +176,7 @@ foot use and hardware loads against TB 180M/200M before claiming parity.
 To recheck a retained checkpoint with the existing evaluator:
 
 ```bash
-.venv/bin/python -m wr2.locomotion.evaluate \
+uv run --extra training python -m wr2.locomotion.evaluate \
   --config results/wr2_walking/<run>/training_config.yaml \
   --checkpoint results/wr2_walking/<run>/checkpoints/<step> \
   --paper-benchmark --num-envs 128 --seeds 22102 \
@@ -192,6 +193,10 @@ existing training/interface, XY, startup, randomized-physics and evaluation
 regressions. It covers the full reference grid, actual JIT MJX
 reset/physics, native delayed-action/AutoReset behavior, reward and sampler
 oracles, policy log probabilities, a native PPO update and checkpoint
-reload/parameter restoration. The full GPU batch check remains to be run:
-SSH access to the GPU host was unavailable from this session. No long training
-result is implied by these implementation checks.
+reload/parameter restoration. The completed GPU dry run exercised the full
+1024 × 20 batch, 16 optimizer updates, both checkpoint evaluations and native
+checkpoint saving. Its metrics and parameters are finite; checkpoint reload
+also passed locally with Brax 0.14.1. Nine targeted trainer/evaluation tests
+pass after the relative checkpoint path fix, including a regression rerun
+with Brax 0.14.1. See the [dry-run audit](wr2_paper_dry_run_20261016.md).
+This verifies the training path; one rollout does not establish walking quality.

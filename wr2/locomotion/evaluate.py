@@ -447,6 +447,9 @@ def evaluate_paper_checkpoint(args):
 
     if jax.default_backend() != "gpu" and not args.allow_cpu:
         raise RuntimeError("Paper evaluation requires a GPU; --allow-cpu is for development")
+    checkpoint_path = args.checkpoint.resolve()
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint_path}")
     config = load_training_config(args.config)
     if config.environment.recipe != "tb_paper":
         raise ValueError("--paper-benchmark requires the paper recipe's recorded observation contract")
@@ -458,7 +461,7 @@ def evaluate_paper_checkpoint(args):
     preprocess = running_statistics.normalize if config.ppo.normalize_observations else types.identity_observation_preprocessor
     networks = make_network_factory(config.network)(env.observation_size, env.action_size, preprocess_observations_fn=preprocess)
     make_policy = ppo_networks.make_inference_fn(networks)
-    params = checkpoint.load(str(args.checkpoint)) if args.checkpoint.is_dir() else model.load_params(args.checkpoint)
+    params = checkpoint.load(str(checkpoint_path)) if checkpoint_path.is_dir() else model.load_params(checkpoint_path)
     if any(not np.isfinite(np.asarray(leaf)).all() for leaf in jax.tree.leaves(params)):
         raise ValueError("Checkpoint contains nonfinite parameters")
     randomize = make_domain_randomizer(config.environment.randomization) if config.ppo.evaluation_randomization and config.environment.randomization.enabled else None
@@ -467,7 +470,7 @@ def evaluate_paper_checkpoint(args):
         report = PaperEvaluator(env, make_policy, args.num_envs, randomize, seed=seed,
                                engineering_horizon=args.engineering_horizon).evaluate(params)
         reports.append({"summary": selection_summary(report), **report})
-    return {"checkpoint": str(args.checkpoint.resolve()), "config": str(args.config.resolve()), "seed_results": reports}
+    return {"checkpoint": str(checkpoint_path), "config": str(args.config.resolve()), "seed_results": reports}
 
 
 if __name__ == "__main__":
