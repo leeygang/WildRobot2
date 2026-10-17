@@ -1,14 +1,16 @@
-# Prepared WR2 paper walking experiment
+# WR2 paper walking experiments
 
 The original **0.28.0** transfer completed 300M steps with no qualifying
-checkpoint and substantial hopping. The [completed-run review](wr2_paper_result_20261016.md)
-records the TB comparison and diagnostics. The next run uses **0.28.2**:
-the 0.28.1 landing-reward correction plus TB's summed foot-force support rule.
-Use a fresh run to test these corrections, retaining the native paper weights
-and the 300M budget.
+checkpoint and substantial hopping. The corrected **0.28.2** run also completed
+300M: tracking improved 26.5%, nominal neither-foot support fell from about
+61% to 0%, but approximately 5% of evaluation episodes still fall.
+See the [latest completed-run review](wr2_paper_result_20261017.md)
+for the TB comparison, controlled diagnostics and recommended additional 300M
+fine-tuning experiment. The recipe retains the native paper weights, with
+corrected landing normalization and TB's summed foot-force support rule.
 
-From the WR2 checkout on the GPU host, run a **fresh 300M-transition WR2
-experiment** through the regular trainer:
+To reproduce the completed **fresh 300M-transition WR2 experiment**, run the
+regular trainer from the WR2 checkout on the GPU host:
 
 ```bash
 uv run --extra training python -m wr2.locomotion.train \
@@ -259,8 +261,10 @@ with Brax 0.14.1. See the [dry-run audit](wr2_paper_dry_run_20261016.md).
 The original 300M run also completed with finite metrics and checkpoints,
 but its [walking results](wr2_paper_result_20261016.md) fail the candidate gate.
 Four reward regressions pass for the 0.28.1 correction, including the new
-whole-cycle test that reproduced the 21.35% bias before the fix. The completed
-training results are from 0.28.0; 0.28.2 needs a fresh learning comparison.
+whole-cycle test that reproduced the 21.35% bias before the fix. The
+0.28.2 run completed 300M with finite metrics and checkpoints; its
+[result audit](wr2_paper_result_20261017.md) records the remaining tracking and
+recovery gap. No checkpoint passes the ≤1% falls gate.
 For 0.28.2, **12 targeted tests pass**, covering the reproduced support bug,
 reward oracles, episode accounting, real JIT MJX reset/step/AutoReset, support
 partitions and force thresholds, actor/home contracts, checkpoint loading and
