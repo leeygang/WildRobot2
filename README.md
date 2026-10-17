@@ -90,17 +90,17 @@ completed and supplies the recipe for the
 The 300M continuation at fixed LR 1e−5 completed: reported PPO update size is
 controlled, but best normalized tracking error remains 2.82× TB Paper 200M.
 See the [WR2/Paper/Main progress comparison and next investigation](docs/design/wr2_tb_progress_review_20261017.md).
-Reproduce that seed-2 continuation from its retained +60M parent:
+The [loaded gait comparison and fresh-policy update check](docs/design/wr2_fresh_paper_run_20261017.md)
+support the next **fresh 300M Paper control, seed 3 / LR 1e−4**:
 
 ```bash
 uv run --extra training python -m wr2.locomotion.train \
-  --config results/wr2_walking/wr2_paper_20261017_115520_seed2/training_config.yaml \
-  --restore-checkpoint results/wr2_walking/wr2_paper_20261017_080025_seed1/checkpoints/000060026880
+  --config wr2/locomotion/configs/ppo_walking_paper.yaml
 ```
 
 The guide records the full GPU batch check, fixed crouched home, normalized
-reference/commands and retained checkpoint comparison. Actor/critic inputs are
-975/1485 for this recipe. WR2 training is self-contained.
+reference/commands, retained checkpoint comparison and completed-run reproduction.
+Actor/critic inputs are 975/1485 for this recipe. WR2 training is self-contained.
 The [six-DOF model-import guide](docs/design/hip_yaw_model_import.md) documents
 both new hip yaws, 21 actuators, model-derived home/CoM geometry and validation.
 Neck/head stay outside walking actions; the updated export now includes their

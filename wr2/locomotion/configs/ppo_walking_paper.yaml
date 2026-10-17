@@ -6,11 +6,12 @@
 # NormalTanh learns state-dependent scale; init_noise_std does not initialize this head.
 # Landing rewards retain TB's reward rates at the shared 20ms control timestep.
 # Foot support uses TB's threshold after summing all floor/foot contact points.
-# Fixed LR is 10x below TB after measured large PPO updates in the 300M fine-tune.
-# Restore the retained +60M checkpoint; see docs/design/wr2_paper_training.md.
-version: 0.28.3
-version_name: WR2 ToddlerBot paper recipe with smaller fixed PPO updates
-seed: 2
+# Fresh initialization; fixed LR matches TB's effectively constant 1e-4.
+# Full 1024 x 20 first-update check passed; train without --restore-checkpoint.
+# See docs/design/wr2_paper_training.md for the experiment and retained controls.
+version: 0.28.4
+version_name: WR2 ToddlerBot paper recipe with fresh initialization
+seed: 3
 environment:
   episode_length: 1000
   solver_iterations: 10
@@ -192,7 +193,7 @@ ppo:
   evaluation_randomization: true
   num_eval_envs: 128
   evaluation_forward_command_m_s: 0.08240547565448791
-  learning_rate: 0.00001
+  learning_rate: 0.0001
   entropy_cost: 0.0005
   discounting: 0.97
   gae_lambda: 0.95

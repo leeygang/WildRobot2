@@ -344,6 +344,17 @@ The immediate work is the loaded gait comparison. Current evidence establishes
 the residual gap and rules out two simple complete explanations; it does not
 yet identify a single physical correction guaranteed to improve training.
 
+### Follow-through and prepared run
+
+The [loaded gait comparison and fresh Paper setup](wr2_fresh_paper_run_20261017.md)
+now complete this investigation step. WR2 +180M and TB Paper 200M traces cover
+forward, both lateral directions and standing. They confirm weak requested
+motion and greater execution lag without identifying a measured physics fix.
+A real **1024 × 20** fresh-policy batch at TB's **1e−4** LR passes with
+post-batch joint KL **0.003794**, finite arrays and 4.04% ratio clipping.
+Prepared **0.28.4 / fresh seed 3 / 300M** repeats the corrected Paper recipe with
+an independent initialization and retains every intermediate checkpoint.
+
 ## References
 
 - [ToddlerBot paper, Tables VI/VII](https://arxiv.org/html/2502.00893v2): the

@@ -14,6 +14,42 @@ and the [previous update-instability review](wr2_paper_finetune_result_20261017.
 The recipe retains the native paper weights, corrected landing normalization
 and TB's summed foot-force support rule.
 
+## Start the next fresh Paper run
+
+The prepared **0.28.4** experiment starts **fresh with seed 3**, **fixed LR
+1e−4** and **300M requested transitions**. The loaded gait comparison finds
+weak requested motion and greater execution lag; it does not identify a
+measured physics correction. A full **1024 × 20** fresh-policy update at the
+Paper LR gives post-batch joint KL **0.003794**, finite parameters and 4.04%
+ratio clipping. See the [latest result, loaded traces and decision](wr2_fresh_paper_run_20261017.md).
+
+Run the regular trainer from the WR2 checkout on the GPU host:
+
+```bash
+uv run --extra training python -m wr2.locomotion.train \
+  --config wr2/locomotion/configs/ppo_walking_paper.yaml
+```
+
+This initializes a new actor, critic, normalizer and Adam. It uses the current
+fixed grounded home, Paper rewards, normalized reference/timing, full
+perturbations and about 20M checkpoint intervals. Config values match the
+corrected fresh seed-0 control except for seed and version metadata.
+The run is self-contained; the trainer checks for a GPU and records the
+effective configuration and provenance.
+
+For an optional GPU compilation/update check with the **actual training batch**:
+
+```bash
+uv run --extra training python -m wr2.locomotion.train \
+  --config wr2/locomotion/configs/ppo_walking_paper.yaml \
+  --num-timesteps 20480 --num-evals 2
+```
+
+Then start the full command above with a fresh initialization. The short check
+is not a trained walking candidate. All 15 trained checkpoints
+from the full run remain available for comparison with WR2 +180M/+160M and
+TB Paper 180M/200M.
+
 ## Reproduce the completed low-LR continuation
 
 Run the regular trainer from the WR2 checkout on the GPU host:
@@ -39,8 +75,8 @@ large recorded KL and an identical-batch update comparison support this
 one-parameter recipe change. The completed experiment reduced reported KL and
 falls, with a small tracking gain. Retain native **+180,080,640** for tracking
 and **+160,071,680** for survival; the final checkpoint has worse tracking.
-The next work is the [loaded gait comparison](wr2_tb_progress_review_20261017.md#7-recommended-next-work),
-followed by a fresh Paper experiment with one justified change.
+The [loaded gait comparison and fresh-policy update check](wr2_fresh_paper_run_20261017.md)
+now support the prepared fresh Paper control above.
 
 The saved configuration and full parent checkpoint directory must be present
 on the GPU host at the command's paths. They are run artifacts under ignored
@@ -97,15 +133,15 @@ The GPU dry run recorded **Python 3.10.19 / Brax 0.14.1**; local CPU checks
 used Python 3.11 / Brax 0.14.2. The lock selects 0.14.1 below Python 3.11.
 Versions are recorded at launch.
 
-## Effective next-run recipe
+## Effective prepared recipe
 
 | Item | Prepared WR2 experiment |
 | --- | --- |
-| PPO start/budget | Restore seed 1's +60M parameters (320M cumulative), seed 2; add requested 300M, native rounding 300,134,400 transitions |
+| PPO start/budget | Fresh actor/critic/normalizer/Adam, seed 3; requested 300M, native rounding 300,134,400 transitions |
 | Networks | Actor and critic 512/256/128, `silu` = Swish |
 | Distribution | Native state-dependent NormalTanh; native log probability/entropy |
 | PPO batch | 1024 envs × 20 steps; 256 × 4 minibatches; 4 passes |
-| Optimizer | LR 1e-5 fixed, no gradient clipping, entropy 0.0005 |
+| Optimizer | LR 1e-4 fixed, no gradient clipping, entropy 0.0005 |
 | Returns | Discount 0.97, GAE 0.95, clip 0.2; observations unnormalized, advantages normalized |
 | Value loss | Actual 0.25 × MSE; adapter passes native `vf_loss_coefficient=0.5` |
 | Rewards | All 25 Table VII terms; native coefficients, including leg imitation 5 and terminal survival 10, integrated at 20 ms |
@@ -119,8 +155,9 @@ On zero network inputs, the native scale head gives
 `softplus(0) + 0.001 ≈ 0.694147` before tanh. Actual observations change this
 state-dependent scale; `init_noise_std` does not initialize the NormalTanh head.
 TB's released cosine schedule changes by only 0.004884% from 1e−4 across this
-budget. The prepared fixed 1e−5 is the explicit, evidence-backed trial described
-above. The adapter maps schedules to Brax enum values and records
+budget. The prepared fixed 1e−4 matches that effective rate; its full fresh
+first-update check passes. The mature-policy 1e−5 continuation is a completed
+experiment described above. The adapter maps schedules to Brax enum values and records
 network/distribution/initializer metadata that its checkpoint loader can
 reconstruct. `desired_kl=0.01` is inactive under the fixed schedule; monitor
 the actual logged KL.
@@ -208,7 +245,9 @@ static-to-walking transition. These are reference diagnostics; evaluate actual
 motor RMSE, clipping/slew, torque and foot use before changing hardware limits.
 
 WR2 retains Newton 10, 5 ms × 4 substeps, quantized commands, its identified
-torque-speed model and command speed ceiling. TB used Newton 1, 4 ms × 5.
+torque-speed model and additional derived setpoint slew cap. That command cap
+is not a measured firmware rate limit; its same-policy nominal ablation gives
+only 0.3–3% improvement. TB used Newton 1, 4 ms × 5.
 WR2's corrected `mj_setConst` refresh after mass/inertia/armature variation
 remains active. Identified WR2 dynamics/randomization ranges remain explicit
 in the YAML. Foot-distance shaping uses the actual WR2 stance width relative
@@ -340,7 +379,7 @@ The [fine-tuning review](wr2_paper_finetune_result_20261017.md) records the
 protocols, numerical evidence and limits. No fine-tuned checkpoint passes the
 ≤1% falls gate.
 
-The prepared **0.28.3** run passed a native **Brax 0.14.1** CPU restore/update
+The **0.28.3** run passed a native **Brax 0.14.1** CPU restore/update
 check using the **actual seed-1 +60M GPU checkpoint**, seed **2** and configured
 fixed LR **1e−5**. The trainer's CLI/config path changes only version metadata,
 seed and LR versus the completed run. Step-0 actor, critic and normalizer arrays
@@ -353,3 +392,16 @@ See the [next-run restore verification](../../results/wr2_walking/wr2_paper_2026
 This uses the existing cheap transition environment with real **975/1485**
 observation dimensions; the preceding identical-batch probe used actual MJX
 robot physics at LR 1e−5. The full GPU compilation command is above.
+
+For prepared **0.28.4**, a real randomized/noisy **1024 × 20** fresh-policy
+batch at LR **1e−4** passes four minibatches × four PPO passes with finite
+parameters, mean pre-gradient joint KL **0.002444**, post-batch KL **0.003794**
+and **4.04%** post-batch ratio clipping. Native seed-3 initialization matches
+that probe exactly; a separate native update on the existing cheap environment
+saves/reloads its checkpoint exactly. Two native trainer/evaluator regressions
+pass. Loaded WR2 +180M and frozen TB Paper 200M traces also complete eight
+nominal trajectories / **7,296 ticks** with no falls/nonfinite samples and
+consistent target, reference-lift and heading-frame measurements. These new
+checks used CPU Brax 0.14.1 / JAX 0.6.2; WR2 physics uses MJX 3.14 and the
+frozen TB control uses MJX 3.2.4. See the
+[fresh run review and verification](wr2_fresh_paper_run_20261017.md).
