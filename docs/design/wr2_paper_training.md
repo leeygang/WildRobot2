@@ -9,30 +9,47 @@ for the TB comparison, controlled diagnostics and recommended additional 300M
 fine-tuning experiment. The recipe retains the native paper weights, with
 corrected landing normalization and TB's summed foot-force support rule.
 
-To reproduce the completed **fresh 300M-transition WR2 experiment**, run the
-regular trainer from the WR2 checkout on the GPU host:
+## Next run: 300M from the retained 260M checkpoint
+
+Run the regular trainer from the WR2 checkout on the GPU host:
 
 ```bash
 uv run --extra training python -m wr2.locomotion.train \
-  --config wr2/locomotion/configs/ppo_walking_paper.yaml
+  --config wr2/locomotion/configs/ppo_walking_paper.yaml \
+  --restore-checkpoint results/wr2_walking/wr2_paper_20261016_222755_seed0/checkpoints/000260116480 \
+  --seed 1
 ```
+
+This adds **300M requested transitions** to the policy trained through
+260,116,480. Native restore loads the actor, critic and normalizer; Adam and
+step counters start at zero. The new timestamped `wr2_paper_*_seed1` directory
+records the effective configuration and restore command, with checkpoints
+about every 20M added transitions. The existing 0.28.2 YAML supplies all 25
+paper reward weights, full variation/pushes/noise and 128-environment evaluation.
+
+The full checkpoint directory must be present on the GPU host at the path in
+the command. It is a run artifact under ignored `results/`, not supplied by Git.
 
 The trainer checks for a GPU. Its effective YAML,
 source/package versions, model hash, fixed motor home, reference diagnostics
 and geometry checks are recorded in each generated run directory.
 
-Before the long run, check compilation and memory with the **actual
+For an optional restore/compilation check on the GPU host, use the **actual
 1024-environment × 20-step batch**, four PPO passes and 128 evaluation environments:
 
 ```bash
 uv run --extra training python -m wr2.locomotion.train \
   --config wr2/locomotion/configs/ppo_walking_paper.yaml \
+  --restore-checkpoint results/wr2_walking/wr2_paper_20261016_222755_seed0/checkpoints/000260116480 \
+  --seed 1 \
   --num-timesteps 20480 --num-evals 2
 ```
 
-Start the 300M command fresh after this check. Native Brax checkpoint restore
-loads network/normalizer parameters and starts new Adam state and step counters.
+Start the full command from the original 260M checkpoint after this check.
 The old WR2 RSL checkpoints have different observation/distribution contracts.
+
+To reproduce the previous fresh seed-0 experiment, omit the restore and seed
+option lines from the first command.
 
 ## Sources and scope
 
@@ -56,7 +73,7 @@ Versions are recorded at launch.
 
 | Item | Prepared WR2 experiment |
 | --- | --- |
-| PPO start/budget | Fresh seed 0; requested 300M, native rounding 300,134,400 transitions |
+| PPO start/budget | Restore 260M parameters, seed 1; add requested 300M, native rounding 300,134,400 transitions |
 | Networks | Actor and critic 512/256/128, `silu` = Swish |
 | Distribution | Native state-dependent NormalTanh; native log probability/entropy |
 | PPO batch | 1024 envs × 20 steps; 256 × 4 minibatches; 4 passes |
@@ -273,3 +290,13 @@ real 200M GPU checkpoint with Brax 0.14.1 and completed **15 × 8** nominal
 episodes with zero falls/nonfinite episodes and consistent support partitions.
 The frozen TB 180M/200M controls each completed **15 × 8** nominal-model
 episodes with zero falls/nonfinite episodes and consistent support partitions.
+
+The next-run restore check loaded the **actual 260M GPU checkpoint** using
+Brax **0.14.1** and seed **1**. Native PPO's step-0 callback exactly matched
+the audited actor, critic and normalizer arrays; a small **4-env × 20-step**
+batch with four PPO passes then changed the policy and kept parameters,
+metrics and bounded actions finite. This CPU check uses the existing cheap
+transition environment with the real 975/1485 observation dimensions and
+12-action network. The prepared full configuration differs from the completed
+run only in seed; the GPU batch remains 1024 × 20.
+See the [restore verification](../../results/wr2_walking/wr2_paper_20261016_222755_seed0/review_20261017/next_run_restore_preflight.json).
