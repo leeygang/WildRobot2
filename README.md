@@ -87,11 +87,13 @@ remain incomplete. The
 [ToddlerBot paper control](docs/design/toddlerbot_transfer_review_20261016.md)
 completed and supplies the recipe for the
 [prepared WR2 paper training experiment](docs/design/wr2_paper_training.md).
-Start the fresh 300M run through the regular trainer:
+Start the next 300M fine-tune from the retained +60M checkpoint. The prepared
+YAML sets seed 2 and fixed learning rate 1e−5:
 
 ```bash
-.venv/bin/python -m wr2.locomotion.train \
-  --config wr2/locomotion/configs/ppo_walking_paper.yaml
+uv run --extra training python -m wr2.locomotion.train \
+  --config wr2/locomotion/configs/ppo_walking_paper.yaml \
+  --restore-checkpoint results/wr2_walking/wr2_paper_20261017_080025_seed1/checkpoints/000060026880
 ```
 
 The guide records the full GPU batch check, fixed crouched home, normalized
@@ -100,7 +102,7 @@ reference/commands and retained checkpoint comparison. Actor/critic inputs are
 The [six-DOF model-import guide](docs/design/hip_yaw_model_import.md) documents
 both new hip yaws, 21 actuators, model-derived home/CoM geometry and validation.
 Neck/head stay outside walking actions; the updated export now includes their
-CAD mass properties. Start fresh: historical ten-leg-action
+CAD mass properties. Historical ten-leg-action
 checkpoints and their continuation/migration commands do not work on this model.
 Historical experiment guides remain as evidence for the previous hardware model.
 The bounded train/evaluate/promote campaign and Mac-to-GPU command are described

@@ -1,4 +1,4 @@
-# Fresh Table VI/VII transfer through the regular WR2 trainer.
+# Table VI/VII transfer through the regular WR2 trainer.
 # q_home is the fixed, grounded reference crouch; walking q_ref does not offset actions.
 # s=sqrt(WR2 crouched CoM / TB CoM); linear speed/time scale s, angular speed 1/s.
 # Root is 4mm lower than the prior reference to qualify the full training command grid.
@@ -6,9 +6,11 @@
 # NormalTanh learns state-dependent scale; init_noise_std does not initialize this head.
 # Landing rewards retain TB's reward rates at the shared 20ms control timestep.
 # Foot support uses TB's threshold after summing all floor/foot contact points.
-version: 0.28.2
-version_name: WR2 ToddlerBot paper recipe with corrected landing and support
-seed: 0
+# Fixed LR is 10x below TB after measured large PPO updates in the 300M fine-tune.
+# Restore the retained +60M checkpoint; see docs/design/wr2_paper_training.md.
+version: 0.28.3
+version_name: WR2 ToddlerBot paper recipe with smaller fixed PPO updates
+seed: 2
 environment:
   episode_length: 1000
   solver_iterations: 10
@@ -190,7 +192,7 @@ ppo:
   evaluation_randomization: true
   num_eval_envs: 128
   evaluation_forward_command_m_s: 0.08240547565448791
-  learning_rate: 0.0001
+  learning_rate: 0.00001
   entropy_cost: 0.0005
   discounting: 0.97
   gae_lambda: 0.95
