@@ -15,6 +15,7 @@ from wr2.locomotion.configs import DEFAULT_TRAINING_CONFIG_PATH, load_training_c
 from wr2.locomotion.train import (
     _configure_backend_logging,
     _filter_optional_backend_import_messages,
+    _training_provenance,
 )
 from wr2.locomotion.walking_metrics import evaluate_xy_goal, walking_score
 
@@ -381,6 +382,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="TB's 15-condition per-episode suite, with normalized timing",
     )
     parser.add_argument(
+        "--nominal", action="store_true",
+        help="Disable model/reset/actuator variation, pushes and noise for --paper-benchmark",
+    )
+    parser.add_argument(
         "--engineering-horizon", action="store_true",
         help="Use 20 seconds for --paper-benchmark, reported separately from TB normalization",
     )
@@ -401,6 +406,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--paper-benchmark defines its own 15 conditions")
     if args.engineering_horizon and not args.paper_benchmark:
         parser.error("--engineering-horizon requires --paper-benchmark")
+    if args.nominal and not args.paper_benchmark:
+        parser.error("--nominal requires --paper-benchmark")
     return args
 
 
@@ -457,20 +464,26 @@ def evaluate_paper_checkpoint(args):
         if args.solver_iterations < 1:
             raise ValueError("solver_iterations must be positive")
         config = replace(config, environment=replace(config.environment, solver_iterations=args.solver_iterations))
-    env = WR2WalkingEnv(config.environment, add_observation_noise=config.ppo.evaluation_randomization)
+    varied = config.ppo.evaluation_randomization and not args.nominal
+    env = WR2WalkingEnv(config.environment, add_observation_noise=varied)
     preprocess = running_statistics.normalize if config.ppo.normalize_observations else types.identity_observation_preprocessor
     networks = make_network_factory(config.network)(env.observation_size, env.action_size, preprocess_observations_fn=preprocess)
     make_policy = ppo_networks.make_inference_fn(networks)
     params = checkpoint.load(str(checkpoint_path)) if checkpoint_path.is_dir() else model.load_params(checkpoint_path)
     if any(not np.isfinite(np.asarray(leaf)).all() for leaf in jax.tree.leaves(params)):
         raise ValueError("Checkpoint contains nonfinite parameters")
-    randomize = make_domain_randomizer(config.environment.randomization) if config.ppo.evaluation_randomization and config.environment.randomization.enabled else None
+    randomize = make_domain_randomizer(config.environment.randomization) if varied and config.environment.randomization.enabled else None
     reports = []
     for seed in args.seeds:
         report = PaperEvaluator(env, make_policy, args.num_envs, randomize, seed=seed,
                                engineering_horizon=args.engineering_horizon).evaluate(params)
         reports.append({"summary": selection_summary(report), **report})
-    return {"checkpoint": str(checkpoint_path), "config": str(args.config.resolve()), "seed_results": reports}
+    return {
+        "checkpoint": str(checkpoint_path), "config": str(args.config.resolve()),
+        "training_config_version": config.version,
+        "evaluation_source": _training_provenance(),
+        "seed_results": reports,
+    }
 
 
 if __name__ == "__main__":

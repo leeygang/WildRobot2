@@ -821,6 +821,13 @@ class WR2WalkingEnv(PipelineEnv):
     def _foot_contact(self, pipeline_state, contact_force=None) -> jax.Array:
         if contact_force is None:
             contact_force = self._contact_forces(pipeline_state)
+        if self._paper_recipe:
+            # TB sums all points on a floor/foot pair before thresholding.
+            # Solver forces already account for inactive slots and margins.
+            return (
+                self._foot_vertical_forces(pipeline_state, contact_force)
+                > self.config.contact_force_threshold_n
+            )
         active = support_contact_active(
             pipeline_state.contact.dist,
             contact_force[:, :3],
@@ -844,6 +851,18 @@ class WR2WalkingEnv(PipelineEnv):
                 for geom_id in self._foot_geom_ids
             ]
         )
+
+    def _foot_vertical_forces(self, pipeline_state, contact_force):
+        geom1, geom2 = pipeline_state.contact.geom1, pipeline_state.contact.geom2
+        return jp.stack([
+            jp.sum(jp.where(
+                ((geom1 == geom_id) & (geom2 == self._floor_geom_id))
+                | ((geom2 == geom_id) & (geom1 == self._floor_geom_id)),
+                contact_force[:, 2],
+                0.0,
+            ))
+            for geom_id in self._foot_geom_ids
+        ])
 
     def _stack_observation(
         self, observation: jax.Array, history: jax.Array, frame_size: int
@@ -1097,6 +1116,8 @@ class WR2WalkingEnv(PipelineEnv):
                 "bounded_action_saturation_fraction_per_step", "standing_speed_m_s_per_step",
                 "linear_push_m_s_per_step", "angular_push_rad_s_per_step",
                 "left_foot_displacement_m_per_step", "right_foot_displacement_m_per_step",
+                "single_support_per_step", "no_foot_support_per_step",
+                "left_foot_vertical_force_n_per_step", "right_foot_vertical_force_n_per_step",
             )})
         metrics = {name: jp.zeros_like(value) for name, value in metrics.items()}
         info = {
@@ -1617,6 +1638,7 @@ class WR2WalkingEnv(PipelineEnv):
         motor_velocity = pipeline.qd[self._joint_qvel_indices]
         forces = self._contact_forces(pipeline)
         contact = self._foot_contact(pipeline, forces)
+        foot_vertical_forces = self._foot_vertical_forces(pipeline, forces)
         geom1, geom2 = pipeline.contact.geom1, pipeline.contact.geom2
         collision_active = (
             (pipeline.contact.dist < 0) & (jp.linalg.norm(forces[:, :3], axis=1) > 0.1)
@@ -1732,6 +1754,10 @@ class WR2WalkingEnv(PipelineEnv):
             "left_foot_contact_per_step": contact[0].astype(jp.float32),
             "right_foot_contact_per_step": contact[1].astype(jp.float32),
             "double_support_per_step": jp.all(contact).astype(jp.float32),
+            "single_support_per_step": jp.logical_xor(contact[0], contact[1]).astype(jp.float32),
+            "no_foot_support_per_step": (~jp.any(contact)).astype(jp.float32),
+            "left_foot_vertical_force_n_per_step": foot_vertical_forces[0],
+            "right_foot_vertical_force_n_per_step": foot_vertical_forces[1],
             "contact_phase_match_per_step": terms["feet_contact"] / 2,
             "left_foot_height_m_per_step": foot_height[0], "right_foot_height_m_per_step": foot_height[1],
             "left_foot_target_height_m_per_step": reference_height[0], "right_foot_target_height_m_per_step": reference_height[1],

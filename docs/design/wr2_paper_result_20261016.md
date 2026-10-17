@@ -9,9 +9,11 @@ fewest falls among trained checkpoints. None passes the complete suite's
 
 The learned motion contains frequent synchronized hops, including under zero
 command. A WR2-specific landing-reward normalization error was reproduced and
-fixed in recipe **0.28.1**. Test that correction with fresh training; capture
-matching TB foot measurements before choosing additional reward or physics
-changes. The correction removes a measured bias; its learning effect is unknown.
+fixed in recipe **0.28.1**. The follow-up fix in **0.28.2** also aligns summed
+foot-force support with TB (Section 5). The frozen TB checkpoint diagnostics
+now include foot measurements (Section 4). Test the corrections with fresh
+training before choosing additional reward or physics changes. Their learning
+effect is unknown.
 
 Run: [`wr2_paper_20261016_130552_seed0`](../../results/wr2_walking/wr2_paper_20261016_130552_seed0).
 Sources: clean **0a63ae9**, recipe **0.28.0**, fresh seed 0, no argument overrides
@@ -105,7 +107,9 @@ applied targets to locate the transfer failure.
 At WR2 200M, forward support fractions are **17.74% single support / 26.88%
 double support / 55.38% neither foot supported**. Standing has **55.95%**
 neither-foot support. These percentages are 50 Hz control samples, not
-integrals over all physics substeps. The derived fraction is exactly
+integrals over all physics substeps, and use the old per-contact-point threshold.
+That rule can overstate loss of support; the zero-force trace below independently
+confirms actual flight. The derived fraction is exactly
 `1 − left_contact − right_contact + double_support`.
 
 The fixed-forward native return is **408.72**, of which **306.11 (74.9%)** is
@@ -159,6 +163,45 @@ validated only through **1.0157 Nm for 3 s**; the observed policy loads lie
 beyond that validation range. High-load/braking behavior and this rapid motion
 need hardware validation before deployment or changing the physical model.
 
+### Frozen TB checkpoint support comparison
+
+Re-evaluated the successful TB **180M/200M** checkpoints from frozen source
+**1982ef3**, Brax fork **1414780**, JAX 0.6.2 and MuJoCo/MJX 3.2.4. A temporary
+local checkout and external measurement harness read the simulator state;
+the active TB checkout required no changes. Both checkpoints completed
+**15 × 8** episodes, seed **22102**, with zero falls/nonfinite episodes.
+The WR2 row uses the regular evaluator's corrected support rule (Section 5).
+
+| Policy | Forward XY error, TB-equivalent (m/s) | Zero-command speed, TB-equivalent (m/s) | Forward neither-foot support | Standing neither-foot support | Forward sampled torque RMS (Nm) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| WR2 200M | 0.08332 | 0.06695 | 61.17% | 60.68% | 1.5168 |
+| TB 180M | 0.03221 | 0.02149 | 0% | 0% | 0.2581 |
+| TB 200M | 0.02673 | 0.02471 | 0% | 0% | 0.2721 |
+
+All support partitions sum to one. TB forward single support is **84.98–85.89%**,
+versus WR2 **9.71%**; TB standing single support is **86.15–86.42%**. The TB
+zero-command policy still moves, while maintaining foot support. Neither-foot
+support means neither foot exceeds **1 N**, sampled at 50 Hz. The independent
+WR2 zero-force/positive-distance trace above establishes actual flight.
+
+These diagnostics disable model/actuator variation, pushes and observation
+noise. Frozen TB `MJXEnv.reset` still draws initial heading and a fixed
+per-episode motor-home offset of **±0.02 rad** unconditionally; WR2 `--nominal`
+uses a fixed reset. TB runs 20 s, WR2 16.48 s with normalized command/timing.
+Repeated WR2 nominal episodes reproduce one trajectory. These small CPU
+replays supplement the randomized qualification suite; their different resets
+and runtimes limit causal comparisons. Raw torque RMS also averages over
+different motors (**21 WR2 / 30 TB**) and is not normalized for geometry,
+gearing or hardware. It does not establish a torque-model error.
+
+The support gap is present with nominal physics. The frozen TB controls do
+not reproduce WR2's repeated loss of foot support, so the evidence does not
+justify accepting hopping as the native recipe's expected result. Fresh
+corrected training will test how much the two implementation fixes explain.
+
+Diagnostics: [TB 180M](../../results/wr2_walking/wr2_paper_20261016_130552_seed0/review_20261016/tb_paper_180080640_nominal.json)
+and [TB 200M](../../results/wr2_walking/wr2_paper_20261016_130552_seed0/review_20261016/tb_paper_200089600_nominal.json).
+
 ## 5. Confirmed normalization error and correction
 
 Both robots use **20 ms control**, despite their different normalized cycle
@@ -189,20 +232,50 @@ air time still accounts for **71.1%**. Re-scoring does not change its actions
 or gait. The correction removes a proven transfer bias, but it cannot establish
 that fresh learning will close a roughly fourfold tracking gap.
 
+### Summed foot support: follow-up correction in 0.28.2
+
+Frozen TB's `_get_contact_forces` sums every solver contact point on a
+floor/foot collider pair, then compares upward force with **1 N**. WR2's paper
+path instead required an individual point to exceed 1 N and have negative
+distance. Four 0.4 N points therefore incorrectly produced no support despite
+**1.6 N** total. Active solver forces can also occur within a positive contact
+margin; TB uses the force directly. Two regressions reproduced the mismatch
+with negative/positive distances before the fix and now pass under JIT.
+
+Recipe **0.28.2** uses the native summed-force rule. Evaluation schema 2 reports
+single/double/neither-foot support, each foot's vertical force and the support
+rule/threshold. These are end-of-control samples, including torque RMS; they
+do not integrate all physics substeps. A below-threshold foot can still exert
+force, so neither-foot support alone is insufficient to certify flight.
+
+The regular evaluator's new `--nominal` option loaded the actual WR2 200M
+checkpoint and completed **15 × 8** episodes with no falls/nonfinite events.
+Forward support is **9.71% single / 29.13% double / 61.17% neither**; standing
+has **60.68% neither-foot support**. Forward error is **0.06866 m/s**, standing
+speed **0.05517 m/s**. These agree with the earlier quiet replay: changing
+reward/support calculation does not change this frozen actor's motion.
+
+All support partitions agree with their contact indicators and sum to one.
+Twelve targeted tests pass, including actual MJX reset/step/AutoReset and the
+nominal/native checkpoint evaluation path. The fresh run retains all native
+coefficients, PPO settings and identified hardware limits.
+
+Diagnostic: [`nominal_corrected_support_200M.json`](../../results/wr2_walking/wr2_paper_20261016_130552_seed0/review_20261016/nominal_corrected_support_200M.json).
+
 ## 6. Next experiment and source comparison
 
-1. Capture TB **180M/200M** with the same foot-contact, flight, applied-target,
-   torque and path measurements, keeping its frozen model/source and normalized
-   evaluation protocol. Its existing XY export lacks those measurements. This
-   distinguishes a native recipe loophole from a robot/controller-specific
-   failure before adding any new gait term.
-2. Run a **fresh 200–300M corrected paper comparison**, retaining all intermediate
-   checkpoints and recording flight and slew alongside XY error and falls.
+1. Use the captured TB **180M/200M** nominal support/force, applied-target,
+   torque and path reports as diagnostic controls, alongside the old WR2 200M
+   policy. Preserve their recorded source, runtime and reset conditions.
+2. Run a **fresh 300M comparison with recipe 0.28.2**, retaining all intermediate
+   checkpoints and recording support, foot forces and slew alongside XY error
+   and falls.
    Keep native reward coefficients, distribution, PPO settings and identified
    WR2 hardware limits. Use the 200M old policy as a diagnostic control; its
    hopping solution is unsuitable as the initialization for this comparison.
-3. If hopping remains after the correction and adequate budget, use the matched
-   TB foot evidence and high-load WR2 servo replay to choose the next change.
+3. If hopping remains after the correction and adequate budget, compare the
+   randomized support/force measurements against these same TB checkpoints
+   and use high-load WR2 servo replay to choose the next change.
    More steps on the old policy, larger hardware limits or optimizer changes
    are not supported as solutions by this run.
 

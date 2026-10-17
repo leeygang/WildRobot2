@@ -2,9 +2,10 @@
 
 The original **0.28.0** transfer completed 300M steps with no qualifying
 checkpoint and substantial hopping. The [completed-run review](wr2_paper_result_20261016.md)
-records the TB comparison and diagnostics. **0.28.1** corrects landing-reward
-normalization at the shared 20 ms control timestep. Use a fresh run to test
-that correction and collect matched TB foot measurements before further changes.
+records the TB comparison and diagnostics. The next run uses **0.28.2**:
+the 0.28.1 landing-reward correction plus TB's summed foot-force support rule.
+Use a fresh run to test these corrections, retaining the native paper weights
+and the 300M budget.
 
 From the WR2 checkout on the GPU host, run a **fresh 300M-transition WR2
 experiment** through the regular trainer:
@@ -87,6 +88,12 @@ height sample sum by `s²`. Both robots use 50 Hz control, so these event
 integrals must scale with cycle duration alongside continuous rewards.
 The original `air_time/s` and `clearance/s³` conversions inflated their relative
 reward rates by **21.35%**. Native coefficients 500 and 0.05 are retained.
+
+Foot support applies **1 N after summing all solver forces on a floor/foot
+pair**, matching frozen TB. The old paper path applied the threshold to each
+point and also rejected positive-distance contacts with active solver forces.
+Four 0.4 N points incorrectly produced no support despite 1.6 N total force.
+The corrected rule affects contact rewards, landing detection and critic stance.
 
 Actor frame order is phase, command, motor-minus-home, motor velocity, old
 applied action, gyro and unwrapped Euler angles. Critic order matches native TB:
@@ -178,6 +185,13 @@ foot path is a sum, and RMSE is computed from each episode's mean square.
 Finite terminal samples count; invalid transitions count toward length and
 nonfinite totals, then stop contributing measurements.
 
+Schema **2** also exports single support, neither-foot support and summed
+vertical force for each foot. Support fractions partition every finite sample;
+`no_foot_support_fraction = 1 − left − right + double`. A foot below the 1 N
+threshold can still carry force, so this fraction alone does not establish
+flight. Forces, torque and support are sampled at the end of each 20 ms control
+step; torque RMS is over those samples, not every physics substep.
+
 Candidates require the complete finite suite and at most 1% aggregate falls.
 Among trained candidates, select the lowest ten-condition fixed walking XY
 error. Native return is telemetry. Training then evaluates the selected
@@ -198,6 +212,37 @@ uv run --extra training python -m wr2.locomotion.evaluate \
 Add `--engineering-horizon` for the separate 20 s profile. Inspect intermediate
 180M/200M checkpoints and the selected candidate alongside the final checkpoint.
 
+### Nominal diagnostic comparison
+
+Use the regular evaluator's **`--nominal`** option to disable model/reset/actuator
+variation, pushes and observation noise while preserving the saved policy and
+normalized 15-condition schedule. It records evaluation source/package versions
+separately from the saved training configuration's version.
+
+For the old 200M control on the GPU host:
+
+```bash
+uv run --extra training python -m wr2.locomotion.evaluate \
+  --config results/wr2_walking/wr2_paper_20261016_130552_seed0/training_config.yaml \
+  --checkpoint results/wr2_walking/wr2_paper_20261016_130552_seed0/checkpoints/000200089600 \
+  --paper-benchmark --nominal --num-envs 128 --seeds 22102 \
+  --output results/wr2_walking/wr2_paper_20261016_130552_seed0/nominal_0282_200M.json
+```
+
+Use the same command with a fresh run's saved config/checkpoint when comparing
+its gait. Fully deterministic nominal episodes repeat one trajectory per
+condition; repeated episodes do not measure uncertainty across training seeds.
+Use the ordinary randomized paper suite for candidate selection and confirmation.
+
+The [completed-run review](wr2_paper_result_20261016.md#frozen-tb-checkpoint-support-comparison)
+also records locally captured TB **180M/200M** nominal foot support, forces,
+applied targets, torque and paths. Both controls maintain at least one foot
+above 1 N in every forward/standing sample, versus about 61% neither-foot
+support for old WR2 200M. TB preserves its native random heading and motor-home
+offsets; WR2 nominal resets are fixed. The reports record these reset and
+runtime differences. The prepared WR2 training command requires only this
+checkout; the active TB checkout required no changes.
+
 ## Verification status
 
 Local CPU verification passed **92 tests** across the new paper checks and
@@ -215,4 +260,12 @@ The original 300M run also completed with finite metrics and checkpoints,
 but its [walking results](wr2_paper_result_20261016.md) fail the candidate gate.
 Four reward regressions pass for the 0.28.1 correction, including the new
 whole-cycle test that reproduced the 21.35% bias before the fix. The completed
-training results are from 0.28.0; 0.28.1 needs a fresh learning comparison.
+training results are from 0.28.0; 0.28.2 needs a fresh learning comparison.
+For 0.28.2, **12 targeted tests pass**, covering the reproduced support bug,
+reward oracles, episode accounting, real JIT MJX reset/step/AutoReset, support
+partitions and force thresholds, actor/home contracts, checkpoint loading and
+nominal/native evaluator settings. The standard `uv` evaluator also loaded the
+real 200M GPU checkpoint with Brax 0.14.1 and completed **15 × 8** nominal
+episodes with zero falls/nonfinite episodes and consistent support partitions.
+The frozen TB 180M/200M controls each completed **15 × 8** nominal-model
+episodes with zero falls/nonfinite episodes and consistent support partitions.

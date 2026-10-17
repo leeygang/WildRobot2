@@ -5,8 +5,9 @@
 # value_loss_coef multiplies MSE; the native Brax adapter passes twice this value.
 # NormalTanh learns state-dependent scale; init_noise_std does not initialize this head.
 # Landing rewards retain TB's reward rates at the shared 20ms control timestep.
-version: 0.28.1
-version_name: WR2 ToddlerBot paper recipe with fixed-step landing rewards
+# Foot support uses TB's threshold after summing all floor/foot contact points.
+version: 0.28.2
+version_name: WR2 ToddlerBot paper recipe with corrected landing and support
 seed: 0
 environment:
   episode_length: 1000

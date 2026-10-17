@@ -49,6 +49,10 @@ MEASUREMENTS = (
     "double_support_fraction",
     "left_foot_xy_path_m",
     "right_foot_xy_path_m",
+    "single_support_fraction",
+    "no_foot_support_fraction",
+    "left_foot_vertical_force_n",
+    "right_foot_vertical_force_n",
 )
 
 
@@ -209,6 +213,10 @@ class PaperEvaluator:
                     m["double_support_per_step"],
                     m["left_foot_displacement_m_per_step"],
                     m["right_foot_displacement_m_per_step"],
+                    m["single_support_per_step"],
+                    m["no_foot_support_per_step"],
+                    m["left_foot_vertical_force_n_per_step"],
+                    m["right_foot_vertical_force_n_per_step"],
                 ],
                 axis=1,
             )
@@ -272,13 +280,16 @@ class PaperEvaluator:
                 }
             )
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "seed": self.seed,
             "normalization_scale": self.scale,
             "com_height_m": self.com_height,
             "froude_velocity_m_s": float(np.sqrt(9.81 * self.com_height)),
             "episode_length": self.episode_length,
             "control_period_s": 0.02,
+            "measurement_sampling": "end_of_control_step",
+            "support_contact_rule": "summed upward floor/foot force",
+            "support_contact_force_threshold_n": self.env.config.contact_force_threshold_n,
             "profile": "engineering_20s"
             if self.schedule_scale == 1.0
             else "TB_normalized",

@@ -184,13 +184,18 @@ def test_paper_evaluation_loads_relative_brax_checkpoint(tmp_path, monkeypatch):
             ],
         }
 
-    monkeypatch.setattr(
-        "wr2.locomotion.walking_env.WR2WalkingEnv", lambda *args, **kwargs: env
-    )
-    monkeypatch.setattr(
-        "wr2.locomotion.paper_evaluation.PaperEvaluator",
-        lambda *args, **kwargs: SimpleNamespace(evaluate=measure),
-    )
+    noise, varied = [], []
+
+    def environment(*args, **kwargs):
+        noise.append(kwargs["add_observation_noise"])
+        return env
+
+    def evaluator(env, policy, num_envs, randomize, **kwargs):
+        varied.append(randomize is not None)
+        return SimpleNamespace(evaluate=measure)
+
+    monkeypatch.setattr("wr2.locomotion.walking_env.WR2WalkingEnv", environment)
+    monkeypatch.setattr("wr2.locomotion.paper_evaluation.PaperEvaluator", evaluator)
     monkeypatch.chdir(tmp_path)
     args = SimpleNamespace(
         allow_cpu=True,
@@ -200,10 +205,17 @@ def test_paper_evaluation_loads_relative_brax_checkpoint(tmp_path, monkeypatch):
         seeds=(22102,),
         num_envs=1,
         engineering_horizon=False,
+        nominal=False,
     )
-    report = evaluate_paper_checkpoint(args)
-    assert report["checkpoint"] == str(tmp_path / "000000000001")
-    assert report["seed_results"][0]["summary"]["nonfinite_count"] == 0
+    for nominal in (False, True):
+        args.nominal = nominal
+        report = evaluate_paper_checkpoint(args)
+        assert report["checkpoint"] == str(tmp_path / "000000000001")
+        assert report["seed_results"][0]["summary"]["nonfinite_count"] == 0
+        assert report["training_config_version"] == config.version
+        assert report["evaluation_source"]["git_commit"]
+    assert noise == [True, False]
+    assert varied == [True, False]
 
 
 class EpisodeAccountingEnv(Env):
@@ -264,6 +276,10 @@ class EpisodeAccountingEnv(Env):
             double_support_per_step=jp.asarray(0.0),
             left_foot_displacement_m_per_step=jp.asarray(0.01),
             right_foot_displacement_m_per_step=jp.asarray(0.02),
+            single_support_per_step=jp.asarray(1.0),
+            no_foot_support_per_step=jp.asarray(0.0),
+            left_foot_vertical_force_n_per_step=jp.asarray(1.6),
+            right_foot_vertical_force_n_per_step=jp.asarray(0.8),
         )
 
     def step(self, state, action):
@@ -298,3 +314,7 @@ def test_independent_evaluator_stops_after_fall_or_nonfinite_and_keeps_terminal_
     np.testing.assert_allclose(sums[:, 0, 4], 0.08)
     np.testing.assert_allclose(sums[:, 0, 5], 8.0)
     np.testing.assert_allclose(sums[:, 0, 13], 0.02)
+    np.testing.assert_allclose(sums[:, 0, 15], 2.0)
+    np.testing.assert_allclose(sums[:, 0, 16], 0.0)
+    np.testing.assert_allclose(sums[:, 0, 17], 3.2)
+    np.testing.assert_allclose(sums[:, 0, 18], 1.6)

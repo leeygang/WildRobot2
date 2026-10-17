@@ -195,6 +195,31 @@ def test_landing_reward_rates_match_tb_at_fixed_control_timestep():
     np.testing.assert_allclose(scaled, native, rtol=2e-6)
 
 
+@pytest.mark.parametrize("distance", [-0.001, 0.001])
+def test_paper_contact_threshold_applies_to_summed_foot_force(distance):
+    # Frozen TB accumulates every point on a floor/foot pair before applying
+    # 1 N. Active solver forces can also occur within a positive contact margin.
+    env = object.__new__(WR2WalkingEnv)
+    env.config = SimpleNamespace(contact_force_threshold_n=1.0)
+    env._paper_recipe = True
+    env._floor_geom_id = 0
+    env._foot_geom_ids = (1, 2)
+    pipeline = SimpleNamespace(
+        contact=SimpleNamespace(
+            geom1=jp.asarray([0, 0, 0, 0, 0, 0, 0, 0, 1]),
+            geom2=jp.asarray([1, 1, 1, 1, 2, 2, 2, 2, 3]),
+            dist=jp.full(9, distance),
+        )
+    )
+    forces = jp.zeros((9, 6)).at[:, 2].set(jp.asarray([0.4] * 4 + [0.2] * 4 + [100.0]))
+    contacts = jax.jit(lambda f: env._foot_contact(pipeline, f))(forces)
+    np.testing.assert_array_equal(contacts, [True, False])
+    np.testing.assert_allclose(env._foot_vertical_forces(pipeline, forces), [1.6, 0.8])
+    np.testing.assert_array_equal(
+        env._foot_contact(pipeline, jp.zeros_like(forces)), [False, False]
+    )
+
+
 def test_preview_matches_native_four_state_tb_planner():
     feet = np.asarray([[0.0027, 0.0364, 0.0], [0.0027, -0.0364, 0.0]])
     _, times, desired = footstep_plan(np.asarray([0.1, 0.0, 0.0]), 0.72, feet, 1.0)
@@ -362,6 +387,24 @@ def test_delayed_actions_and_native_auto_reset_preserve_paper_timing(paper_env):
         )
     ):
         state = step(state, jp.full((1, 12), action))
+        metrics = state.metrics
+        double = metrics["double_support_per_step"]
+        single = metrics["single_support_per_step"]
+        unsupported = metrics["no_foot_support_per_step"]
+        np.testing.assert_allclose(double + single + unsupported, 1.0)
+        np.testing.assert_allclose(
+            unsupported,
+            1
+            - metrics["left_foot_contact_per_step"]
+            - metrics["right_foot_contact_per_step"]
+            + double,
+        )
+        for side in ("left", "right"):
+            np.testing.assert_array_equal(
+                metrics[f"{side}_foot_contact_per_step"],
+                metrics[f"{side}_foot_vertical_force_n_per_step"]
+                > env.config.contact_force_threshold_n,
+            )
         assert float(state.metrics["paper_reward/leg_action_rate"][0]) == pytest.approx(
             0.05 * 0.02 * rate, abs=1e-9
         )
@@ -495,11 +538,17 @@ def test_normalized_schedule_and_per_episode_aggregates():
     sums[:, 0, 4] = [1.0, 27.0]  # episode leg RMSE 1 and 3 => mean 2
     sums[:, 0, 5] = [4.0, 48.0]  # episode torque RMS 2 and 4 => mean 3
     sums[:, 0, 13] = [2.0, 6.0]  # path is a sum, not a time mean
+    sums[:, 0, 15] = [1.0, 1.0]  # support fraction is averaged within each episode
+    sums[:, 0, 16] = [0.0, 1.0]
+    sums[:, 0, 17] = [1.6, 4.8]  # foot force is a mean in N, not an RMS
     groups, episodes = summarize(sums, counts)
     assert groups["all"]["xy_error_m_s"]["mean"] == 2
     assert groups["all"]["leg_motor_rmse_rad"]["mean"] == 2
     assert groups["all"]["torque_rms_nm"]["mean"] == 3
     assert groups["all"]["left_foot_xy_path_m"]["mean"] == 4
+    assert groups["all"]["single_support_fraction"]["mean"] == pytest.approx(2 / 3)
+    assert groups["all"]["no_foot_support_fraction"]["mean"] == pytest.approx(1 / 6)
+    assert groups["all"]["left_foot_vertical_force_n"]["mean"] == pytest.approx(1.6)
     assert groups["walking"]["xy_error_m_s"]["mean"] is None
     assert episodes["walking"]["xy_error_m_s"] == [None, None]
     assert len(CONDITIONS) == 15
