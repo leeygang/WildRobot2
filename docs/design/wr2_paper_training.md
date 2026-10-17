@@ -6,26 +6,29 @@ checkpoint and substantial hopping. The corrected **0.28.2** run also completed
 61% to 0%, but approximately 5% of evaluation episodes still fall.
 A further **300M fine-tune from 260M** completed: best tracking improved only
 2.5%, then final error regressed 15.3% versus the parent. No checkpoint passes
-the fall gate. See the [latest completed-run review](wr2_paper_finetune_result_20261017.md)
-for the TB comparison and measured PPO update instability. The recipe retains
-the native paper weights, with corrected landing normalization and TB's summed
-foot-force support rule.
+the fall gate. A further **0.28.3 / LR 1e−5 / seed 2** continuation completed
+300M: reported epoch KL stays within 0.0051–0.0106, but best tracking improves
+only 1.7% versus its start and remains 2.82× TB Paper 200M. No checkpoint meets
+the fall gate. See the [WR2/Paper/Main comparison and next investigation](wr2_tb_progress_review_20261017.md)
+and the [previous update-instability review](wr2_paper_finetune_result_20261017.md).
+The recipe retains the native paper weights, corrected landing normalization
+and TB's summed foot-force support rule.
 
-## Next run: 300M from +60M with smaller PPO updates
+## Reproduce the completed low-LR continuation
 
 Run the regular trainer from the WR2 checkout on the GPU host:
 
 ```bash
 uv run --extra training python -m wr2.locomotion.train \
-  --config wr2/locomotion/configs/ppo_walking_paper.yaml \
+  --config results/wr2_walking/wr2_paper_20261017_115520_seed2/training_config.yaml \
   --restore-checkpoint results/wr2_walking/wr2_paper_20261017_080025_seed1/checkpoints/000060026880
 ```
 
-The **0.28.3 YAML** sets **seed 2**, **fixed LR 1e−5** and **300M requested
+The saved **0.28.3 YAML** sets **seed 2**, **fixed LR 1e−5** and **300M requested
 added transitions**. The parent +60M policy has **320,143,360 cumulative
 transitions**; native rounding adds 300,134,400, reaching **620,277,760**.
 Native restore loads actor, critic and normalizer; Adam and step counters start
-at zero. The new timestamped `wr2_paper_*_seed2` directory records the effective
+at zero. The timestamped `wr2_paper_*_seed2` directory records the effective
 configuration and restore command, with checkpoints about every 20M added
 transitions. All 25 paper reward weights, full variation/pushes/noise and
 128-environment evaluation are retained.
@@ -33,12 +36,15 @@ transitions. All 25 paper reward weights, full variation/pushes/noise and
 The +20M parent has the best tracking; +60M has the best survival and better
 tracking than the tied +220M checkpoint. The LR differs from TB's 1e−4;
 large recorded KL and an identical-batch update comparison support this
-one-parameter recipe change. Its long-run tracking and survival effect remains
-to be verified. See the
-[evidence and next decision](wr2_paper_finetune_result_20261017.md#7-recommended-next-trial).
+one-parameter recipe change. The completed experiment reduced reported KL and
+falls, with a small tracking gain. Retain native **+180,080,640** for tracking
+and **+160,071,680** for survival; the final checkpoint has worse tracking.
+The next work is the [loaded gait comparison](wr2_tb_progress_review_20261017.md#7-recommended-next-work),
+followed by a fresh Paper experiment with one justified change.
 
-The full checkpoint directory must be present on the GPU host at the path in
-the command. It is a run artifact under ignored `results/`, not supplied by Git.
+The saved configuration and full parent checkpoint directory must be present
+on the GPU host at the command's paths. They are run artifacts under ignored
+`results/`, not supplied by Git.
 
 The trainer checks for a GPU. Its effective YAML,
 source/package versions, model hash, fixed motor home, reference diagnostics
@@ -49,7 +55,7 @@ For an optional restore/compilation check on the GPU host, use the **actual
 
 ```bash
 uv run --extra training python -m wr2.locomotion.train \
-  --config wr2/locomotion/configs/ppo_walking_paper.yaml \
+  --config results/wr2_walking/wr2_paper_20261017_115520_seed2/training_config.yaml \
   --restore-checkpoint results/wr2_walking/wr2_paper_20261017_080025_seed1/checkpoints/000060026880 \
   --num-timesteps 20480 --num-evals 2
 ```

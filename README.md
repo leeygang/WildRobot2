@@ -86,13 +86,15 @@ at 600M cumulative transitions; lateral tracking and backward launch stability
 remain incomplete. The
 [ToddlerBot paper control](docs/design/toddlerbot_transfer_review_20261016.md)
 completed and supplies the recipe for the
-[prepared WR2 paper training experiment](docs/design/wr2_paper_training.md).
-Start the next 300M fine-tune from the retained +60M checkpoint. The prepared
-YAML sets seed 2 and fixed learning rate 1e−5:
+[WR2 paper training experiments](docs/design/wr2_paper_training.md).
+The 300M continuation at fixed LR 1e−5 completed: reported PPO update size is
+controlled, but best normalized tracking error remains 2.82× TB Paper 200M.
+See the [WR2/Paper/Main progress comparison and next investigation](docs/design/wr2_tb_progress_review_20261017.md).
+Reproduce that seed-2 continuation from its retained +60M parent:
 
 ```bash
 uv run --extra training python -m wr2.locomotion.train \
-  --config wr2/locomotion/configs/ppo_walking_paper.yaml \
+  --config results/wr2_walking/wr2_paper_20261017_115520_seed2/training_config.yaml \
   --restore-checkpoint results/wr2_walking/wr2_paper_20261017_080025_seed1/checkpoints/000060026880
 ```
 
