@@ -4,14 +4,16 @@ The original **0.28.0** transfer completed 300M steps with no qualifying
 checkpoint and substantial hopping. The corrected **0.28.2** run also completed
 300M: tracking improved 26.5%, nominal neither-foot support fell from about
 61% to 0%, but approximately 5% of evaluation episodes still fall.
-See the [latest completed-run review](wr2_paper_result_20261017.md)
-for the TB comparison, controlled diagnostics and recommended additional 300M
-fine-tuning experiment. The recipe retains the native paper weights, with
-corrected landing normalization and TB's summed foot-force support rule.
+A further **300M fine-tune from 260M** completed: best tracking improved only
+2.5%, then final error regressed 15.3% versus the parent. No checkpoint passes
+the fall gate. See the [latest completed-run review](wr2_paper_finetune_result_20261017.md)
+for the TB comparison and measured PPO update instability. The recipe retains
+the native paper weights, with corrected landing normalization and TB's summed
+foot-force support rule.
 
-## Next run: 300M from the retained 260M checkpoint
+## Completed experiment: 300M from the retained 260M checkpoint
 
-Run the regular trainer from the WR2 checkout on the GPU host:
+The completed seed-1 experiment used the regular trainer on the GPU host:
 
 ```bash
 uv run --extra training python -m wr2.locomotion.train \
@@ -22,9 +24,10 @@ uv run --extra training python -m wr2.locomotion.train \
 
 This adds **300M requested transitions** to the policy trained through
 260,116,480. Native restore loads the actor, critic and normalizer; Adam and
-step counters start at zero. The new timestamped `wr2_paper_*_seed1` directory
+step counters start at zero. Its `wr2_paper_20261017_080025_seed1` directory
 records the effective configuration and restore command, with checkpoints
-about every 20M added transitions. The existing 0.28.2 YAML supplies all 25
+about every 20M added transitions; final policy experience is **560,250,880**.
+The existing 0.28.2 YAML supplies all 25
 paper reward weights, full variation/pushes/noise and 128-environment evaluation.
 
 The full checkpoint directory must be present on the GPU host at the path in
@@ -51,6 +54,26 @@ The old WR2 RSL checkpoints have different observation/distribution contracts.
 To reproduce the previous fresh seed-0 experiment, omit the restore and seed
 option lines from the first command.
 
+## Recommended next trial: smaller PPO updates from +60M
+
+Retain seed 1's **+20M** checkpoint for best tracking and **+60M** for best
+survival. The review recommends **fixed LR 1e−5** from +60M, another 300M and
+seed 2. The LR differs from TB's 1e−4; large recorded KL and an identical-batch
+update comparison support this one-parameter recipe change. Its long-run
+tracking and survival effect remains to be verified.
+
+```bash
+uv run --extra training python -m wr2.locomotion.train \
+  --config wr2/locomotion/configs/ppo_walking_paper.yaml \
+  --restore-checkpoint results/wr2_walking/wr2_paper_20261017_080025_seed1/checkpoints/000060026880 \
+  --learning-rate 1e-5 \
+  --seed 2
+```
+
+The checkpoint directory must be present on the GPU host. Keep every ~20M
+checkpoint, the full paper suite and the ≤1% falls gate. See the
+[evidence and next decision](wr2_paper_finetune_result_20261017.md#7-recommended-next-trial).
+
 ## Sources and scope
 
 The reference is the [ToddlerBot paper, Tables VI/VII](https://arxiv.org/html/2502.00893v2),
@@ -69,9 +92,9 @@ The GPU dry run recorded **Python 3.10.19 / Brax 0.14.1**; local CPU checks
 used Python 3.11 / Brax 0.14.2. The lock selects 0.14.1 below Python 3.11.
 Versions are recorded at launch.
 
-## Effective recipe
+## Completed fine-tuning recipe
 
-| Item | Prepared WR2 experiment |
+| Item | Completed WR2 experiment |
 | --- | --- |
 | PPO start/budget | Restore 260M parameters, seed 1; add requested 300M, native rounding 300,134,400 transitions |
 | Networks | Actor and critic 512/256/128, `silu` = Swish |
@@ -291,12 +314,21 @@ episodes with zero falls/nonfinite episodes and consistent support partitions.
 The frozen TB 180M/200M controls each completed **15 × 8** nominal-model
 episodes with zero falls/nonfinite episodes and consistent support partitions.
 
-The next-run restore check loaded the **actual 260M GPU checkpoint** using
+The seed-1 restore check loaded the **actual 260M GPU checkpoint** using
 Brax **0.14.1** and seed **1**. Native PPO's step-0 callback exactly matched
 the audited actor, critic and normalizer arrays; a small **4-env × 20-step**
 batch with four PPO passes then changed the policy and kept parameters,
 metrics and bounded actions finite. This CPU check uses the existing cheap
 transition environment with the real 975/1485 observation dimensions and
-12-action network. The prepared full configuration differs from the completed
-run only in seed; the GPU batch remains 1024 × 20.
+12-action network. Its full configuration differs from the parent run only in
+seed; the GPU batch remains 1024 × 20.
 See the [restore verification](../../results/wr2_walking/wr2_paper_20261016_222755_seed0/review_20261017/next_run_restore_preflight.json).
+
+The seed-1 fine-tune completed **300,134,400 added transitions** with finite
+metrics and checkpoints. Independent auditing reconstructs **90,240** records
+across it, its parent and TB, with zero failures; initial arrays exactly match
+parent 260M. Actual nominal MJX replays show quieter final standing but worse
+walking, and an identical-rollout PPO probe supports smaller updates.
+The [fine-tuning review](wr2_paper_finetune_result_20261017.md) records the
+protocols, numerical evidence and limits. No fine-tuned checkpoint passes the
+≤1% falls gate.
