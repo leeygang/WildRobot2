@@ -132,7 +132,11 @@ class CommandVmapWrapper(DomainRandomizationVmapWrapper):
 
 
 class PaperEvaluator:
-    """Stop on each terminal/invalid transition; retain finite terminal samples."""
+    """Stop on terminal/invalid transitions; retain finite terminal samples.
+
+    ``pushes=None`` uses the recorded config; True uses TB-scaled physical
+    bounds, and False zeros the amplitudes while preserving the key split.
+    """
 
     def __init__(
         self,
@@ -143,6 +147,7 @@ class PaperEvaluator:
         seed=12102,
         *,
         engineering_horizon=False,
+        pushes=None,
     ):
         env = copy.copy(env)
         self.scale = env.config.normalization_scale
@@ -151,6 +156,27 @@ class PaperEvaluator:
         self.num_envs, self.seed = num_envs, seed
         self.randomized = randomization_fn is not None
         self.noisy = env.add_observation_noise
+        if pushes is True:
+            if not self.randomized:
+                raise ValueError("Physical-push benchmark requires randomized evaluation")
+            # Frozen TB's configured bounds and 2-second interval, in WR2 units.
+            env.config = replace(
+                env.config,
+                push_interval_steps=round(100 * self.scale),
+                push_linear_velocity_m_s=0.5 * self.scale,
+                push_angular_velocity_rad_s=1.0 / self.scale,
+            )
+        elif pushes is False:
+            # Preserve the interval and random-key split for a paired control.
+            env.config = replace(
+                env.config,
+                push_linear_velocity_m_s=0.0,
+                push_angular_velocity_rad_s=0.0,
+            )
+        self.pushes_enabled = self.randomized and env.config.push_interval_steps > 0 and (
+            env.config.push_linear_velocity_m_s > 0
+            or env.config.push_angular_velocity_rad_s > 0
+        )
         env.config = replace(
             env.config,
             command_resample_steps=self.episode_length + 1,
@@ -299,6 +325,13 @@ class PaperEvaluator:
             "push_interval_steps": self.env.config.push_interval_steps
             if self.randomized
             else 0,
+            "physical_pushes_enabled": self.pushes_enabled,
+            "push_linear_velocity_m_s": self.env.config.push_linear_velocity_m_s
+            if self.randomized
+            else 0.0,
+            "push_angular_velocity_rad_s": self.env.config.push_angular_velocity_rad_s
+            if self.randomized
+            else 0.0,
             "observation_noise": self.noisy,
             "conditions": conditions,
         }

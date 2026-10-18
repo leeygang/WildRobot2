@@ -22,16 +22,18 @@ Align the effective disturbance exposure before introducing a WR2-specific
 reward change. The supported-swing air-time idea below remains a deferred
 experiment; its offline credit calculation does not establish a training result.
 
-The requested work here is analysis and a proposal. The canonical YAML still
-describes completed 0.28.4; the proposed experiment has not been implemented or
-started. This review is recorded separately from CHANGELOG pending confirmation.
+This report describes completed 0.28.4. The subsequently approved
+[0.28.5 acquisition control](wr2_no_push_acquisition_20261018.md) is now prepared
+in the canonical YAML, with paired evaluations and physical training pushes
+disabled. Its long GPU training has not been started from this Mac workspace.
+This review is recorded separately from CHANGELOG pending confirmation.
 
 ## 1. Run, metric and checkpoint verification
 
 Run: `results/wr2_walking/wr2_paper_20261017_195826_seed3`, recipe **0.28.4**,
 clean source **09b9805**, fresh seed 3, fixed LR **1e−4**, requested 300M,
 actual **300,134,400 transitions**. The restore argument is empty.
-Saved YAML, recorded effective configuration and current canonical YAML agree.
+Saved YAML, recorded effective configuration and the canonical YAML at launch agree.
 Compared with corrected fresh seed 0, configuration differs only in seed and
 version metadata; model, physical controller and motor home agree.
 

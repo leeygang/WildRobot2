@@ -97,17 +97,17 @@ See the [latest result, code comparison and improvement proposal](docs/design/wr
 The [deeper actuator review](docs/design/wr2_actuator_gap_review_20261018.md)
 identifies the modeled response mechanisms and confirms TB Paper's configured
 pushes are physically absent. Without physical pushes, the same WR2 policy has
-**2.07× TB's error** and still hops. The controlled comparisons revise the
-next-run ordering before implementation.
-The current canonical configuration reproduces that completed experiment:
+**2.07× TB's error** and still hops. The next **0.28.5** run is prepared as a
+[fresh 300M acquisition control without physical pushes](docs/design/wr2_no_push_acquisition_20261018.md),
+with seed 3 and paired checkpoint evaluations. Start it on the GPU host:
 
 ```bash
 uv run --extra training python -m wr2.locomotion.train \
   --config wr2/locomotion/configs/ppo_walking_paper.yaml
 ```
 
-The guide records the full GPU batch check, fixed crouched home, normalized
-reference/commands, retained checkpoint comparison and completed-run reproduction.
+The guide records the optional full GPU batch check, paired no-push/pushed
+reports, fixed crouched home, normalized reference/commands and retained controls.
 Actor/critic inputs are 975/1485 for this recipe. WR2 training is self-contained.
 The [six-DOF model-import guide](docs/design/hip_yaw_model_import.md) documents
 both new hip yaws, 21 actuators, model-derived home/CoM geometry and validation.

@@ -7,10 +7,13 @@
 # Landing rewards retain TB's reward rates at the shared 20ms control timestep.
 # Foot support uses TB's threshold after summing all floor/foot contact points.
 # Fresh initialization; fixed LR matches TB's effectively constant 1e-4.
-# Full 1024 x 20 first-update check passed; train without --restore-checkpoint.
+# Physical pushes are disabled to match the frozen TB Paper run's effective exposure.
+# Keep the interval/key split; critic push features become zero.
+# Paired checkpoint evaluations also test realized, size-scaled TB pushes.
+# Train without --restore-checkpoint; compare with the fresh seed-3 control.
 # See docs/design/wr2_paper_training.md for the experiment and retained controls.
-version: 0.28.4
-version_name: WR2 ToddlerBot paper recipe with fresh initialization
+version: 0.28.5
+version_name: WR2 ToddlerBot paper acquisition without physical pushes
 seed: 3
 environment:
   episode_length: 1000
@@ -87,8 +90,8 @@ environment:
   normalization_scale: 0.8240547565448791
   turn_command_probability: 0.3
   push_interval_steps: 82
-  push_linear_velocity_m_s: 0.41202737827243957
-  push_angular_velocity_rad_s: 1.2135115925946829
+  push_linear_velocity_m_s: 0.0
+  push_angular_velocity_rad_s: 0.0
   max_feet_lateral_distance_m: 0.14489262651534549
 reward_weights:
   torso_pos: 0.0

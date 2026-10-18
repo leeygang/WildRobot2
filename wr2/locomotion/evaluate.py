@@ -386,6 +386,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Disable model/reset/actuator variation, pushes and noise for --paper-benchmark",
     )
     parser.add_argument(
+        "--pushes", action=argparse.BooleanOptionalAction, default=None,
+        help="Realize TB-scaled physical pushes for --paper-benchmark; --no-pushes disables them. Default: recorded config",
+    )
+    parser.add_argument(
         "--engineering-horizon", action="store_true",
         help="Use 20 seconds for --paper-benchmark, reported separately from TB normalization",
     )
@@ -408,6 +412,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--engineering-horizon requires --paper-benchmark")
     if args.nominal and not args.paper_benchmark:
         parser.error("--nominal requires --paper-benchmark")
+    if args.pushes is not None and not args.paper_benchmark:
+        parser.error("--pushes/--no-pushes requires --paper-benchmark")
+    if args.nominal and args.pushes:
+        parser.error("--nominal disables pushes; omit it for --pushes")
     return args
 
 
@@ -476,7 +484,8 @@ def evaluate_paper_checkpoint(args):
     reports = []
     for seed in args.seeds:
         report = PaperEvaluator(env, make_policy, args.num_envs, randomize, seed=seed,
-                               engineering_horizon=args.engineering_horizon).evaluate(params)
+                               engineering_horizon=args.engineering_horizon,
+                               pushes=getattr(args, "pushes", None)).evaluate(params)
         reports.append({"summary": selection_summary(report), **report})
     return {
         "checkpoint": str(checkpoint_path), "config": str(args.config.resolve()),

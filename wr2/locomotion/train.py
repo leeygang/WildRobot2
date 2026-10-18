@@ -507,6 +507,13 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         f"desired_kl={training_config.ppo.desired_kl:.3f}"
     )
     print(f"  Randomized:   {training_config.environment.randomization.enabled}")
+    if paper_recipe:
+        print(
+            "  Train pushes: "
+            f"linear={training_config.environment.push_linear_velocity_m_s:.6f}m/s "
+            f"angular={training_config.environment.push_angular_velocity_rad_s:.6f}rad/s "
+            f"interval={training_config.environment.push_interval_steps} ticks"
+        )
     if training_config.ppo.mirror_loss_coeff > 0.0:
         print(
             "  Mirror loss:  actor-only "
@@ -571,7 +578,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     latest_params: dict[str, object] = {}
     best_selection_score = -math.inf
     pending_checkpoints: dict[int, dict[str, object]] = {}
-    paper_evaluator = None
+    paper_evaluators = None
     paper_policy_factory = None
     best_paper_error = math.inf
 
@@ -599,7 +606,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         )
 
     def receive_policy_params(step: int, _make_policy, params) -> None:
-        nonlocal paper_evaluator, paper_policy_factory, best_paper_error
+        nonlocal paper_evaluators, paper_policy_factory, best_paper_error
         step = int(step)
         latest_params["step"] = step
         latest_params["value"] = params
@@ -609,43 +616,59 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             if any(not np.isfinite(np.asarray(leaf)).all() for leaf in jax.tree.leaves(params)):
                 raise RuntimeError(f"Nonfinite PPO parameters at step {step}")
             paper_policy_factory = _make_policy
-            if paper_evaluator is None:
-                paper_evaluator = PaperEvaluator(
+            if paper_evaluators is None:
+                primary = PaperEvaluator(
                     evaluation_environment, _make_policy, training_config.ppo.num_eval_envs,
                     randomization_fn if training_config.ppo.evaluation_randomization else None,
                 )
-            print(f"Paper comparison at {step:,} steps: 15 conditions, seed 12102...", flush=True)
-            report = paper_evaluator.evaluate(params)
-            summary = selection_summary(report)
-            record = {"step": step, "summary": summary, **report}
-            evaluation_dir = output / "paper_evaluations"
-            evaluation_dir.mkdir(exist_ok=True)
-            (evaluation_dir / f"{step:012d}.json").write_text(json.dumps(record, allow_nan=False) + "\n")
-            with (output / "paper_evaluation_history.jsonl").open("a") as stream:
-                stream.write(json.dumps({"step": step, **summary}, allow_nan=False) + "\n")
-            print(
-                f"  paper: falls={summary['fall_count']}/{summary['episodes']} "
-                f"nonfinite={summary['nonfinite_count']} "
-                f"fixed walking XY MAE={summary['walking_xy_error_m_s']}m/s "
-                f"TB-equivalent={summary['walking_xy_error_TB_equivalent_m_s']}m/s",
-                flush=True,
-            )
-            if summary["nonfinite_count"]:
-                model.save_params(output / f"nonfinite_eval_params_{step}", params)
-                raise RuntimeError("Paper evaluation found nonfinite transitions; see its per-episode report")
-            if step == 0:
-                model.save_params(output / "initial_params", params)
-            elif training_config.checkpoints.keep_best and summary["eligible"] and summary["walking_xy_error_m_s"] < best_paper_error:
-                best_paper_error = summary["walking_xy_error_m_s"]
-                model.save_params(output / "best_params", params)
-                candidate = {
-                    "step": step, "selection_metric": "fixed_walking_xy_error_with_survival_gate",
-                    "selection_seed": 12102, "summary": summary,
-                    "confirmation_seed": 22102, "held_out_confirmation_required": True,
-                    "evaluation_report": str(evaluation_dir / f"{step:012d}.json"),
-                }
-                (output / "best_checkpoint.json").write_text(json.dumps(candidate, indent=2, allow_nan=False) + "\n")
-                print(f"  saved candidate at {step:,}; held-out confirmation follows training", flush=True)
+                paper_evaluators = {"paper": primary}
+                if primary.randomized:
+                    name = "paper_no_push" if primary.pushes_enabled else "paper_push"
+                    paper_evaluators[name] = PaperEvaluator(
+                        evaluation_environment, _make_policy, training_config.ppo.num_eval_envs,
+                        randomization_fn, pushes=not primary.pushes_enabled,
+                    )
+            for name, evaluator in paper_evaluators.items():
+                print(f"{name} comparison at {step:,} steps: 15 conditions, seed 12102...", flush=True)
+                report = evaluator.evaluate(params)
+                summary = selection_summary(report)
+                record = {"step": step, "summary": summary, **report}
+                evaluation_dir = output / f"{name}_evaluations"
+                evaluation_dir.mkdir(exist_ok=True)
+                (evaluation_dir / f"{step:012d}.json").write_text(json.dumps(record, allow_nan=False) + "\n")
+                push_metadata = {key: report[key] for key in (
+                    "physical_pushes_enabled", "push_interval_steps",
+                    "push_linear_velocity_m_s", "push_angular_velocity_rad_s",
+                )}
+                with (output / f"{name}_evaluation_history.jsonl").open("a") as stream:
+                    stream.write(json.dumps({"step": step, **summary, **push_metadata}, allow_nan=False) + "\n")
+                print(
+                    f"  {name}: pushes={report['physical_pushes_enabled']} "
+                    f"falls={summary['fall_count']}/{summary['episodes']} "
+                    f"nonfinite={summary['nonfinite_count']} "
+                    f"fixed walking XY MAE={summary['walking_xy_error_m_s']}m/s "
+                    f"TB-equivalent={summary['walking_xy_error_TB_equivalent_m_s']}m/s",
+                    flush=True,
+                )
+                if summary["nonfinite_count"]:
+                    model.save_params(output / f"nonfinite_{name}_params_{step}", params)
+                    raise RuntimeError(f"{name} evaluation found nonfinite transitions; see its per-episode report")
+                if name != "paper":
+                    continue
+                if step == 0:
+                    model.save_params(output / "initial_params", params)
+                elif training_config.checkpoints.keep_best and summary["eligible"] and summary["walking_xy_error_m_s"] < best_paper_error:
+                    best_paper_error = summary["walking_xy_error_m_s"]
+                    model.save_params(output / "best_params", params)
+                    candidate = {
+                        "step": step, "selection_metric": "fixed_walking_xy_error_with_survival_gate",
+                        "selection_seed": 12102, "summary": summary,
+                        "physical_pushes_enabled": report["physical_pushes_enabled"],
+                        "confirmation_seed": 22102, "held_out_confirmation_required": True,
+                        "evaluation_report": str(evaluation_dir / f"{step:012d}.json"),
+                    }
+                    (output / "best_checkpoint.json").write_text(json.dumps(candidate, indent=2, allow_nan=False) + "\n")
+                    print(f"  saved candidate at {step:,}; held-out confirmation follows training", flush=True)
             return
         candidate = pending_checkpoints.pop(step, None)
         if candidate is not None:
@@ -1250,15 +1273,17 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         print("Confirming the selected candidate on held-out seed 22102...", flush=True)
         selected = model.load_params(output / "best_params")
         selected_step = json.loads((output / "best_checkpoint.json").read_text())["step"]
-        confirmation = PaperEvaluator(
-            evaluation_environment, paper_policy_factory, ppo_config.num_eval_envs,
-            randomization_fn if ppo_config.evaluation_randomization else None, seed=22102,
-        ).evaluate(selected)
-        (output / "paper_confirmation_22102.json").write_text(
-            json.dumps({"step": selected_step, "checkpoint": "best_params",
-                        "checkpoint_sha256": hashlib.sha256((output / "best_params").read_bytes()).hexdigest(),
-                        "summary": selection_summary(confirmation), **confirmation}, allow_nan=False) + "\n"
-        )
+        for name, evaluator in paper_evaluators.items():
+            confirmation = PaperEvaluator(
+                evaluation_environment, paper_policy_factory, ppo_config.num_eval_envs,
+                randomization_fn if ppo_config.evaluation_randomization else None, seed=22102,
+                pushes=None if name == "paper" else evaluator.pushes_enabled,
+            ).evaluate(selected)
+            (output / f"{name}_confirmation_22102.json").write_text(
+                json.dumps({"step": selected_step, "checkpoint": "best_params",
+                            "checkpoint_sha256": hashlib.sha256((output / "best_params").read_bytes()).hexdigest(),
+                            "summary": selection_summary(confirmation), **confirmation}, allow_nan=False) + "\n"
+            )
 
 
 def _apply_cli_overrides(

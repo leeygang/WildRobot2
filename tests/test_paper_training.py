@@ -1,5 +1,6 @@
 """Native Brax update/restore and independent episode accounting."""
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -184,7 +185,7 @@ def test_paper_evaluation_loads_relative_brax_checkpoint(tmp_path, monkeypatch):
             ],
         }
 
-    noise, varied = [], []
+    noise, varied, pushes = [], [], []
 
     def environment(*args, **kwargs):
         noise.append(kwargs["add_observation_noise"])
@@ -192,6 +193,7 @@ def test_paper_evaluation_loads_relative_brax_checkpoint(tmp_path, monkeypatch):
 
     def evaluator(env, policy, num_envs, randomize, **kwargs):
         varied.append(randomize is not None)
+        pushes.append(kwargs["pushes"])
         return SimpleNamespace(evaluate=measure)
 
     monkeypatch.setattr("wr2.locomotion.walking_env.WR2WalkingEnv", environment)
@@ -206,16 +208,17 @@ def test_paper_evaluation_loads_relative_brax_checkpoint(tmp_path, monkeypatch):
         num_envs=1,
         engineering_horizon=False,
         nominal=False,
+        pushes=None,
     )
-    for nominal in (False, True):
-        args.nominal = nominal
+    for args.nominal, args.pushes in ((False, None), (False, True), (False, False), (True, None)):
         report = evaluate_paper_checkpoint(args)
         assert report["checkpoint"] == str(tmp_path / "000000000001")
         assert report["seed_results"][0]["summary"]["nonfinite_count"] == 0
         assert report["training_config_version"] == config.version
         assert report["evaluation_source"]["git_commit"]
-    assert noise == [True, False]
-    assert varied == [True, False]
+    assert noise == [True, True, True, False]
+    assert varied == [True, True, True, False]
+    assert pushes == [None, True, False, None]
 
 
 class EpisodeAccountingEnv(Env):
@@ -318,3 +321,44 @@ def test_independent_evaluator_stops_after_fall_or_nonfinite_and_keeps_terminal_
     np.testing.assert_allclose(sums[:, 0, 16], 0.0)
     np.testing.assert_allclose(sums[:, 0, 17], 3.2)
     np.testing.assert_allclose(sums[:, 0, 18], 1.6)
+
+
+def test_paired_push_evaluations_preserve_models_reset_keys_and_training_config():
+    env = EpisodeAccountingEnv()
+    env.sys = jp.asarray([1.0, 2.0])
+    env.add_observation_noise = True
+    original = env.config
+
+    def make_policy(params, deterministic):
+        return lambda obs, rng: (jp.zeros((obs["state"].shape[0], 1)), {})
+
+    def randomize(sys, rng):
+        draws = jax.vmap(lambda key: jax.random.uniform(key))(rng)
+        return sys[None, :] * (0.8 + 0.4 * draws[:, None]), 0
+
+    # Start from a pushed source config so --no-pushes is tested independently
+    # of the current acquisition YAML's zero amplitudes.
+    env.config = replace(
+        original, push_linear_velocity_m_s=0.5 * original.normalization_scale,
+        push_angular_velocity_rad_s=1.0 / original.normalization_scale,
+    )
+    source_config = env.config
+    unpushed = PaperEvaluator(env, make_policy, 8, randomize, pushes=False)
+    pushed = PaperEvaluator(env, make_policy, 8, randomize, pushes=True)
+    assert env.config is source_config
+    np.testing.assert_array_equal(unpushed.reset_keys, pushed.reset_keys)
+    np.testing.assert_array_equal(unpushed.env._sys_v, pushed.env._sys_v)
+    assert unpushed.env.config == replace(
+        pushed.env.config, push_linear_velocity_m_s=0.0,
+        push_angular_velocity_rad_s=0.0,
+    )
+    reports = [e.evaluate((None, None)) for e in (unpushed, pushed)]
+    for enabled, report in zip((False, True), reports, strict=True):
+        assert report["physical_pushes_enabled"] is enabled
+        assert report["push_interval_steps"] == 82
+        assert report["observation_noise"] and report["model_randomization"]
+        assert report["reset_and_local_actuator_randomization"]
+        assert report["push_linear_velocity_m_s"] == (0.5 * original.normalization_scale if enabled else 0.0)
+        assert report["push_angular_velocity_rad_s"] == (1.0 / original.normalization_scale if enabled else 0.0)
+    default = PaperEvaluator(env, make_policy, 8, randomize)
+    assert default.pushes_enabled and default.env.config == pushed.env.config

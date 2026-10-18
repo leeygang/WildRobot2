@@ -23,12 +23,27 @@ native profiles. The [deeper actuator review](wr2_actuator_gap_review_20261018.m
 confirms slower modeled WR2 response, a nonunique hardware inertia fit and
 TB Paper's dropped physical pushes. It also corrects the earlier critic claim:
 velocity normalization already works. Align effective disturbance exposure
-before testing the deferred supported-swing reward change. The canonical
-configuration still reproduces the completed run.
+before testing the deferred supported-swing reward change. The approved
+**0.28.5** control is now prepared in the canonical configuration.
+
+## Run the prepared no-push acquisition control
+
+Use the regular trainer on the GPU host:
+
+```bash
+uv run --extra training python -m wr2.locomotion.train \
+  --config wr2/locomotion/configs/ppo_walking_paper.yaml
+```
+
+This starts fresh, **seed 3 / fixed LR 1e−4 / 300M**, with physical push
+amplitudes zero and the current actuator physics, TB rewards/reference and
+PPO settings. Each retained checkpoint gets paired no-push and physical-push
+evaluations. Selection uses the no-push score. See the
+[experiment setup, commands and interpretation](wr2_no_push_acquisition_20261018.md).
 
 ## Reproduce the completed fresh seed-3 Paper run
 
-The current **0.28.4** configuration starts **fresh with seed 3**, **fixed LR
+The completed **0.28.4** configuration starts **fresh with seed 3**, **fixed LR
 1e−4** and **300M requested transitions**. Its
 [preparation and first-update check](wr2_fresh_paper_run_20261017.md) supported
 that initial learning rate; the completed result above establishes its gait
@@ -38,10 +53,10 @@ Run the regular trainer from the WR2 checkout on the GPU host:
 
 ```bash
 uv run --extra training python -m wr2.locomotion.train \
-  --config wr2/locomotion/configs/ppo_walking_paper.yaml
+  --config results/wr2_walking/wr2_paper_20261017_195826_seed3/training_config.yaml
 ```
 
-This initializes a new actor, critic, normalizer and Adam. It uses the current
+This initializes a new actor, critic, normalizer and Adam. It uses the completed
 fixed grounded home, Paper rewards, normalized reference/timing, full
 perturbations and about 20M checkpoint intervals. Config values match the
 corrected fresh seed-0 control except for seed and version metadata.
@@ -52,7 +67,7 @@ For an optional GPU compilation/update check with the **actual training batch**:
 
 ```bash
 uv run --extra training python -m wr2.locomotion.train \
-  --config wr2/locomotion/configs/ppo_walking_paper.yaml \
+  --config results/wr2_walking/wr2_paper_20261017_195826_seed3/training_config.yaml \
   --num-timesteps 20480 --num-evals 2
 ```
 
@@ -161,6 +176,7 @@ Versions are recorded at launch.
 | Critic | 99 × 15 = **1485** values, including motor-reference error and stance |
 | Training horizon | 1000 control ticks = 20 s |
 | Checkpoints | Initial parameters plus 15 trained checkpoints about every 20M; retain all |
+| Acquisition exposure, 0.28.5 | Physical pushes disabled; other variation/noise retained; paired physical-push evaluations |
 
 On zero network inputs, the native scale head gives
 `softplus(0) + 0.001 ≈ 0.694147` before tanh. Actual observations change this
@@ -226,7 +242,8 @@ compared with TB's 29 mm. Full geometry IK uses the actual torso height.
 | Comparison X / Y amplitudes | 0.0824055 / 0.0412027 m/s |
 | Gait cycle / swing lift | 0.60 s (rounded to ticks) / 0.0339533 m |
 | Command / push interval | 124 / 82 control ticks |
-| Push velocity ranges | Each linear axis ±0.412027 m/s; angular axis ±1.213512 rad/s |
+| Training pushes, 0.28.5 | Zero amplitudes; the 82-tick interval/key split remains active |
+| Pushed comparison bounds | Each linear axis ±0.412027 m/s; angular axis ±1.213512 rad/s |
 | Healthy torso height | [0.170959, 0.341917] m, native TB fractions scaled to the fixed torso height |
 
 Walking references treat every nonzero command as motion. The separate
@@ -275,7 +292,11 @@ transition boundaries **124, 371, 494, 700** and 21-tick recovery windows.
 Keep the separate 1000-tick engineering profile for hardware-duration review.
 
 `paper_evaluations/<step>.json` stores complete per-episode values and counts.
-`paper_evaluation_history.jsonl` stores selection summaries. Measures include
+`paper_evaluation_history.jsonl` stores selection summaries and physical-push
+metadata. For 0.28.5 these primary reports have no physical pushes.
+`paper_push_evaluations/<step>.json` and `paper_push_evaluation_history.jsonl`
+record the paired physical-push diagnostic on identical model/reset draws.
+Measures include
 instantaneous XY vector error/speed, leg RMSE, episode torque RMS, mean per-step
 peak torque, physical target clipping, slew limitation, bounded-action
 saturation, each foot's contact fraction, double support and XY path length.
@@ -295,6 +316,8 @@ Candidates require the complete finite suite and at most 1% aggregate falls.
 Among trained candidates, select the lowest ten-condition fixed walking XY
 error. Native return is telemetry. Training then evaluates the selected
 candidate on **held-out seed 22102**, writing `paper_confirmation_22102.json`.
+The same selected 0.28.5 checkpoint also gets
+`paper_push_confirmation_22102.json`; pushed scores do not select the candidate.
 This selects a review candidate; confirm individual directions, transitions,
 foot use and hardware loads against TB 180M/200M before claiming parity.
 
@@ -310,6 +333,9 @@ uv run --extra training python -m wr2.locomotion.evaluate \
 
 Add `--engineering-horizon` for the separate 20 s profile. Compare every retained
 ~20M checkpoint with its parent, TB 180M/200M and the final checkpoint.
+Add `--no-pushes` to explicitly disable only physical pushes, retaining
+variation/noise; `--pushes` realizes the normalized TB bounds even when the
+saved training amplitudes are zero. Omitting both uses the recorded configuration.
 
 ### Nominal diagnostic comparison
 

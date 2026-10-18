@@ -4,6 +4,9 @@
 [2026-10-18 result and improvement proposal](wr2_fresh_paper_result_20261018.md)
 for the measured tracking/survival regression, actual flight, source comparison
 and proposed next experiment. This document records the original preparation.
+The canonical YAML now prepares the
+[0.28.5 acquisition control without physical pushes](wr2_no_push_acquisition_20261018.md).
+Use the completed run's saved YAML below to reproduce 0.28.4.
 
 ## Decision
 
@@ -144,7 +147,7 @@ From the WR2 checkout on the GPU host:
 
 ```bash
 uv run --extra training python -m wr2.locomotion.train \
-  --config wr2/locomotion/configs/ppo_walking_paper.yaml
+  --config results/wr2_walking/wr2_paper_20261017_195826_seed3/training_config.yaml
 ```
 
 The prepared YAML contains **seed 3, fixed LR 1e−4 and 300M requested
