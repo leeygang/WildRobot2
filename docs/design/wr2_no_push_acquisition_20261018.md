@@ -1,5 +1,12 @@
 # WR2 acquisition control without physical pushes — 2026-10-18
 
+**Completed:** `wr2_paper_20261018_121025_seed3` reached **300,134,400
+transitions**. Selected 260M has zero height failures on both evaluation seeds,
+but error **.07684 TB-equivalent m/s** is **2.08× TB Paper 200M** and worse than
+the stationary initial policy. See the
+[result review and updated next plan](wr2_no_push_result_20261018.md).
+The preparation and commands below preserve the completed experiment.
+
 ## Question and controlled change
 
 Can WR2 learn contact-preserving, TB-like walking with its current actuator

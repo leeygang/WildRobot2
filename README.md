@@ -96,10 +96,13 @@ replays confirm hopping.
 See the [latest result, code comparison and improvement proposal](docs/design/wr2_fresh_paper_result_20261018.md).
 The [deeper actuator review](docs/design/wr2_actuator_gap_review_20261018.md)
 identifies the modeled response mechanisms and confirms TB Paper's configured
-pushes are physically absent. Without physical pushes, the same WR2 policy has
-**2.07× TB's error** and still hops. The next **0.28.5** run is prepared as a
-[fresh 300M acquisition control without physical pushes](docs/design/wr2_no_push_acquisition_20261018.md),
-with seed 3 and paired checkpoint evaluations. Start it on the GPU host:
+pushes are physically absent. The **0.28.5 fresh 300M acquisition without
+pushes** has now completed. Selected 260M has **zero height failures on both
+evaluation seeds**, but barely translates: error remains **2.08× TB Paper
+200M** and exceeds the stationary initial policy. See the
+[completed no-push result and revised next plan](docs/design/wr2_no_push_result_20261018.md)
+and [experiment setup](docs/design/wr2_no_push_acquisition_20261018.md).
+The canonical configuration reproduces this completed control on the GPU host:
 
 ```bash
 uv run --extra training python -m wr2.locomotion.train \

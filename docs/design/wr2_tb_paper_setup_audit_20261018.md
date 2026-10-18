@@ -578,6 +578,11 @@ efficient learning algorithm. The current paired evaluation adds overhead.
 
 ## 7. What the running experiment establishes, and the next decision
 
+**Completed follow-up:** the [0.28.5 no-push result review](wr2_no_push_result_20261018.md)
+records improved height survival with poor translation and supersedes this
+prospective decision tree. Body collider expansion and the flight guard are
+deferred; fixed friction improves frozen-policy tracking only 0.58%.
+
 Keep the running **fresh 300M no-push** recipe as prepared. Compare its retained
 checkpoints against the same-seed 0.28.4 control and TB Paper 180M/200M.
 Evaluate **learning speed, directional tracking, height survival, geometric

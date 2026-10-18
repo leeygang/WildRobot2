@@ -22,11 +22,21 @@ The [completed result review](wr2_fresh_paper_result_20261018.md) records those
 native profiles. The [deeper actuator review](wr2_actuator_gap_review_20261018.md)
 confirms slower modeled WR2 response, a nonunique hardware inertia fit and
 TB Paper's dropped physical pushes. It also corrects the earlier critic claim:
-velocity normalization already works. Align effective disturbance exposure
-before testing the deferred supported-swing reward change. The approved
-**0.28.5** control is now prepared in the canonical configuration.
+velocity normalization already works. The **0.28.5 no-push control completed
+300M**: selected 260M has **0/1920 height failures on both evaluation seeds**,
+but tracking error **.07684** is **2.08× TB Paper 200M** and exceeds the
+stationary initial policy. The learned policy barely translates. See the
+[completed no-push result and revised next plan](wr2_no_push_result_20261018.md).
+Required foot colliders remain active. The next step is matched TB/WR2 contact
+and joint-target diagnostics before choosing another full-budget run. TB's
+effective **fixed sliding friction 1.0** remains a candidate control; its
+0.58% frozen-policy benefit provides weak evidence for a propulsion gain.
+Body collider expansion and the flight guard are deferred. A global 70 mm
+foot-spacing bound conflicts with valid rightward
+reference poses, so it is an unvalidated proposal. The canonical configuration
+still records completed **0.28.5**.
 
-## Run the prepared no-push acquisition control
+## Reproduce the completed no-push acquisition control
 
 Use the regular trainer on the GPU host:
 
