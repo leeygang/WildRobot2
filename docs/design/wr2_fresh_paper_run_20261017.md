@@ -1,5 +1,10 @@
 # WR2 latest result and prepared fresh Paper run — 2026-10-17
 
+**Completed:** the prepared seed-3 run finished 300M. See the
+[2026-10-18 result and improvement proposal](wr2_fresh_paper_result_20261018.md)
+for the measured tracking/survival regression, actual flight, source comparison
+and proposed next experiment. This document records the original preparation.
+
 ## Decision
 
 Prepare **0.28.4: fresh seed 3, fixed LR 1e−4, 300M transitions** through the

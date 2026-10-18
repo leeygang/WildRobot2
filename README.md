@@ -90,8 +90,10 @@ completed and supplies the recipe for the
 The 300M continuation at fixed LR 1e−5 completed: reported PPO update size is
 controlled, but best normalized tracking error remains 2.82× TB Paper 200M.
 See the [WR2/Paper/Main progress comparison and next investigation](docs/design/wr2_tb_progress_review_20261017.md).
-The [loaded gait comparison and fresh-policy update check](docs/design/wr2_fresh_paper_run_20261017.md)
-support the next **fresh 300M Paper control, seed 3 / LR 1e−4**:
+The **fresh 300M Paper control, seed 3 / LR 1e−4**, also completed. Its best
+tracking is **3.53× TB Paper 200M**, and nominal replays confirm hopping.
+See the [latest result, code comparison and improvement proposal](docs/design/wr2_fresh_paper_result_20261018.md).
+The current canonical configuration reproduces that completed experiment:
 
 ```bash
 uv run --extra training python -m wr2.locomotion.train \

@@ -14,14 +14,22 @@ and the [previous update-instability review](wr2_paper_finetune_result_20261017.
 The recipe retains the native paper weights, corrected landing normalization
 and TB's summed foot-force support rule.
 
-## Start the next fresh Paper run
+The **0.28.4 fresh seed-3 300M** control also completed. Best tracking at
+220M is **0.13063 TB-equivalent m/s / 55 falls (2.86%)**, versus TB Paper
+200M **0.03702 / 8 falls (0.42%)**. Fewest new falls are at 140M; final tracking
+and survival regress. Geometry replays confirm actual nominal flight.
+The [latest review and next-run proposal](wr2_fresh_paper_result_20261018.md)
+records the critic velocity normalization omission and a proposed supported-swing
+air-time counter, with unchanged credit on the tested successful TB trajectories.
+That proposal is not yet implemented in the canonical configuration.
 
-The prepared **0.28.4** experiment starts **fresh with seed 3**, **fixed LR
-1e−4** and **300M requested transitions**. The loaded gait comparison finds
-weak requested motion and greater execution lag; it does not identify a
-measured physics correction. A full **1024 × 20** fresh-policy update at the
-Paper LR gives post-batch joint KL **0.003794**, finite parameters and 4.04%
-ratio clipping. See the [latest result, loaded traces and decision](wr2_fresh_paper_run_20261017.md).
+## Reproduce the completed fresh seed-3 Paper run
+
+The current **0.28.4** configuration starts **fresh with seed 3**, **fixed LR
+1e−4** and **300M requested transitions**. Its
+[preparation and first-update check](wr2_fresh_paper_run_20261017.md) supported
+that initial learning rate; the completed result above establishes its gait
+and later training behavior.
 
 Run the regular trainer from the WR2 checkout on the GPU host:
 
@@ -47,8 +55,8 @@ uv run --extra training python -m wr2.locomotion.train \
 
 Then start the full command above with a fresh initialization. The short check
 is not a trained walking candidate. All 15 trained checkpoints
-from the full run remain available for comparison with WR2 +180M/+160M and
-TB Paper 180M/200M.
+from the completed full run remain available for comparison with WR2
++180M/+160M and TB Paper 180M/200M.
 
 ## Reproduce the completed low-LR continuation
 
@@ -76,7 +84,7 @@ one-parameter recipe change. The completed experiment reduced reported KL and
 falls, with a small tracking gain. Retain native **+180,080,640** for tracking
 and **+160,071,680** for survival; the final checkpoint has worse tracking.
 The [loaded gait comparison and fresh-policy update check](wr2_fresh_paper_run_20261017.md)
-now support the prepared fresh Paper control above.
+documented preparation of the now-completed fresh Paper control above.
 
 The saved configuration and full parent checkpoint directory must be present
 on the GPU host at the command's paths. They are run artifacts under ignored
@@ -393,7 +401,7 @@ This uses the existing cheap transition environment with real **975/1485**
 observation dimensions; the preceding identical-batch probe used actual MJX
 robot physics at LR 1e−5. The full GPU compilation command is above.
 
-For prepared **0.28.4**, a real randomized/noisy **1024 × 20** fresh-policy
+For **0.28.4** preparation, a real randomized/noisy **1024 × 20** fresh-policy
 batch at LR **1e−4** passes four minibatches × four PPO passes with finite
 parameters, mean pre-gradient joint KL **0.002444**, post-batch KL **0.003794**
 and **4.04%** post-batch ratio clipping. Native seed-3 initialization matches
