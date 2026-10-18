@@ -44,8 +44,10 @@ The [full progress review](wr2_tb_progress_review_20261017.md) independently
 reconstructs 95 suites / 182,400 episode-condition records with zero failures,
 checks every new native checkpoint for finite arrays and exact restore/export
 identity, and verifies captured sources from both TB runs. Returns are not the
-shared comparison metric. Paper and WR2 include their native pushes and
-variation; Main's native profile has different variation and no pushes.
+shared comparison metric. Paper and WR2 include native variation and configured
+pushes; the [later physical review](wr2_actuator_gap_review_20261018.md) confirms
+Paper's pushes are dropped by its `qd`/`qvel` mismatch while WR2 realizes them.
+Main's native profile has different variation and no configured pushes.
 
 ## New loaded gait comparison
 

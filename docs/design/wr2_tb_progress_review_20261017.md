@@ -88,7 +88,9 @@ and errors by `s`. Its benchmark is 824 control ticks / 16.48 s, versus TB's
 Main numbers below retain its physical m/s on the same numeric commands.
 Its `toddlerbot_2xc` model differs from Paper's `toddlerbot` model.
 
-Paper/WR2 include pushes and their native model/reset/actuator/noise variation.
+Paper/WR2 include configured pushes and native model/reset/actuator/noise
+variation. The [later physical review](wr2_actuator_gap_review_20261018.md)
+confirms those pushes are dropped in frozen TB Paper and realized in WR2.
 Main's native profile has **no pushes**, different noise/randomization and a
 shared benchmark height stop criterion separate from its native training bound.
 Survival comparisons therefore describe the named profiles, rather than a

@@ -18,10 +18,13 @@ The **0.28.4 fresh seed-3 300M** control also completed. Best tracking at
 220M is **0.13063 TB-equivalent m/s / 55 falls (2.86%)**, versus TB Paper
 200M **0.03702 / 8 falls (0.42%)**. Fewest new falls are at 140M; final tracking
 and survival regress. Geometry replays confirm actual nominal flight.
-The [latest review and next-run proposal](wr2_fresh_paper_result_20261018.md)
-records the critic velocity normalization omission and a proposed supported-swing
-air-time counter, with unchanged credit on the tested successful TB trajectories.
-That proposal is not yet implemented in the canonical configuration.
+The [completed result review](wr2_fresh_paper_result_20261018.md) records those
+native profiles. The [deeper actuator review](wr2_actuator_gap_review_20261018.md)
+confirms slower modeled WR2 response, a nonunique hardware inertia fit and
+TB Paper's dropped physical pushes. It also corrects the earlier critic claim:
+velocity normalization already works. Align effective disturbance exposure
+before testing the deferred supported-swing reward change. The canonical
+configuration still reproduces the completed run.
 
 ## Reproduce the completed fresh seed-3 Paper run
 

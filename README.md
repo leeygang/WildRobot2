@@ -90,9 +90,15 @@ completed and supplies the recipe for the
 The 300M continuation at fixed LR 1e−5 completed: reported PPO update size is
 controlled, but best normalized tracking error remains 2.82× TB Paper 200M.
 See the [WR2/Paper/Main progress comparison and next investigation](docs/design/wr2_tb_progress_review_20261017.md).
-The **fresh 300M Paper control, seed 3 / LR 1e−4**, also completed. Its best
-tracking is **3.53× TB Paper 200M**, and nominal replays confirm hopping.
+The **fresh 300M Paper control, seed 3 / LR 1e−4**, also completed. In the
+recorded native profiles, its best error is **3.53× TB Paper 200M**; nominal
+replays confirm hopping.
 See the [latest result, code comparison and improvement proposal](docs/design/wr2_fresh_paper_result_20261018.md).
+The [deeper actuator review](docs/design/wr2_actuator_gap_review_20261018.md)
+identifies the modeled response mechanisms and confirms TB Paper's configured
+pushes are physically absent. Without physical pushes, the same WR2 policy has
+**2.07× TB's error** and still hops. The controlled comparisons revise the
+next-run ordering before implementation.
 The current canonical configuration reproduces that completed experiment:
 
 ```bash

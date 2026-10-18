@@ -14,15 +14,13 @@ force measurements independently confirm actual flight in nominal replays.
 The outstanding problems include the learned hopping gait, fluctuating velocity
 and incomplete command tracking.
 
-**Recommended next experiment:** correct the critic's missing velocity
-normalization, then train a fresh **300M seed-3** policy with air-time credit
-restricted to a swing supported by the opposite foot. Retain TB's PPO settings,
-all 25 reward coefficients, fixed action home, reference, timing, controller,
-variation and checkpoint intervals. This is an explicit WR2 adaptation to the
-measured flight failure. An offline calculation preserves all air-time credit
-on the tested successful TB/retained WR2 trajectories and removes about **96%**
-of that credit from the new hopping trajectories. It is a proposed experiment;
-its learning and robustness effects require training.
+**Revised direction:** the [deeper actuator and physical-condition review](wr2_actuator_gap_review_20261018.md)
+supersedes the original next-run ordering. It verifies that TB Paper's configured
+pushes do not enter its physics, while WR2's do. It also corrects the earlier
+critic diagnosis: the existing Paper feature already uses `linear/s`.
+Align the effective disturbance exposure before introducing a WR2-specific
+reward change. The supported-swing air-time idea below remains a deferred
+experiment; its offline credit calculation does not establish a training result.
 
 The requested work here is analysis and a proposal. The canonical YAML still
 describes completed 0.28.4; the proposed experiment has not been implemented or
@@ -67,7 +65,9 @@ The shared primary metric is the mean of each episode's mean instantaneous XY
 vector error across ten fixed moving conditions. It is not velocity RMSE or
 error computed from aggregate mean velocity. The selection suite has **15
 conditions × 128 episodes**, seed **12102**, deterministic policy, native model/
-reset/actuator variation, pushes and observation noise. WR2 uses **824 control
+reset/actuator variation and observation noise, with configured pushes. The
+deeper review confirms those pushes are physically realized in WR2 and dropped
+in the frozen TB Paper code. WR2 uses **824 control
 ticks**, TB **1000**, at 20 ms each. Divide WR2 velocity/error by
 `s = 0.8240547565`; lengths scale by `s² = 0.6790662418` and time by `s`.
 Native robot/controller and fall-height definitions still differ, so survival
@@ -234,7 +234,8 @@ Compared WR2 `walking_env.py`, `paper_rewards.py`, `paper_walk.py`, `ppo.py` and
 | Action home / reference | Both use static home +0.25×delayed action; time-zero reference is static. Moving leg reference affects reward/critic. Actor learns imitation through advantages |
 | Rewards | All 25 Paper coefficients, including leg imitation 5 and air time 500; corrected landing dt/length normalization and sum-before-1N support remain active |
 | Geometry/timing | WR2 CoM 0.20223 m vs TB 0.29781 m, `s=.82405`; WR2 cycle .60 s vs TB .72 s (TB-equivalent .7281 s), physical swing .03395 m vs .05 m |
-| Critic linear velocity | **Normalization omission:** WR2 appends `2*linear` at newest-frame indices **80:83**, while normalized TB equivalence requires `2*linear/s`. Angular velocity and commands already normalize. This feature is 17.6% smaller than intended; it is a concrete correction, not evidence of a failed PPO algorithm |
+| Critic linear velocity | **Correctly normalized:** the constructor divides the cached scale by `s`; the Paper observation uses it at newest-frame indices **80:83**, giving `2*linear/s`. A direct observation probe confirms .0824055 m/s produces .2000000. The earlier omission diagnosis was incorrect |
+| Physical pushes | Frozen TB writes root velocity changes only to Brax `qd`; MJX integrates `qvel` and drops that change. WR2 explicitly synchronizes both fields. See the deeper review's same-state proof and paired evaluations |
 | Target delivery | WR2 additionally quantizes targets and caps each change at **.113097 rad/20 ms**. TB has no setpoint slew filter (`filter_type=none`). WR2's fitted position-servo replay also delivers recorded setpoints directly |
 | Actuator dynamics | WR2's fitted total damping .673622 is correctly split into .5 active +.173622 passive. Armature .020951, friction loss .465471 and provisional torque envelope differ materially from TB hardware |
 | Runtime / geometry | WR2 uses MJX 3.14, Newton 10, 5 ms ×4; Paper uses MJX 3.2.4, Newton 1, 4 ms ×5. Motor/observation counts and gearing also differ |
@@ -284,10 +285,10 @@ from .113097 rad to infinity. Physical torque/speed limits remain active.
 This control shows that disabling the cap does not repair the learned gait.
 It does not establish the outcome of retraining without the filter. The cap's
 hardware basis still needs verification. Keep this physical mapping constant
-in the proposed reward experiment; review it separately with measured command
+in the first disturbance acquisition control; review it with measured command
 delivery and a matched controller replay.
 
-### A targeted air-time change has direct behavioral evidence
+### Deferred air-time experiment: offline behavioral evidence
 
 TB rewards accumulated air time on landing. Its current counter increments
 whenever a foot is unsupported, including ticks when **both** feet are airborne.
@@ -318,33 +319,26 @@ reconstruction. It does not prove a future policy will stop hopping, track
 better or recover from pushes. Standing has no direct air-time reward, so its
 behavior must also improve through the complete objective and learned policy.
 
-### Concrete next-run proposal
+### Revised next-run ordering
 
-1. **Correct critic linear velocity to `linear/s`.** Verify physical states
-   related by `s` produce the same intended critic velocity feature; retain
-   actor dimensions and deterministic checkpoint evaluation behavior.
-2. **Test the supported-swing counter above.** Verify identical landing credit
-   on single/double-support sequences and reduced credit for both-foot flight.
-   Implement it as an explicit recipe change, with the rationale recorded.
-3. **Train fresh seed 3 for 300M**, fixed LR 1e−4, current Swish/NormalTanh and
-   full 1024 ×20/four-pass layout, unchanged reference/action range/controller,
-   all 25 TB coefficients, variation and timing. Use the regular WR2 trainer.
-   Record both the feature correction and counter change; improvement would
-   be evidence for this combined treatment, not an isolated causal estimate.
-4. **Retain/evaluate every ~20M checkpoint.** Compare the full curve with
-   seed-3 140M/220M, retained WR2 +180M/+160M and TB Paper 180M/200M. Inspect
-   instantaneous error, signed response, standing/stopping, support and actual
-   nominal flight together. Retain the final hopping policy as a diagnostic
-   and use fresh initialization for this experiment.
-5. **Qualification remains ≤19 falls /1920**, zero nonfinite episodes and
-   held-out seed **22102** for qualifying candidates. TB parity also requires
-   approximately **.0370 equivalent fixed error**, its directional response and
-   contact-preserving nominal motion. A low fall rate alone is insufficient.
+Use the [deeper review](wr2_actuator_gap_review_20261018.md) for the current
+proposal and controlled physical evidence. Its first acquisition experiment
+matches TB's effective absence of physical pushes, retaining the Paper rewards,
+correct critic feature, reference, action home, measured actuator model and
+full PPO layout. Prefer a fresh 200–300M curve with every ~20M checkpoint
+retained. Evaluate both no-push acquisition performance and realized-push
+robustness under explicitly named conditions.
 
-For a strict causal estimate of the counter change, a control training run
-must use the same corrected critic feature and seed. The proposed single next
-run prioritizes a correctness fix plus the measured gait failure; it cannot
-separate their individual learning effects.
+The supported-swing counter should be a separate experiment if the wrong
+flight strategy persists after that physical alignment. The original combined
+critic/counter proposal is withdrawn: its critic fix was unnecessary, and the
+newly confirmed disturbance difference takes priority over a reward adaptation.
+
+Qualification still requires ≤19 falls /1920, zero nonfinite episodes and
+held-out seed **22102**, under the declared physical test profile. The recorded
+Paper .0370 tracking result is a benchmark with unrealized pushes; it cannot
+establish a shared pushed-robustness target. Inspect instantaneous error, signed
+response, standing/stopping and contact-preserving motion together.
 
 Continue loaded actuator work alongside this experiment: replay reachable
 action-projected references and learned targets, measure lag/clipping through
