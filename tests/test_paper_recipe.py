@@ -69,8 +69,9 @@ def reward_inputs():
 
 
 def test_complete_rewards_match_frozen_tb_numeric_oracle():
-    # Evaluated from frozen mjx_env.py / walk_env.py on these inputs. The
-    # native slip broadcast bug is excluded and checked by the per-foot value.
+    # TB formula oracle on these inputs with local leg action indices. This
+    # excludes the frozen global-index bug in its leg smoothness rewards.
+    # The native slip broadcast bug is also excluded by the per-foot value.
     expected = {
         "torso_pos": 0.0,
         "torso_quat": 1.0,

@@ -195,6 +195,10 @@ episode time and command. **`q_home` stays fixed** for action targets, motor
 observations and the native standing regularizer. The conflicting old global
 home-pose and prescribed foot-height-phase objective is absent from this recipe.
 The per-foot slip mask is corrected; frozen TB broadcasts that mask across axes.
+WR2 also uses all 12 local actions in its smoothness rewards; frozen TB's global
+actuator indexing omits four actions and repeats the last five times. The
+[complete setup audit](wr2_tb_paper_setup_audit_20261018.md) verifies this and
+compares effective friction, reset behavior, clocks, reference and metrics.
 
 Landing air time remains in physical seconds; clearance divides the native
 height sample sum by `s²`. Both robots use 50 Hz control, so these event

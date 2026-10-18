@@ -108,6 +108,8 @@ uv run --extra training python -m wr2.locomotion.train \
 
 The guide records the optional full GPU batch check, paired no-push/pushed
 reports, fixed crouched home, normalized reference/commands and retained controls.
+The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)
+compares actual reward formulas, clocks, effective variation, resets and metrics.
 Actor/critic inputs are 975/1485 for this recipe. WR2 training is self-contained.
 The [six-DOF model-import guide](docs/design/hip_yaw_model_import.md) documents
 both new hip yaws, 21 actuators, model-derived home/CoM geometry and validation.
