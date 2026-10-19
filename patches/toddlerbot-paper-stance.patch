@@ -1,0 +1,1030 @@
+From b52001c2fa2881776990853bc17651a9160f1869 Mon Sep 17 00:00:00 2001
+From: Yonggang Li <ygli@meta.com>
+Date: Sun, 18 Oct 2026 22:01:46 -0400
+Subject: [PATCH] Add paired nominal Paper stance diagnostic
+
+---
+ PAPER_WALKING.md                         |   2 +
+ STANCE_DIAGNOSTIC.md                     | 138 +++++
+ tests/test_stance_diagnostic.py          | 159 ++++++
+ toddlerbot/locomotion/diagnose_stance.py | 682 +++++++++++++++++++++++
+ 4 files changed, 981 insertions(+)
+ create mode 100644 STANCE_DIAGNOSTIC.md
+ create mode 100644 tests/test_stance_diagnostic.py
+ create mode 100644 toddlerbot/locomotion/diagnose_stance.py
+
+diff --git a/PAPER_WALKING.md b/PAPER_WALKING.md
+index d76fa74..426f5c1 100644
+--- a/PAPER_WALKING.md
++++ b/PAPER_WALKING.md
+@@ -6,6 +6,8 @@ The GPU run completed **300,134,400 transitions** on the RTX 5070. See
+ [the training results and WR2 reference](PAPER_WALKING_RESULTS.md) for all 15
+ checkpoints, signed XY/standing/recovery metrics, CSV exports and plots.
+ The 180M/200M checkpoints are reference candidates; falls increase late in the run.
++The [matching stance diagnostic](STANCE_DIAGNOSTIC.md) measures the saved 200M
++policy and paired reference controls for the next WR2 comparison.
+ 
+ Run the experiment directly in this ToddlerBot repository on branch
+ `paper-walking-baseline`. The branch starts at the local `v1.0.0` release,
+diff --git a/STANCE_DIAGNOSTIC.md b/STANCE_DIAGNOSTIC.md
+new file mode 100644
+index 0000000..269d7d5
+--- /dev/null
++++ b/STANCE_DIAGNOSTIC.md
+@@ -0,0 +1,138 @@
++# Matching Paper stance diagnostic
++
++Measure how the saved Paper policy produces stance and commanded translation,
++using the same controls as WR2's completed stance diagnostic. Use the frozen
++`paper-walking-baseline` source at `a4f693d` and its native Brax submodule
++`1414780`. The module checks the saved source, model/reference hashes and actual
++training package versions before execution.
++
++## Run on the GPU
++
++Use an isolated checkout for this diagnostic while the main TB folder remains
++available for development. After applying the diagnostic patch, run from
++`~/projects/toddlerbot/.worktrees/paper-stance-diagnostic`:
++
++```bash
++git submodule update --init --recursive
++export UV_PROJECT_ENVIRONMENT="$HOME/projects/toddlerbot/.venv-paper-blackwell" UV_PYTHON=3.10
++export PYTHONPATH="$PWD/toddlerbot/brax"
++uv run --no-sync -m toddlerbot.locomotion.diagnose_stance \
++  --run-dir ../../results/toddlerbot_walk_ppo_20261015_194347 \
++  --output ../../results/toddlerbot_walk_ppo_20261015_194347/stance_diagnostic \
++  --seeds 22102
++```
++
++This reuses the environment that completed Paper training: Python 3.10,
++JAX/JAXlib 0.6.2, MuJoCo/MJX 3.2.4 and native Brax 0.10.5. `PYTHONPATH` selects
++the diagnostic checkout's pinned Brax source even when the shared environment
++has an editable installation pointing at the original TB folder. If the
++environment needs installation, follow the Blackwell section of
++[PAPER_WALKING.md](PAPER_WALKING.md) in this checkout. The diagnostic requires
++a GPU by default.
++
++The default checkpoint is the native exported policy at `200089600/policy`.
++The saved run folder must also contain `env_config.json`, `train_config.json`,
++`provenance.json` and its archived `locomotion/` source. Native inference uses
++Swish, the saved network widths, deterministic NormalTanh actions and identity
++observation preprocessing, matching the completed Paper trainer.
++
++Use `--checkpoint ../../results/toddlerbot_walk_ppo_20261015_194347/180080640/policy`
++and a separate output directory to inspect the retained 180M survival reference.
++A completed output directory cannot be overwritten.
++
++## Paired controls
++
++| Control | Actions sent to the native controller |
++| --- | --- |
++| `learned` | Deterministic saved-policy actions |
++| `hip_roll_reference` | Replace left/right hip-roll coordinates with bounded reference actions |
++| `leg_reference` | Replace all 12 leg coordinates with bounded reference actions |
++
++For each intervened coordinate, convert the current reference motor angle with
++`clip((q_ref - q_home) / 0.25, -1, 1)`. The fixed-home action mapping, one-tick
++delay, physical joint limits, nominal motor controller and collision simulation
++then apply normally. Report reference angles outside the action range rather
++than expanding that range. The learned actor receives each control's changing
++observations, so its remaining outputs can respond to the intervention.
++
++Each control runs forward/backward .10, forward/backward .05, left/right .05
++and standing, using identical reset keys for each seed. Commands are held for
++1,000 control ticks at 20 ms, or 20 TB-equivalent seconds. WR2 uses its recorded
++size and clock normalization: 824 ticks at 20 ms, approximately the same
++TB-equivalent duration. TB measurements have normalization scale 1.0.
++
++The diagnostic disables domain randomization, physical pushes and white
++observation noise. Native reset still samples yaw and action-origin bias when
++those flags are false. For this nominal comparison, reset is rebuilt from the
++native grounded reference pose at zero yaw and the action-origin bias is zero.
++TB's deterministic torque-dependent backlash observation offset remains active
++at the saved scale .02. The run report records these overrides explicitly.
++
++These controls measure action execution and coordination. A reference control
++can fall or move poorly without establishing the quality of a trained policy.
++Use the existing randomized XY suite for the full walking benchmark.
++
++## Outputs and comparison
++
++The output contains `summary.json` and 21 compressed raw `.npz` traces, one per
++control/command/seed. Additional seeds each add another 21 traces. The report
++includes checkpoint and configuration hashes, verified source, package versions,
++backend/devices, control clock, mass/gravity and the nominal reset overrides.
++
++- **Tracking and movement:** torso-frame XY velocity mean/std, mean per-tick
++  vector command error, root displacement in the initial commanded heading
++  frame and net velocity. With zero initial yaw, that heading frame equals the
++  world frame. Compare commanded-axis progress and cross-direction drift.
++- **Joint execution:** actor request, amended current request, delayed request,
++  delivered position target, actual angle, current reference, clipping and
++  reference reach for each leg motor. A separate reconstruction must match the
++  target actually passed to the native controller. `pipeline.ctrl` is torque.
++- **Support:** native floor-contact classification at the saved 1 N threshold;
++  single/double/no support; exact phase matching and double-support matching
++  conditional on valid ticks requesting double support.
++- **Geometry and force:** signed gap and active penetrating-contact force for
++  both ankle-roll and ankle-pitch left/right pairs; sole clearance, floor force,
++  lateral foot-body distance, native spacing reward and unweighted air-time
++  landing credit. Self-contact requires force magnitude greater than .1 N.
++
++Raw geometry and force use the cached final physics-substep frames. Forwarding
++the integrated end-of-tick qpos again can select a different instant. For offline
++gap calculation, MuJoCo 3.2.4's legacy box routine returns half penetration depth;
++native CCD measures the full depth. A legacy zero-distance check handles native
++CCD's exact-touch degeneracy. These distance queries use an offline model copy;
++the original MJX simulation and collision solver remain at the saved settings.
++
++A finite terminal tick is included once; following padding is excluded. A
++nonfinite tick is excluded and marked separately. Double-support matching is
++null when no valid tick requests double support. Retain each episode's duration
++when comparing unequal-length controls.
++
++First compare the learned TB/WR2 traces. Then use the paired reference controls
++to identify whether clearance, loaded joint tracking, support timing or drift
++changes explain the difference. Normalize WR2 distances, speeds and clocks with
++the factors recorded by its diagnostic. Report raw clearance for each robot as
++well as size-normalized clearance. Select a training correction after this
++comparison, retaining the shared Paper objectives unless the measurements
++support a specific change.
++
++## Development verification
++
++Run the focused measurement tests with the selected environment:
++
++```bash
++uv run --no-sync python -m unittest discover -s tests -p test_stance_diagnostic.py -v
++```
++
++`--steps 100 --allow-cpu` provides a short execution check in a fresh output
++directory. It exercises approximately 2.8 native gait cycles; the full GPU
++diagnostic remains the comparison artifact.
++
++## References
++
++- [ToddlerBot paper, Tables VI/VII](https://arxiv.org/html/2502.00893v2).
++- Frozen [native environment](toddlerbot/locomotion/mjx_env.py),
++  [walking rewards](toddlerbot/locomotion/walk_env.py),
++  [ZMP reference](toddlerbot/reference/walk_zmp_ref.py) and
++  [motor controller](toddlerbot/sim/mujoco_control.py).
++- [MuJoCo 3.2.4 collision detection](https://mujoco.readthedocs.io/en/3.2.4/computation/index.html#collision-detection)
++  and [geometry-distance API](https://mujoco.readthedocs.io/en/3.2.4/APIreference/APIfunctions.html#mj-geomdistance).
+diff --git a/tests/test_stance_diagnostic.py b/tests/test_stance_diagnostic.py
+new file mode 100644
+index 0000000..3c81cb2
+--- /dev/null
++++ b/tests/test_stance_diagnostic.py
+@@ -0,0 +1,159 @@
++"""Reference interventions and censored, paired stance measurements."""
++
++import unittest
++from types import SimpleNamespace
++
++import jax.numpy as jnp
++import mujoco
++import numpy as np
++
++from toddlerbot.locomotion.diagnose_stance import (
++    reference_action,
++    signed_foot_distances,
++    summarize_stance,
++    target_trace,
++)
++
++
++class StanceDiagnosticTest(unittest.TestCase):
++    def test_reference_intervention_keeps_other_actions_and_bounds_reach(self):
++        action = jnp.array([-0.4, 0.7, 0.2])
++        home = jnp.array([0.1, -0.2, 0.3])
++        reference = jnp.array([0.5, -0.3, 0.25])
++        hips = reference_action(
++            action, reference, home, 0.25, jnp.array([True, False, False])
++        )
++        np.testing.assert_allclose(hips, [1.0, 0.7, 0.2])
++        full = reference_action(action, reference, home, 0.25, jnp.ones(3, bool))
++        np.testing.assert_allclose(full, [1.0, -0.4, -0.2], atol=1e-7)
++        self.assertAlmostEqual(float(home[0] + 0.25 * full[0]), 0.35, places=6)
++
++    def test_target_trace_preserves_native_delay_and_motor_limits(self):
++        env = SimpleNamespace(
++            num_action=2,
++            nu=4,
++            action_scale=0.25,
++            ref_start_idx=13,
++            action_mask=jnp.array([1, 3]),
++            motor_limits=jnp.array(
++                [[-1.0, 1.0], [-1.0, 0.1], [-1.0, 1.0], [-0.25, 1.0]]
++            ),
++        )
++        state = SimpleNamespace(
++            info={
++                "action_buffer": jnp.array([0.2, -0.3, 0.0, 0.0]),
++                "default_action": jnp.array([0.1, -0.2]),
++            }
++        )
++        reference = jnp.zeros(17).at[13:].set(jnp.array([0.4, 0.8, -0.4, 0.9]))
++        request, delivered = target_trace(env, state, jnp.array([0.8, 0.7]), reference)
++        np.testing.assert_allclose(request, [0.15, -0.275], atol=1e-7)
++        np.testing.assert_allclose(delivered, [0.4, 0.1, -0.4, -0.25], atol=1e-7)
++
++    def test_distances_use_cached_frames_for_both_pairs_and_exclude_padding(self):
++        model = mujoco.MjModel.from_xml_string(
++            "<mujoco><worldbody>"
++            '<geom type="box" size=".1 .2 .1"/>'
++            '<geom type="box" size=".1 .2 .1"/>'
++            '<geom type="box" size=".1 .2 .1"/>'
++            '<geom type="box" size=".1 .2 .1"/>'
++            "</worldbody></mujoco>"
++        )
++        centers = np.zeros((4, 2, 2, 3))
++        centers[:3, 0, 1, 0] = [0.25, 0.15, 0.35]
++        centers[:3, 1, 1, 0] = [0.3, 0.2, 0.1]
++        rotations = np.tile(np.eye(3), (4, 2, 2, 1, 1))
++        rotations[2, 0, 1] = [[0, -1, 0], [1, 0, 0], [0, 0, 1]]
++        centers[3] = np.nan
++        rotations[3] = np.nan
++        result = signed_foot_distances(
++            model,
++            np.array([[0, 1], [2, 3]]),
++            centers,
++            rotations,
++            np.array([True, True, True, False]),
++        )
++        np.testing.assert_allclose(
++            result, [[0.05, 0.1], [-0.05, 0.0], [0.05, -0.1], [0.0, 0.0]], atol=1e-8
++        )
++        self.assertEqual(model.opt.enableflags, 0)  # Simulation flags are preserved.
++
++    def test_summary_includes_finite_fall_and_excludes_nan_padding(self):
++        trace = {
++            "valid": np.array([1, 1, 1, 0, 0], bool),
++            "fall_event": np.array([0, 0, 1, 0, 0], bool),
++            "nonfinite_event": np.zeros(5, bool),
++            "velocity_m_s": np.array([[0.1, 0.0]] * 3 + [[np.nan, np.nan]] * 2),
++            "command_m_s": np.tile([0.2, 0.0, 0.0], (5, 1)),
++            "path_delta_m": np.array([[0.002, 0.0]] * 3 + [[np.nan, np.nan]] * 2),
++            "contact": np.array([[1, 1], [1, 0], [0, 1], [1, 1], [1, 1]], bool),
++            "reference_contact": np.array(
++                [[1, 1], [1, 0], [1, 1], [1, 1], [1, 1]], bool
++            ),
++            "foot_self_force_n": np.array(
++                [[0.0, 0.0], [0.0, 2.0], [0.0, 0.0], [99.0, 99.0], [np.nan, np.nan]]
++            ),
++            "foot_gap_m": np.array(
++                [
++                    [0.01, 0.02],
++                    [0.005, -0.002],
++                    [0.004, 0.006],
++                    [-0.5, -0.5],
++                    [np.nan, np.nan],
++                ]
++            ),
++            "target_reconstruction_error_rad": np.array([0.0, 1e-7, 0.0, 1.0, np.nan]),
++            "air_time_credit_s": np.array([0.1, 0.2, 0.3, np.nan, np.nan]),
++            "feet_lateral_distance_m": np.array([0.08] * 3 + [np.nan] * 2),
++            "feet_distance_reward_per_step": np.array([0.02] * 3 + [np.nan] * 2),
++            "foot_vertical_force_n": np.array(
++                [[5.0, 6.0]] * 3 + [[np.nan, np.nan]] * 2
++            ),
++            "target_clip": np.array([[1, 0]] * 5, bool),
++            "reference_outside_action_range": np.zeros((5, 2), bool),
++        }
++        for field, value in (
++            ("actor_request_rad", 0.4),
++            ("current_request_rad", 0.1),
++            ("delivered_rad", 0.2),
++            ("actual_rad", 0.3),
++            ("reference_rad", 0.0),
++        ):
++            trace[field] = np.array([[value, value]] * 3 + [[np.nan, np.nan]] * 2)
++        result = summarize_stance(trace, ["left_hip_roll", "right_hip_roll"], 0.02)
++        self.assertEqual(result["sample_count"], 3)
++        self.assertTrue(result["fell"])
++        self.assertFalse(result["nonfinite"])
++        self.assertAlmostEqual(result["duration_TB_equivalent_s"], 0.06)
++        self.assertAlmostEqual(result["xy_error_TB_equivalent_m_s"], 0.1)
++        np.testing.assert_allclose(result["translation_TB_equivalent_m"], [0.006, 0.0])
++        np.testing.assert_allclose(result["net_velocity_TB_equivalent_m_s"], [0.1, 0.0])
++        self.assertEqual(result["reference_double_support_sample_count"], 2)
++        self.assertAlmostEqual(result["reference_double_support_match_fraction"], 0.5)
++        self.assertEqual(result["no_support_fraction"], 0.0)
++        self.assertAlmostEqual(result["foot_self_contact_fraction"], 1 / 3)
++        self.assertAlmostEqual(result["foot_gap_min_m"], -0.002)
++        self.assertAlmostEqual(result["air_time_credit_s"], 0.6)
++        self.assertAlmostEqual(result["leg_actual_delivered_rmse_rad"], 0.1)
++        pair = result["pairs"][
++            "left_ank_pitch_link_collision/right_ank_pitch_link_collision"
++        ]
++        self.assertAlmostEqual(pair["foot_self_contact_fraction"], 1 / 3)
++        trace["reference_contact"][:] = [1, 0]
++        self.assertIsNone(
++            summarize_stance(trace, ["left", "right"], 0.02)[
++                "reference_double_support_match_fraction"
++            ]
++        )
++        trace["valid"][:] = False
++        trace["fall_event"][:] = False
++        trace["nonfinite_event"][0] = True
++        empty = summarize_stance(trace, ["left", "right"], 0.02)
++        self.assertEqual(empty["sample_count"], 0)
++        self.assertTrue(empty["nonfinite"])
++        self.assertIsNone(empty["xy_error_TB_equivalent_m_s"])
++        self.assertIsNone(empty["foot_gap_min_m"])
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/toddlerbot/locomotion/diagnose_stance.py b/toddlerbot/locomotion/diagnose_stance.py
+new file mode 100644
+index 0000000..9982a3f
+--- /dev/null
++++ b/toddlerbot/locomotion/diagnose_stance.py
+@@ -0,0 +1,682 @@
++"""Paired nominal stance controls for the saved ToddlerBot Paper policy."""
++
++import os
++
++os.environ["USE_JAX"] = "true"
++os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
++os.environ["XLA_FLAGS"] = "--xla_gpu_triton_gemm_any=true"
++
++import argparse
++import copy
++import hashlib
++import importlib.metadata as metadata
++import json
++import subprocess
++import sys
++from pathlib import Path
++
++import jax
++import jax.numpy as jnp
++import mujoco
++import numpy as np
++from brax.io import model as brax_model
++from brax.training.agents.ppo import networks
++from mujoco.mjx._src import support
++
++from toddlerbot.locomotion.evaluate_xy import CONDITIONS
++from toddlerbot.locomotion.mjx_config import MJXConfig
++from toddlerbot.locomotion.walk_env import WalkEnv
++from toddlerbot.sim.robot import Robot
++from toddlerbot.utils.math_utils import quat_inv, rotate_vec
++
++jax.config.update("jax_default_matmul_precision", "high")
++
++PAPER_REVISION = "a4f693d7cc4544f011dad23d6c353e752a6819ab"
++BRAX_REVISION = "14147806f6c25724ba830ba36764df3243889b0d"
++PAIR_NAMES = (
++    ("ank_roll_link_collision", "ank_roll_link_2_collision"),
++    ("left_ank_pitch_link_collision", "right_ank_pitch_link_collision"),
++)
++CONTROLS = ("learned", "hip_roll_reference", "leg_reference")
++
++
++def reference_action(action, reference, home, scale, mask):
++    requested = jnp.clip((reference - home) / scale, -1.0, 1.0)
++    return jnp.where(mask, requested, action)
++
++
++def target_trace(env, state, action, reference):
++    """Reconstruct the native delayed, bounded motor-position requests."""
++    buffer = jnp.roll(state.info["action_buffer"], env.num_action)
++    delayed = buffer.at[: env.num_action].set(action)[-env.num_action :]
++    request = state.info["default_action"] + env.action_scale * delayed
++    target = reference[env.ref_start_idx : env.ref_start_idx + env.nu]
++    target = target.at[env.action_mask].set(request)
++    delivered = jnp.clip(target, env.motor_limits[:, 0], env.motor_limits[:, 1])
++    return request, delivered
++
++
++class StanceEnv(WalkEnv):
++    """Diagnostic instrumentation around the unchanged native controller."""
++
++    def reset(self, rng, command=None):
++        state = super().reset(rng, command)
++        info = dict(state.info)
++        # Native reset always samples yaw, even with domain randomization off.
++        # Rebuild its reference-based pose at zero yaw for the WR2 comparison.
++        info["state_ref"] = (
++            info["state_ref"].at[3:7].set(jnp.array([1.0, 0.0, 0.0, 0.0]))
++        )
++        qpos = self.motion_ref.get_qpos_ref(info["state_ref"], path_frame=False)
++        pipeline = self.pipeline_init(qpos, jnp.zeros(self.nv))
++        info["feet_height_init"] = pipeline.x.pos[self.feet_link_ids, 2]
++        info["diagnostic_delivered_target"] = jnp.zeros(self.nu)
++        obs, privileged = self._get_obs(
++            pipeline,
++            info,
++            jnp.zeros_like(state.obs),
++            jnp.zeros_like(state.privileged_obs),
++        )
++        return state.replace(
++            pipeline_state=pipeline,
++            info=info,
++            obs=obs,
++            privileged_obs=privileged,
++        )
++
++    def pipeline_step(self, state, action):
++        # This argument is the bounded POSITION target. pipeline.ctrl contains
++        # motor torque and must not be mistaken for a delivered position target.
++        state.info["diagnostic_delivered_target"] = action
++        return super().pipeline_step(state, action)
++
++
++def signed_foot_distances(model, pairs, centers, rotations, valid):
++    """Distances at the traced solver geometry instant, preserving padding."""
++    # MuJoCo 3.2.4's legacy box collision routine reports half the penetration
++    # depth. Use native CCD for offline distance, matching WR2's distance API.
++    # Its exact-touch degeneracy needs a zero-distance check with the legacy
++    # routine. Neither changes the simulation model or its MJX collisions.
++    geometry_model = copy.copy(model)
++    geometry_model.opt.enableflags |= int(mujoco.mjtEnableBit.mjENBL_NATIVECCD)
++    data = mujoco.MjData(geometry_model)
++    result = np.zeros((len(valid), len(pairs)))
++    for index in np.flatnonzero(valid):
++        for pair_index, pair in enumerate(pairs):
++            data.geom_xpos[pair] = centers[index, pair_index]
++            data.geom_xmat[pair] = rotations[index, pair_index].reshape(2, 9)
++            legacy = mujoco.mj_geomDistance(model, data, *pair, 1.0, None)
++            result[index, pair_index] = (
++                0.0
++                if legacy == 0.0
++                else mujoco.mj_geomDistance(
++                    geometry_model,
++                    data,
++                    *pair,
++                    1.0,
++                    None,
++                )
++            )
++    return result
++
++
++def summarize_stance(trace, names, dt):
++    valid = trace["valid"].astype(bool)
++    count = int(valid.sum())
++
++    def mean(value):
++        return float(np.mean(value[valid])) if count else None
++
++    def rms(value):
++        return float(np.sqrt(np.mean(value[valid] ** 2))) if count else None
++
++    actual_double = trace["contact"].all(axis=1)
++    requested_double = trace["reference_contact"].all(axis=1) & valid
++    error = np.linalg.norm(trace["velocity_m_s"] - trace["command_m_s"][:, :2], axis=1)
++    return {
++        "sample_count": count,
++        "duration_physical_s": count * dt,
++        "duration_TB_equivalent_s": count * dt,
++        "fell": bool(trace["fall_event"].any()),
++        "nonfinite": bool(trace["nonfinite_event"].any()),
++        "velocity_TB_equivalent_m_s": [
++            mean(trace["velocity_m_s"][:, j]) for j in range(2)
++        ],
++        "velocity_std_TB_equivalent_m_s": [
++            float(np.std(trace["velocity_m_s"][valid, j])) if count else None
++            for j in range(2)
++        ],
++        "translation_TB_equivalent_m": trace["path_delta_m"][valid]
++        .sum(axis=0)
++        .tolist(),
++        "net_velocity_TB_equivalent_m_s": [
++            mean(trace["path_delta_m"][:, j] / dt) for j in range(2)
++        ],
++        "xy_error_TB_equivalent_m_s": mean(error),
++        "single_support_fraction": mean(np.logical_xor(*trace["contact"].T)),
++        "double_support_fraction": mean(actual_double),
++        "no_support_fraction": mean(~trace["contact"].any(axis=1)),
++        "reference_double_support_sample_count": int(requested_double.sum()),
++        "reference_double_support_match_fraction": (
++            float(actual_double[requested_double].mean())
++            if requested_double.any()
++            else None
++        ),
++        "exact_contact_match_fraction": mean(
++            (trace["contact"] == trace["reference_contact"]).all(axis=1)
++        ),
++        "foot_self_contact_fraction": mean(
++            trace["foot_self_force_n"].max(axis=1) > 0.1
++        ),
++        "foot_gap_min_m": float(trace["foot_gap_m"][valid].min()) if count else None,
++        "foot_gap_median_m": float(np.median(trace["foot_gap_m"][valid]))
++        if count
++        else None,
++        "maximum_foot_self_force_n": float(trace["foot_self_force_n"][valid].max())
++        if count
++        else None,
++        "target_reconstruction_max_error_rad": float(
++            trace["target_reconstruction_error_rad"][valid].max()
++        )
++        if count
++        else None,
++        "air_time_credit_s": float(trace["air_time_credit_s"][valid].sum()),
++        "leg_actual_reference_rmse_rad": rms(
++            trace["actual_rad"] - trace["reference_rad"]
++        ),
++        "leg_actual_delivered_rmse_rad": rms(
++            trace["actual_rad"] - trace["delivered_rad"]
++        ),
++        "feet_lateral_distance_m": mean(trace["feet_lateral_distance_m"]),
++        "feet_distance_reward_per_step": mean(trace["feet_distance_reward_per_step"]),
++        "foot_vertical_force_mean_n": [
++            mean(trace["foot_vertical_force_n"][:, j]) for j in range(2)
++        ],
++        "pairs": {
++            "/".join(pair): {
++                "foot_self_contact_fraction": mean(
++                    trace["foot_self_force_n"][:, j] > 0.1
++                ),
++                "foot_gap_min_m": float(trace["foot_gap_m"][valid, j].min())
++                if count
++                else None,
++                "foot_gap_median_m": float(np.median(trace["foot_gap_m"][valid, j]))
++                if count
++                else None,
++            }
++            for j, pair in enumerate(PAIR_NAMES)
++        },
++        "joints": {
++            name: {
++                "actor_request_reference_rmse_rad": rms(
++                    trace["actor_request_rad"][:, j] - trace["reference_rad"][:, j]
++                ),
++                "current_request_reference_rmse_rad": rms(
++                    trace["current_request_rad"][:, j] - trace["reference_rad"][:, j]
++                ),
++                "delivered_reference_rmse_rad": rms(
++                    trace["delivered_rad"][:, j] - trace["reference_rad"][:, j]
++                ),
++                "actual_delivered_rmse_rad": rms(
++                    trace["actual_rad"][:, j] - trace["delivered_rad"][:, j]
++                ),
++                "target_clip_fraction": mean(trace["target_clip"][:, j]),
++                "target_slew_fraction": 0.0 if count else None,
++                "reference_outside_action_range_fraction": mean(
++                    trace["reference_outside_action_range"][:, j]
++                ),
++            }
++            for j, name in enumerate(names)
++        },
++    }
++
++
++def verify_source(run_dir):
++    """Require the saved Paper source, native Brax and actual training runtime."""
++    import brax
++
++    root = Path(__file__).resolve().parents[2]
++    if sys.version_info[:2] != (3, 10):
++        raise RuntimeError("Use the saved Paper Python 3.10 environment")
++    if Path.cwd().resolve() != root:
++        raise RuntimeError(f"Run from the ToddlerBot checkout root: {root}")
++    subprocess.run(
++        ["git", "merge-base", "--is-ancestor", PAPER_REVISION, "HEAD"], check=True
++    )
++    unchanged = (
++        subprocess.run(
++            [
++                "git",
++                "diff",
++                "--quiet",
++                PAPER_REVISION,
++                "--",
++                "toddlerbot/reference",
++                "toddlerbot/sim",
++                "toddlerbot/utils",
++                "toddlerbot/algorithms",
++            ]
++        ).returncode
++        == 0
++    )
++    if not unchanged:
++        raise ValueError(
++            "Reference, robot, controller and utility source must match the frozen Paper branch"
++        )
++    provenance = json.loads((run_dir / "provenance.json").read_text())
++    for name in (
++        "mjx_env.py",
++        "walk_env.py",
++        "mjx_config.py",
++        "train_mjx.py",
++        "evaluate_xy.py",
++    ):
++        if (root / "toddlerbot/locomotion" / name).read_bytes() != (
++            run_dir / "locomotion" / name
++        ).read_bytes():
++            raise ValueError(f"Source differs from the saved Paper run: {name}")
++    for path, expected in provenance["model_reference_sha256"].items():
++        if hashlib.sha256((root / path).read_bytes()).hexdigest() != expected:
++            raise ValueError(
++                f"Model/reference differs from the saved Paper run: {path}"
++            )
++    native = root / "toddlerbot/brax"
++    revision = subprocess.check_output(
++        ["git", "-C", str(native), "rev-parse", "HEAD"], text=True
++    ).strip()
++    dirty = subprocess.check_output(
++        ["git", "-C", str(native), "status", "--porcelain"], text=True
++    ).strip()
++    if revision != BRAX_REVISION or provenance["brax_revision"] != revision or dirty:
++        raise ValueError("The clean native Paper Brax submodule is required")
++    if not Path(brax.__file__).resolve().is_relative_to(native):
++        raise ValueError(f"Brax imported outside the pinned submodule: {brax.__file__}")
++    packages = (
++        "jax",
++        "jaxlib",
++        "mujoco",
++        "mujoco-mjx",
++        "brax",
++        "numpy",
++        "scipy",
++        "flax",
++        "optax",
++        "chex",
++        "orbax-checkpoint",
++    )
++    versions = {name: metadata.version(name) for name in packages}
++    for name, version in versions.items():
++        if version != provenance["packages"][name]:
++            raise ValueError(
++                f"{name} must match the saved run: {provenance['packages'][name]}, got {version}"
++            )
++    return {
++        "git_commit": subprocess.check_output(
++            ["git", "rev-parse", "HEAD"], text=True
++        ).strip(),
++        "git_dirty": bool(
++            subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()
++        ),
++        "training_source": provenance["source_revision"],
++        "verified_runtime_source": PAPER_REVISION,
++        "diagnostic_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
++        "brax_revision": revision,
++        "packages": versions,
++        "python": sys.version,
++        "jax_backend": jax.default_backend(),
++        "jax_devices": [str(device) for device in jax.devices()],
++        "jax_default_matmul_precision": jax.config.jax_default_matmul_precision,
++        "xla_flags": os.environ["XLA_FLAGS"],
++    }
++
++
++def run_diagnostic(
++    run_dir, output, seeds, checkpoint=None, steps=1000, allow_cpu=False
++):
++    if not 1 <= steps <= 1000:
++        raise ValueError("--steps must be between 1 and 1000")
++    if (output / "summary.json").exists():
++        raise FileExistsError(f"Diagnostic already exists: {output}")
++    source = verify_source(run_dir)
++    if jax.default_backend() != "gpu" and not allow_cpu:
++        raise RuntimeError("A GPU is required; --allow-cpu is for development checks")
++    saved_cfg = json.loads((run_dir / "env_config.json").read_text())
++    cfg = MJXConfig()
++    for section, values in saved_cfg.items():
++        for name, value in values.items():
++            setattr(getattr(cfg, section), name, value)
++    if cfg.action.action_parts != ["leg"] or cfg.action.filter_type != "none":
++        raise ValueError(
++            "The saved Paper leg-only, unfiltered action configuration is required"
++        )
++    cfg.noise.action_noise = 0.0  # This reset bias is independent of add_noise.
++    cfg.commands.resample_time = (steps + 1) * cfg.sim.timestep * cfg.action.n_frames
++    print("Loading the saved Paper model and reference...", flush=True)
++    env = StanceEnv(
++        "walk", Robot("toddlerbot"), cfg, add_noise=False, add_domain_rand=False
++    )
++    env.resample_steps = steps + 1  # Avoid time-to-integer rounding of the hold period.
++    model = env.sys.mj_model
++    pairs = np.asarray(
++        [
++            [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name) for name in pair]
++            for pair in PAIR_NAMES
++        ]
++    )
++    if (pairs < 0).any():
++        raise ValueError("Both Paper left/right ankle collision pairs are required")
++    native_pairs = {
++        tuple(sorted(pair)) for pair in zip(model.pair_geom1, model.pair_geom2)
++    }
++    if any(tuple(sorted(pair)) not in native_pairs for pair in pairs):
++        raise ValueError("An expected ankle pair is not active in the saved model")
++    sizes = jnp.asarray(model.geom_size[pairs])
++    floor = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
++    if floor < 0:
++        raise ValueError("Missing floor geometry")
++    names = [env.robot.motor_ordering[i] for i in np.asarray(env.action_mask)]
++    motor_indices = env.q_start_idx + env.leg_motor_indices
++    ref_indices = env.ref_start_idx + env.leg_ref_indices
++    dt = float(env.dt)
++    conditions = [
++        (name, xy)
++        for name, xy, transition in CONDITIONS
++        if not transition
++        and name
++        in (
++            "forward_010",
++            "backward_010",
++            "backward_005",
++            "forward_005",
++            "right_005",
++            "left_005",
++            "standing",
++        )
++    ]
++    cases = [
++        (mode, name, xy, seed)
++        for mode in CONTROLS
++        for name, xy in conditions
++        for seed in seeds
++    ]
++    commands = jnp.asarray([[*xy, 0.0] for _, _, xy, _ in cases])
++    native_commands = jnp.zeros((len(cases), 8)).at[:, 5:8].set(commands)
++    keys = jnp.stack(
++        [
++            jax.random.split(jax.random.split(jax.random.PRNGKey(seed))[1], 8)[0]
++            for _, _, _, seed in cases
++        ]
++    )
++    masks = jnp.asarray(
++        [
++            [
++                mode == "leg_reference"
++                or (mode == "hip_roll_reference" and name.endswith("_hip_roll"))
++                for name in names
++            ]
++            for mode, *_ in cases
++        ]
++    )
++    path = (checkpoint or run_dir / "200089600/policy").resolve()
++    params = brax_model.load_params(str(path))
++    if any(
++        not np.isfinite(np.asarray(value)).all() for value in jax.tree.leaves(params)
++    ):
++        raise ValueError("Nonfinite checkpoint parameters")
++    train_cfg = json.loads((run_dir / "train_config.json").read_text())
++    # The native Paper train() call uses PPO's default normalize_observations=False.
++    network = networks.make_ppo_networks(
++        env.obs_size * env.num_obs_history,
++        env.privileged_obs_size * env.num_privileged_obs_history,
++        env.action_size,
++        policy_hidden_layer_sizes=train_cfg["policy_hidden_layer_sizes"],
++        value_hidden_layer_sizes=train_cfg["value_hidden_layer_sizes"],
++    )
++    policy = networks.make_inference_fn(network)(params, deterministic=True)
++
++    def one_step(before, actor, mask):
++        # Compute snapshots before native step(), which mutates its info dict.
++        time_s = before.info["step"] * dt
++        ref = env.motion_ref.get_state_ref(
++            before.info["state_ref"], time_s, before.info["command"]
++        )
++        lookup_index = jnp.argmin(
++            jnp.linalg.norm(
++                env.motion_ref.lookup_keys - before.info["command"][5:], axis=1
++            )
++        )
++        reference = ref[ref_indices]
++        home = before.info["default_action"]
++        action = reference_action(actor, reference, home, env.action_scale, mask)
++        delayed, delivered = target_trace(env, before, action, ref)
++        old_q = before.pipeline_state.q[:2]
++        old_air = before.info["feet_air_time"]
++        previous_contact = before.info["stance_mask"] > 0
++        command = before.info["command_obs"]
++        after = env.step(before, action)
++        p = after.pipeline_state
++        contact = after.info["stance_mask"] > 0
++        forces = jnp.stack(
++            [support.contact_force(env.sys, p, i, True)[:3] for i in range(p.ncon)]
++        )
++        pair_force = []
++        for pair in pairs:
++            active = ((p.contact.geom1 == pair[0]) & (p.contact.geom2 == pair[1])) | (
++                (p.contact.geom1 == pair[1]) & (p.contact.geom2 == pair[0])
++            )
++            active &= (p.contact.dist < 0) & (p.contact.efc_address >= 0)
++            pair_force.append(
++                jnp.max(jnp.where(active, jnp.linalg.norm(forces, axis=1), 0.0))
++            )
++        foot_vec = rotate_vec(
++            p.x.pos[env.feet_link_ids[0]] - p.x.pos[env.feet_link_ids[1]],
++            quat_inv(p.x.rot[0]),
++        )
++        active_air = jnp.linalg.norm(command) > env.deadzone
++        values = {
++            "time_s": time_s,
++            "reference_lookup_command_m_s": env.motion_ref.lookup_keys[lookup_index],
++            "reference_static": (jnp.linalg.norm(command) < 1e-6) | (time_s < 1e-6),
++            "qpos": p.q,
++            "path_delta_m": p.q[:2] - old_q,
++            "velocity_m_s": rotate_vec(p.xd.vel[0], quat_inv(p.x.rot[0]))[:2],
++            "command_m_s": command,
++            "actor_request_rad": home + env.action_scale * actor,
++            "current_request_rad": home + env.action_scale * action,
++            "delayed_request_rad": delayed,
++            "delivered_rad": delivered[env.action_mask],
++            "actual_rad": p.q[motor_indices],
++            "reference_rad": reference,
++            "target_clip": (delayed < env.motor_limits[env.action_mask, 0])
++            | (delayed > env.motor_limits[env.action_mask, 1]),
++            "target_slew": jnp.zeros(env.num_action, bool),
++            "reference_outside_action_range": jnp.abs(reference - home)
++            > env.action_scale + 1e-7,
++            "target_reconstruction_error_rad": jnp.max(
++                jnp.abs(delivered - after.info["diagnostic_delivered_target"])
++            ),
++            "contact": contact,
++            "reference_contact": ref[-2:] > 0,
++            "foot_geom_center_m": p.geom_xpos[pairs],
++            "foot_geom_rotation": p.geom_xmat[pairs],
++            "sole_clearance_m": p.geom_xpos[pairs, 2]
++            - jnp.sum(jnp.abs(p.geom_xmat[pairs, 2, :]) * sizes, axis=-1)
++            - model.geom_pos[floor, 2],
++            "foot_vertical_force_n": jnp.array(
++                [
++                    after.info["contact_forces"][
++                        0, env.left_foot_collider_indices, 2
++                    ].sum(),
++                    after.info["contact_forces"][
++                        0, env.right_foot_collider_indices, 2
++                    ].sum(),
++                ]
++            ),
++            "feet_lateral_distance_m": jnp.abs(foot_vec[1]),
++            "feet_distance_reward_per_step": after.metrics["feet_distance"] * dt,
++            "torso_height_m": p.x.pos[0, 2],
++            "torso_quaternion": p.x.rot[0],
++            "foot_self_force_n": jnp.stack(pair_force),
++            "air_time_credit_s": jnp.sum(
++                old_air * ((old_air > 0) & (contact | previous_contact))
++            )
++            * active_air,
++        }
++        return after, values
++
++    def rollout():
++        initial = jax.vmap(env.reset)(keys, native_commands)
++
++        def step(carry, _):
++            before, alive = carry
++            actor, _ = policy(before.obs, keys[0])
++            after, values = jax.vmap(one_step)(before, actor, masks)
++            finite = jnp.isfinite(after.pipeline_state.q).all(axis=1) & jnp.isfinite(
++                after.pipeline_state.qd
++            ).all(axis=1)
++            for value in (
++                *values.values(),
++                after.obs,
++                after.privileged_obs,
++                after.reward,
++            ):
++                finite &= jnp.isfinite(value).reshape((len(cases), -1)).all(axis=1)
++            values["valid"] = alive & finite
++            values["fall_event"] = alive & finite & (after.done > 0)
++            values["nonfinite_event"] = alive & ~finite
++            following_alive = alive & finite & (after.done == 0)
++            following = jax.tree.map(
++                lambda old, new: jnp.where(
++                    following_alive.reshape((-1,) + (1,) * (new.ndim - 1)), new, old
++                ),
++                before,
++                after,
++            )
++            return (following, following_alive), values
++
++        return jax.lax.scan(
++            step, (initial, jnp.ones(len(cases), bool)), jnp.arange(steps)
++        )[1]
++
++    print(
++        f"Running {len(cases)} paired nominal episodes, {steps} ticks each...",
++        flush=True,
++    )
++    traces = jax.tree.map(np.asarray, jax.jit(rollout)())
++    output.mkdir(parents=True, exist_ok=True)
++    results = []
++    for index, (mode, name, xy, seed) in enumerate(cases):
++        trace = {key: value[:, index] for key, value in traces.items()}
++        trace["foot_gap_m"] = signed_foot_distances(
++            model,
++            pairs,
++            trace["foot_geom_center_m"],
++            trace["foot_geom_rotation"],
++            trace["valid"],
++        )
++        np.savez_compressed(output / f"{mode}_{name}_seed{seed}.npz", **trace)
++        result = {
++            "control": mode,
++            "condition": name,
++            "seed": seed,
++            "command_TB_equivalent_m_s": list(xy),
++            **summarize_stance(trace, names, dt),
++        }
++        results.append(result)
++        print(
++            json.dumps(
++                {
++                    key: result[key]
++                    for key in (
++                        "control",
++                        "condition",
++                        "sample_count",
++                        "fell",
++                        "nonfinite",
++                        "xy_error_TB_equivalent_m_s",
++                        "foot_self_contact_fraction",
++                    )
++                }
++            ),
++            flush=True,
++        )
++    report = {
++        "schema_version": 1,
++        "run": str(run_dir.resolve()),
++        "checkpoint": str(path),
++        "checkpoint_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
++        "evaluation_source": source,
++        "normalization_scale": 1.0,
++        "control_period_s": dt,
++        "steps": steps,
++        "gait_cycle_s": cfg.action.cycle_time,
++        "robot_mass_kg": float(model.body_mass.sum()),
++        "gravity_m_s2": np.asarray(model.opt.gravity).tolist(),
++        "seeds": list(seeds),
++        "scope": "paired nominal controls; prescribed references are diagnostics, not trained policies",
++        "domain_randomization": False,
++        "observation_noise": False,
++        "physical_pushes": False,
++        "reset": "native reference-based grounded pose rebuilt at zero yaw; action-origin reset bias disabled",
++        "nominal_overrides": {
++            "action_noise": 0.0,
++            "initial_yaw_rad": 0.0,
++            "command_resample_time_s": cfg.commands.resample_time,
++        },
++        "saved_config_sha256": {
++            name: hashlib.sha256((run_dir / name).read_bytes()).hexdigest()
++            for name in ("env_config.json", "train_config.json", "provenance.json")
++        },
++        "native_backlash_observation_scale": cfg.noise.backlash_scale,
++        "normalize_observations": False,
++        "action_intervention": "reference converted to home-centered bounded action; native action delay, joint limits and controller retained",
++        "geometry_sampling": "cached last-substep geometry/solver frames; not re-forwarded integrated qpos",
++        "geometry_distance_method": "native CCD on an offline model copy with legacy exact-touch check; original MJX simulation retained",
++        "reference_error_timing": "current reference vs end-of-tick motor positions",
++        "termination": "finite terminal tick included; nonfinite tick excluded; no autoreset samples",
++        "active_joint_names": names,
++        "home_position_rad": np.asarray(env.default_action).tolist(),
++        "joint_limits_rad": np.asarray(env.motor_limits[env.action_mask]).tolist(),
++        "policy_action_scale_rad": env.action_scale,
++        "collision_pairs": [list(pair) for pair in PAIR_NAMES],
++        "results": results,
++    }
++    (output / "summary.json").write_text(
++        json.dumps(report, indent=2, allow_nan=False) + "\n"
++    )
++    print(f"Wrote stance traces and summary to {output}", flush=True)
++    return report
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--run-dir", type=Path, required=True)
++    parser.add_argument("--output", type=Path, required=True)
++    parser.add_argument(
++        "--checkpoint",
++        type=Path,
++        help="Native exported policy file; default: run-dir/200089600/policy",
++    )
++    parser.add_argument(
++        "--seeds", default="22102", help="Comma-separated paired reset seeds"
++    )
++    parser.add_argument(
++        "--steps",
++        type=int,
++        default=1000,
++        help="Control ticks; shorten only for execution checks",
++    )
++    parser.add_argument(
++        "--allow-cpu", action="store_true", help="Allow development checks on CPU"
++    )
++    args = parser.parse_args()
++    seeds = tuple(int(value) for value in args.seeds.split(","))
++    if not seeds or len(set(seeds)) != len(seeds):
++        parser.error("Provide distinct reset seeds")
++    run_diagnostic(
++        args.run_dir, args.output, seeds, args.checkpoint, args.steps, args.allow_cpu
++    )
++
++
++if __name__ == "__main__":
++    main()
+
+base-commit: a4f693d7cc4544f011dad23d6c353e752a6819ab
+-- 
+2.53.0-Meta
+

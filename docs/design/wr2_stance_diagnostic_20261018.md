@@ -3,7 +3,9 @@
 **The paired nominal stance controls completed on the GPU.** All 21 episodes
 are finite. Reference hip rolls eliminate self-contact, but worsen six-direction
 command tracking **44.2%**. See the [GPU result and revised next plan](wr2_stance_result_20261018.md).
-The next measurement is the matching TB Paper 200M policy trace. The canonical
+The [matching TB Paper 200M diagnostic](tb_stance_diagnostic_20261018.md) is now
+prepared with a portable text patch, isolated-checkout setup and direct `uv`
+command. The canonical
 configuration retains the completed **0.28.5 / air-time weight 500** baseline;
 the earlier weight-0 ablation is deferred.
 
@@ -151,8 +153,10 @@ objective, and its successful policy can deviate from it.
 TB Paper 200M full-benchmark walking error **.037025**, versus WR2 selected
 260M **.076838**, remains the parity comparison. The missing measurement is
 TB's learned-policy joint execution and support/contact trace under these
-same nominal controls. Its local Mac environment cannot run the frozen PPO
-stack; this review used native MuJoCo kinematics and cached references only.
+same nominal controls. That review used native MuJoCo kinematics and cached
+references only. Preparation subsequently found the installed Paper environment
+and verified the saved policy in a 21-episode, 100-tick CPU check; the full matching
+GPU measurement is ready in the [new guide](tb_stance_diagnostic_20261018.md).
 
 ## Following decision and matching TB task
 
@@ -170,7 +174,7 @@ evidence supports investigating stance/coordination; it does not validate
 hard hip-roll overrides, copying TB actuator constants, widening the action
 range or removing the shared air-time term.
 
-For the agent working in the TB checkout:
+The following scope is implemented by the prepared matching TB diagnostic:
 
 > Prepare matching nominal stance diagnostics from `paper-walking-baseline`
 > (a4f693d), using the native Paper Brax fork and saved Paper configuration.

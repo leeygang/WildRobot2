@@ -107,8 +107,10 @@ self-contact and improve joint execution, but worsen six-direction command
 tracking **44.2%**, with greater drift and poorer support timing. See the
 [result and revised next plan](docs/design/wr2_stance_result_20261018.md).
 The next measurement is the matching TB Paper 200M policy trace before choosing
-a training correction. The [diagnostic guide](docs/design/wr2_stance_diagnostic_20261018.md)
-records the completed command, metrics and matching TB task.
+a training correction. The [matching TB diagnostic](docs/design/tb_stance_diagnostic_20261018.md)
+is ready with an isolated-checkout setup, a small text patch and the direct `uv`
+command. The [WR2 diagnostic guide](docs/design/wr2_stance_diagnostic_20261018.md)
+records its completed command and metrics.
 
 The canonical config retains the completed TB-aligned weight-500 baseline.
 The previously prepared air-time ablation is deferred while stance/geometry
