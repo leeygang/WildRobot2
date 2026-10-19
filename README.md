@@ -54,6 +54,10 @@ uv run python -m wr2.tools.post_process
 uv run python -m wr2.locomotion.train --smoke
 ```
 
+For MuJoCo's macOS viewer with uv's standalone Python, complete the
+[one-time library setup](docs/design/wr2_stance_diagnostic_20261018.md#one-time-macos-library-setup-for-uvs-standalone-python).
+The viewer then uses the regular `uv run --no-sync mjpython` command.
+
 On Linux, the training extra installs CUDA 12 JAX. Confirm that JAX sees the
 GPU before starting a long run:
 

@@ -38,17 +38,12 @@ ignored results directory.
 Replay the copied GPU rollout locally on the Mac:
 
 ```bash
-export DYLD_FALLBACK_LIBRARY_PATH="$(uv run --no-sync python -c 'import sys; print(sys.base_prefix + "/lib")')"
 uv run --no-sync mjpython -m wr2.tools.view_walking \
   --trace results/wr2_walking/wr2_paper_20261018_121025_seed3/stance_diagnostic/learned_forward_010_seed22102.npz \
   --playback-speed 0.25
 ```
 
 MuJoCo's `mjpython` launcher is required for the macOS interactive viewer.
-The library path resolves its Python dylib when uv's virtual-environment
-interpreter is a symlink; without it, this Mac failed to load
-`libpython3.11.dylib`. The native viewer launch and replay controls were checked
-with this environment setting.
 On a Linux desktop, use `python` in its place. The viewer needs only NumPy and
 MuJoCo; an existing simulation/training environment suffices. It reads the
 NPZ and adjacent `summary.json`, so a GPU or checkpoint loading is unnecessary.
@@ -82,6 +77,44 @@ millimeter clearance; use the signed-gap and CAD audits for that decision.
 Reference: [MuJoCo Python passive viewer and macOS launcher](https://mujoco.readthedocs.io/en/stable/python.html#passive-viewer).
 This follows the native MuJoCo viewer used for the reference and complements
 TB Paper's front/side/top/perspective rollout views.
+
+### One-time macOS library setup for uv's standalone Python
+
+This Mac's WR2 environment uses uv's standalone Python **3.11.14** and MuJoCo
+**3.14.0**. Its interpreter depends on
+`@executable_path/../lib/libpython3.11.dylib`. MuJoCo's installed launcher derives
+its fallback search directory from the virtual-environment interpreter path,
+so it searches `.venv/lib`, while the library lives in uv's base Python `lib`.
+The installed WildRobot environment uses a framework Python **3.12** build;
+its native interpreter linkage does not require this relative Python dylib.
+Both environments were checked directly, including their bare launchers.
+
+WR2's local environment has been repaired by linking its existing Python
+library into `.venv/lib`. The normal command above then works without a caller
+`DYLD_FALLBACK_LIBRARY_PATH` setting. The bare launcher and native passive viewer
+passed with that caller variable explicitly unset; the viewer rendered 55 frames
+and closed normally. Python and MuJoCo versions remain **3.11.14 /3.14.0**.
+
+If `.venv` is recreated with uv's standalone Python, repeat this one-time setup:
+
+```bash
+uv run --no-sync python - <<'PY'
+import sys
+import sysconfig
+from pathlib import Path
+
+name = sysconfig.get_config_var("LDLIBRARY")
+source = Path(sys.base_prefix) / "lib" / name
+link = Path(sys.prefix) / "lib" / name
+assert source.is_file(), source
+if not link.exists():
+    link.symlink_to(source)
+print(f"{link} -> {source}")
+PY
+```
+
+The link is local environment setup under ignored `.venv`, pointing to Python
+already installed by uv. It persists while that virtual environment is retained.
 
 ## What the controls test
 
