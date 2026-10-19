@@ -102,20 +102,13 @@ evaluation seeds**, but barely translates: error remains **2.08× TB Paper
 200M** and exceeds the stationary initial policy. See the
 [completed no-push result and revised next plan](docs/design/wr2_no_push_result_20261018.md)
 and [experiment setup](docs/design/wr2_no_push_acquisition_20261018.md).
-The next step is a **paired stance diagnostic** of the selected 260M policy:
-learned actions, reference hip-roll targets, and the full leg reference.
-It checks foot clearance, inward hip-roll clipping, support timing and actual
-translation through the existing actuator pipeline. See the
-[setup and decision criteria](docs/design/wr2_stance_diagnostic_20261018.md).
-Run from the WR2 checkout on the GPU host:
-
-```bash
-uv run --python 3.10 --extra training python -m wr2.tools.diagnose_walking \
-  --paper-stance \
-  --run-dir results/wr2_walking/wr2_paper_20261018_121025_seed3 \
-  --output results/wr2_walking/wr2_paper_20261018_121025_seed3/stance_diagnostic \
-  --seeds 22102
-```
+The **GPU stance diagnostic completed**: reference hip rolls eliminate foot
+self-contact and improve joint execution, but worsen six-direction command
+tracking **44.2%**, with greater drift and poorer support timing. See the
+[result and revised next plan](docs/design/wr2_stance_result_20261018.md).
+The next measurement is the matching TB Paper 200M policy trace before choosing
+a training correction. The [diagnostic guide](docs/design/wr2_stance_diagnostic_20261018.md)
+records the completed command, metrics and matching TB task.
 
 The canonical config retains the completed TB-aligned weight-500 baseline.
 The previously prepared air-time ablation is deferred while stance/geometry

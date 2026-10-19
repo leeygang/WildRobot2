@@ -27,9 +27,11 @@ velocity normalization already works. The **0.28.5 no-push control completed
 but tracking error **.07684** is **2.08× TB Paper 200M** and exceeds the
 stationary initial policy. The learned policy barely translates. See the
 [completed no-push result and revised next plan](wr2_no_push_result_20261018.md).
-The next step investigates the **narrow stance, inward hip-roll clipping and
-foot contact** in the selected policy with paired reference controls. See the
-[stance diagnostic and decision criteria](wr2_stance_diagnostic_20261018.md).
+The **GPU stance diagnostic completed**: reference hip rolls clear self-contact
+and reduce hip tracking error, but worsen six-direction XY error **44.2%**.
+The next measurement is the matching TB Paper 200M policy trace. See the
+[GPU result and revised next plan](wr2_stance_result_20261018.md) and
+[stance diagnostic guide](wr2_stance_diagnostic_20261018.md).
 The canonical config retains the completed **0.28.5 / weight-500** baseline;
 the [previously prepared air-time ablation](wr2_airtime_ablation_20261018.md)
 is deferred. TB succeeds with the same air-time coefficient, so this term's
@@ -39,9 +41,9 @@ TB's effective fixed sliding friction 1.0 remains a secondary candidate: its
 sole colliders and current foot-spacing/reference geometry are retained for
 the stance comparison.
 
-## Run the prepared stance diagnostic
+## Recorded stance diagnostic command
 
-Use the existing diagnostic tool on the GPU host:
+The GPU run below completed. A repeat requires a fresh output directory:
 
 ```bash
 uv run --python 3.10 --extra training python -m wr2.tools.diagnose_walking \

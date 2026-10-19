@@ -1,12 +1,16 @@
 # WR2 stance diagnostic — 2026-10-18
 
-**Next run: paired nominal stance controls on the GPU.** The existing
-`wr2.tools.diagnose_walking` now supports Paper checkpoints. The canonical
+**The paired nominal stance controls completed on the GPU.** All 21 episodes
+are finite. Reference hip rolls eliminate self-contact, but worsen six-direction
+command tracking **44.2%**. See the [GPU result and revised next plan](wr2_stance_result_20261018.md).
+The next measurement is the matching TB Paper 200M policy trace. The canonical
 configuration retains the completed **0.28.5 / air-time weight 500** baseline;
-the earlier weight-0 ablation is deferred. This step measures the stance
-mechanism before choosing a fresh 200–300M training correction.
+the earlier weight-0 ablation is deferred.
 
-## Run from the WR2 checkout
+## Recorded GPU command
+
+This output directory is now complete. A repeat needs a fresh `--output`
+directory because the tool refuses to overwrite `summary.json`.
 
 ```bash
 uv run --python 3.10 --extra training python -m wr2.tools.diagnose_walking \
@@ -152,8 +156,9 @@ stack; this review used native MuJoCo kinematics and cached references only.
 
 ## Following decision and matching TB task
 
-First confirm the WR2 controls on the GPU runtime. Then obtain the matching
-TB learned-policy traces before changing the acquisition recipe. Compare
+The GPU confirms the stance contribution and the tracking regression under
+reference hip rolls. Obtain the matching TB learned-policy traces before
+changing the acquisition recipe. Compare
 delivered-to-actual joint tracking and phase, clearance and drift, rather
 than only each robot's aggregate reference-imitation loss.
 

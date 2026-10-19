@@ -16,10 +16,11 @@ the commanded speed. A paired fixed-friction replay improves tracking
 only **0.58%** and preserves the poor directional response.
 
 This result revises the [setup audit's decision tree](wr2_tb_paper_setup_audit_20261018.md).
-The next step focuses on **narrow stance, inward hip-roll clipping and persistent
-foot-to-foot contact**, using paired learned/reference controls through the
-native actuator pipeline. See the
-[prepared stance diagnostic and decision criteria](wr2_stance_diagnostic_20261018.md).
+The follow-up **GPU stance diagnostic completed**: reference hip rolls clear
+self-contact and improve joint execution, but worsen six-direction command
+tracking **44.2%**. The next measurement is the matching TB Paper 200M policy
+trace. See the [GPU result and revised next plan](wr2_stance_result_20261018.md)
+and [diagnostic guide](wr2_stance_diagnostic_20261018.md).
 The earlier weight-0 air-time ablation is deferred; the canonical configuration
 retains the completed TB-aligned weight-500 baseline.
 Required sole colliders remain active. TB's effective fixed sliding friction
@@ -440,6 +441,10 @@ reward does not directly encode signed surface clearance.
 
 ## 5. Updated next plan
 
+Steps 1–2 below are complete on the GPU. The [stance result](wr2_stance_result_20261018.md)
+confirms that clearance improves while command tracking worsens. Step 3, the
+matching TB policy measurement, is next; a training correction remains unselected.
+
 The first investigation now targets the **stance/geometry interaction**. The
 reward timing calculation is evidence of competing incentives, but TB's
 successful weight-500 training prevents identifying that coefficient as the
@@ -480,9 +485,9 @@ cause. The [air-time ablation](wr2_airtime_ablation_20261018.md) is deferred.
    and the completed WR2 control on both evaluation seeds.
 
 See the [standard diagnostic command, controls and metric definitions](wr2_stance_diagnostic_20261018.md).
-The completed CPU control eliminates self-contact and improves net propulsion,
-but increases drift/oscillation and worsens six-direction tracking. GPU
-confirmation and matching TB policy traces are the prepared next measurement;
+The completed CPU and GPU controls eliminate self-contact and improve net
+propulsion, but increase drift/oscillation and worsen six-direction tracking.
+Matching TB policy traces are the next measurement;
 hard reference hip-roll commands have not qualified as a training correction.
 Native epoch-mean KL rises to **.213** at the final callback;
 the rollout log's recent-100-minibatch windows stay below **.031** and can miss
