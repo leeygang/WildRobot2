@@ -116,6 +116,9 @@ alone is not an established walking fix. See the
 The [TB setup](docs/design/tb_stance_diagnostic_20261018.md) and
 [WR2 diagnostic guide](docs/design/wr2_stance_diagnostic_20261018.md) record the
 completed commands and measurements.
+Use the [recorded-policy viewer](docs/design/wr2_stance_diagnostic_20261018.md#replay-the-recorded-policy-visually)
+to inspect the copied GPU rollout on the Mac with slow motion, frame stepping
+and foot collision outlines.
 
 The canonical config retains the completed TB-aligned weight-500 baseline.
 The previously prepared air-time ablation is deferred while stance/geometry

@@ -33,6 +33,56 @@ traces. The reference audit covers **227 commands ×1,000 poses**, rather than
 only the commands used in the policy controls. Run artifacts remain in the
 ignored results directory.
 
+## Replay the recorded policy visually
+
+Replay the copied GPU rollout locally on the Mac:
+
+```bash
+export DYLD_FALLBACK_LIBRARY_PATH="$(uv run --no-sync python -c 'import sys; print(sys.base_prefix + "/lib")')"
+uv run --no-sync mjpython -m wr2.tools.view_walking \
+  --trace results/wr2_walking/wr2_paper_20261018_121025_seed3/stance_diagnostic/learned_forward_010_seed22102.npz \
+  --playback-speed 0.25
+```
+
+MuJoCo's `mjpython` launcher is required for the macOS interactive viewer.
+The library path resolves its Python dylib when uv's virtual-environment
+interpreter is a symlink; without it, this Mac failed to load
+`libpython3.11.dylib`. The native viewer launch and replay controls were checked
+with this environment setting.
+On a Linux desktop, use `python` in its place. The viewer needs only NumPy and
+MuJoCo; an existing simulation/training environment suffices. It reads the
+NPZ and adjacent `summary.json`, so a GPU or checkpoint loading is unnecessary.
+
+| Control | Action |
+| --- | --- |
+| Space | Pause/resume |
+| `[` / `]` | Pause and step one recorded control tick backward/forward |
+| R | Restart |
+| C | Toggle foot collision outlines |
+| 1 /2 /3 /4 | Front /side /top /perspective camera |
+| Mouse drag /wheel | Rotate /zoom using the native viewer |
+
+The recording loops at its end. Add `--paused` to start on the first frame.
+Blue outlines indicate clear boxes; red indicates recorded box self-contact
+force above .1 N. The text overlay shows recorded floor support, box force,
+signed gap and delivered/actual hip angles. Inspect the foot close-up with C
+both on and off, then check the front view for lateral weight transfer and
+the side view for lift, swing and forward movement. Compare the matching
+`hip_roll_reference_…` or `leg_reference_…` NPZ by changing `--trace`; these
+remain intervention controls, not trained walking policies.
+
+This is pose replay using the current canonical model. It reconstructs foot
+CAD surfaces and outlines from the recorded final-substep foot frames, matching
+the contact sampling instant; the remaining body uses integrated end-of-tick
+qpos. It performs kinematics rather than new dynamics. Contact/force values
+come from the recording. Use the recorded model revision when inspecting a
+historical result after model changes. Pixels alone cannot establish a
+millimeter clearance; use the signed-gap and CAD audits for that decision.
+
+Reference: [MuJoCo Python passive viewer and macOS launcher](https://mujoco.readthedocs.io/en/stable/python.html#passive-viewer).
+This follows the native MuJoCo viewer used for the reference and complements
+TB Paper's front/side/top/perspective rollout views.
+
 ## What the controls test
 
 | Control | Action sent through WR2's existing controller |
