@@ -117,6 +117,11 @@ separated. The first gate is validating a CAD-fitted collider; the policy also
 requests an inward stance that would overlap CAD convex hulls, so geometry
 alone is not an established walking fix. See the
 [paired result and focused next plan](docs/design/wr2_tb_stance_result_20261018.md).
+The [right-hip investigation](docs/design/wr2_right_hip_incentives_20261019.md)
+finds that the current policy falls sideways when only the right hip is
+returned to neutral or moved outward, including during zero-air-time standing.
+TB's successful policy uses an outward right stance; coordinated movement and
+the validated contact model remain the priorities.
 The [TB setup](docs/design/tb_stance_diagnostic_20261018.md) and
 [WR2 diagnostic guide](docs/design/wr2_stance_diagnostic_20261018.md) record the
 completed commands and measurements.

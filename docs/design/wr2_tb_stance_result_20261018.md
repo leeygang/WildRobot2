@@ -1,5 +1,11 @@
 # WR2 and TB Paper GPU stance results — 2026-10-18
 
+The [right-only intervention and reward review](wr2_right_hip_incentives_20261019.md)
+adds evidence that the current policy depends on its inward right leg for
+lateral balance, including during standing with zero air-time reward. It also
+verifies TB's opposite right-hip sign convention and extends the CAD check to
+right-leg/left-foot pairs in new nominal CPU traces.
+
 ## Conclusion and first priority
 
 **The leading measured WR2 problem is its learned inward, contact-constrained
