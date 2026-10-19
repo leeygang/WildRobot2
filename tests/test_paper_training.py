@@ -283,6 +283,11 @@ class EpisodeAccountingEnv(Env):
             no_foot_support_per_step=jp.asarray(0.0),
             left_foot_vertical_force_n_per_step=jp.asarray(1.6),
             right_foot_vertical_force_n_per_step=jp.asarray(0.8),
+            reference_double_support_per_step=jp.asarray(1.0),
+            matched_reference_double_support_per_step=jp.asarray(0.0),
+            foot_self_contact_per_step=jp.asarray(1.0),
+            air_time_credit_s_per_step=jp.asarray(0.08),
+            contact_phase_match_per_step=jp.asarray(0.5),
         )
 
     def step(self, state, action):
@@ -321,6 +326,11 @@ def test_independent_evaluator_stops_after_fall_or_nonfinite_and_keeps_terminal_
     np.testing.assert_allclose(sums[:, 0, 16], 0.0)
     np.testing.assert_allclose(sums[:, 0, 17], 3.2)
     np.testing.assert_allclose(sums[:, 0, 18], 1.6)
+    np.testing.assert_allclose(sums[:, 0, 19], 2.0)
+    np.testing.assert_allclose(sums[:, 0, 20], 0.0)
+    np.testing.assert_allclose(sums[:, 0, 21], 2.0)
+    np.testing.assert_allclose(sums[:, 0, 22], 0.16)
+    np.testing.assert_allclose(sums[:, 0, 23], 1.0)
 
 
 def test_paired_push_evaluations_preserve_models_reset_keys_and_training_config():

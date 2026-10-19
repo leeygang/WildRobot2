@@ -17,8 +17,9 @@ did not apply them to MJX physics. WR2 applied them during training and
 evaluation. The published recipe intends physical perturbations; this control
 matches the local TB run's effective acquisition exposure.
 
-The approved **0.28.5** experiment uses the regular WR2 trainer and the canonical
-[Paper configuration](../../wr2/locomotion/configs/ppo_walking_paper.yaml).
+The approved **0.28.5** experiment used the regular WR2 trainer and Paper
+configuration, now archived in the completed run's `training_config.yaml`.
+The canonical YAML prepares the [next air-time control](wr2_airtime_ablation_20261018.md).
 Relative to completed **0.28.4**, its effective configuration changes only:
 
 | Field | Completed control | Prepared control |
@@ -45,8 +46,8 @@ reward change or critic velocity correction is included.
 From the WR2 checkout:
 
 ```bash
-uv run --extra training python -m wr2.locomotion.train \
-  --config wr2/locomotion/configs/ppo_walking_paper.yaml
+uv run --python 3.10 --extra training python -m wr2.locomotion.train \
+  --config results/wr2_walking/wr2_paper_20261018_121025_seed3/training_config.yaml
 ```
 
 Omit the restore option to initialize actor, critic, normalizer and Adam
@@ -60,8 +61,8 @@ An optional GPU check exercises the actual training batch and both comparison
 profiles:
 
 ```bash
-uv run --extra training python -m wr2.locomotion.train \
-  --config wr2/locomotion/configs/ppo_walking_paper.yaml \
+uv run --python 3.10 --extra training python -m wr2.locomotion.train \
+  --config results/wr2_walking/wr2_paper_20261018_121025_seed3/training_config.yaml \
   --num-timesteps 20480 --num-evals 2
 ```
 

@@ -308,6 +308,7 @@ def smoke_test(steps: int, training_config: TrainingConfig | None = None) -> Non
 def _training_provenance() -> dict:
     from importlib import metadata
     import subprocess
+    import jax
 
     versions = {}
     for package in ("jax", "jaxlib", "mujoco", "mujoco-mjx", "brax", "rsl-rl-lib", "torch", "numpy", "scipy", "flax", "optax", "orbax-checkpoint"):
@@ -328,6 +329,13 @@ def _training_provenance() -> dict:
         "git_dirty": bool(status.stdout.strip()) if status.returncode == 0 else None,
         "python": sys.version.split()[0],
         "packages": versions,
+        "jax_backend": jax.default_backend(),
+        "jax_devices": [
+            {"id": device.id, "platform": device.platform, "kind": device.device_kind}
+            for device in jax.devices()
+        ],
+        "jax_default_matmul_precision": jax.config.jax_default_matmul_precision,
+        "xla_flags": os.environ.get("XLA_FLAGS", ""),
     }
 
 
@@ -581,6 +589,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     paper_evaluators = None
     paper_policy_factory = None
     best_paper_error = math.inf
+    initial_paper_error = None
 
     def save_best_checkpoint(params, candidate: dict[str, object]) -> None:
         nonlocal best_selection_score
@@ -606,7 +615,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         )
 
     def receive_policy_params(step: int, _make_policy, params) -> None:
-        nonlocal paper_evaluators, paper_policy_factory, best_paper_error
+        nonlocal paper_evaluators, paper_policy_factory, best_paper_error, initial_paper_error
         step = int(step)
         latest_params["step"] = step
         latest_params["value"] = params
@@ -657,12 +666,15 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                     continue
                 if step == 0:
                     model.save_params(output / "initial_params", params)
+                    initial_paper_error = summary["walking_xy_error_m_s"]
                 elif training_config.checkpoints.keep_best and summary["eligible"] and summary["walking_xy_error_m_s"] < best_paper_error:
                     best_paper_error = summary["walking_xy_error_m_s"]
                     model.save_params(output / "best_params", params)
                     candidate = {
                         "step": step, "selection_metric": "fixed_walking_xy_error_with_survival_gate",
                         "selection_seed": 12102, "summary": summary,
+                        "initial_walking_xy_error_m_s": initial_paper_error,
+                        "beats_initial_tracking": summary["walking_xy_error_m_s"] < initial_paper_error,
                         "physical_pushes_enabled": report["physical_pushes_enabled"],
                         "confirmation_seed": 22102, "held_out_confirmation_required": True,
                         "evaluation_report": str(evaluation_dir / f"{step:012d}.json"),
@@ -1267,23 +1279,28 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     jax.block_until_ready(params)
     model.save_params(output / "params", params)
     print(f"Saved parameters to {output / 'params'}")
-    if paper_recipe and (output / "best_params").exists():
+    if paper_recipe:
         from wr2.locomotion.paper_evaluation import PaperEvaluator, selection_summary
 
-        print("Confirming the selected candidate on held-out seed 22102...", flush=True)
-        selected = model.load_params(output / "best_params")
-        selected_step = json.loads((output / "best_checkpoint.json").read_text())["step"]
+        print("Confirming initial policy and retained candidate on held-out seed 22102...", flush=True)
+        candidates = [("initial_params", 0, "initial_")]
+        if (output / "best_params").exists():
+            selected_step = json.loads((output / "best_checkpoint.json").read_text())["step"]
+            candidates.append(("best_params", selected_step, ""))
         for name, evaluator in paper_evaluators.items():
-            confirmation = PaperEvaluator(
+            confirmation_evaluator = PaperEvaluator(
                 evaluation_environment, paper_policy_factory, ppo_config.num_eval_envs,
                 randomization_fn if ppo_config.evaluation_randomization else None, seed=22102,
                 pushes=None if name == "paper" else evaluator.pushes_enabled,
-            ).evaluate(selected)
-            (output / f"{name}_confirmation_22102.json").write_text(
-                json.dumps({"step": selected_step, "checkpoint": "best_params",
-                            "checkpoint_sha256": hashlib.sha256((output / "best_params").read_bytes()).hexdigest(),
-                            "summary": selection_summary(confirmation), **confirmation}, allow_nan=False) + "\n"
             )
+            for checkpoint_name, step, prefix in candidates:
+                checkpoint_path = output / checkpoint_name
+                confirmation = confirmation_evaluator.evaluate(model.load_params(checkpoint_path))
+                (output / f"{name}_{prefix}confirmation_22102.json").write_text(
+                    json.dumps({"step": step, "checkpoint": checkpoint_name,
+                                "checkpoint_sha256": hashlib.sha256(checkpoint_path.read_bytes()).hexdigest(),
+                                "summary": selection_summary(confirmation), **confirmation}, allow_nan=False) + "\n"
+                )
 
 
 def _apply_cli_overrides(

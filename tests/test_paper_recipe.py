@@ -1,6 +1,7 @@
 """Regression checks against the completed TB paper control (1982ef3)."""
 
 import copy
+import json
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -435,6 +436,50 @@ def test_delayed_actions_and_native_auto_reset_preserve_paper_timing(paper_env):
     )
 
 
+def test_air_time_ablation_preserves_transition_and_unweighted_credit(paper_env):
+    env = copy.copy(paper_env)
+    env.config = replace(
+        env.config,
+        rewards=replace(env.config.rewards, feet_air_time=0.0),
+        randomization=replace(env.config.randomization, enabled=False),
+    )
+    command = jp.asarray([0.1 * env.config.normalization_scale, 0.0, 0.0])
+    state = jax.jit(env.reset)(jax.random.PRNGKey(0), command)
+    # A landing state's old accumulators must remain observable at weight zero.
+    state = state.replace(info={
+        **state.info,
+        "feet_air_time": jp.asarray([0.08, 0.12]),
+        "previous_contact": jp.zeros(2, dtype=bool),
+    })
+    action = jp.zeros(12)
+    ablated = jax.jit(env.step)(state, action)
+    baseline_env = copy.copy(env)
+    baseline_env.config = replace(
+        env.config, rewards=replace(env.config.rewards, feet_air_time=500.0)
+    )
+    baseline = jax.jit(baseline_env.step)(state, action)
+    np.testing.assert_array_equal(ablated.pipeline_state.q, baseline.pipeline_state.q)
+    np.testing.assert_array_equal(ablated.pipeline_state.qd, baseline.pipeline_state.qd)
+    for name in ablated.obs:
+        np.testing.assert_array_equal(ablated.obs[name], baseline.obs[name])
+    credit = float(ablated.metrics["air_time_credit_s_per_step"])
+    assert credit > 0
+    assert credit == float(baseline.metrics["air_time_credit_s_per_step"])
+    assert float(ablated.metrics["paper_reward/feet_air_time"]) == 0
+    assert float(baseline.reward - ablated.reward) == pytest.approx(
+        500 * env.robot.control_period_s * credit, abs=2e-6
+    )
+    assert float(ablated.reward) == pytest.approx(
+        sum(float(v) for name, v in ablated.metrics.items() if name.startswith("paper_reward/")),
+        abs=2e-6,
+    )
+    assert float(ablated.metrics["matched_reference_double_support_per_step"]) == (
+        float(ablated.metrics["reference_double_support_per_step"])
+        * float(ablated.metrics["double_support_per_step"])
+    )
+    assert float(ablated.metrics["foot_self_contact_per_step"]) == 0
+
+
 def test_explicit_checkpoint_initializer_preserves_legacy_normal_initialization():
     from brax.training.agents.ppo import networks as ppo_networks
 
@@ -553,6 +598,27 @@ def test_normalized_schedule_and_per_episode_aggregates():
     assert groups["walking"]["xy_error_m_s"]["mean"] is None
     assert episodes["walking"]["xy_error_m_s"] == [None, None]
     assert len(CONDITIONS) == 15
+
+
+def test_reference_support_match_uses_episode_denominators_and_air_credit_is_a_sum():
+    sums = np.zeros((3, len(GROUPS), len(MEASUREMENTS)))
+    counts = np.zeros((3, len(GROUPS)), dtype=int)
+    counts[:, 0] = [100, 20, 50]
+    reference = MEASUREMENTS.index("reference_double_support_fraction")
+    match = MEASUREMENTS.index("reference_double_support_match_fraction")
+    air = MEASUREMENTS.index("air_time_credit_s")
+    sums[:, 0, reference] = [50, 2, 0]
+    sums[:, 0, match] = [10, 1, 0]
+    sums[:, 0, air] = [3.2, 0.1, 0]
+    groups, episodes = summarize(sums, counts)
+    assert groups["all"]["reference_double_support_fraction"]["mean"] == pytest.approx(0.2)
+    assert groups["all"]["reference_double_support_match_fraction"]["mean"] == pytest.approx(0.35)
+    assert groups["all"]["reference_double_support_match_fraction"]["episode_count"] == 2
+    assert episodes["all"]["reference_double_support_match_fraction"] == [0.2, 0.5, None]
+    assert groups["all"]["air_time_credit_s"]["mean"] == pytest.approx(1.1)
+    assert episodes["all"]["air_time_credit_s"] == [3.2, 0.1, 0]
+    assert groups["walking"]["reference_double_support_match_fraction"]["mean"] is None
+    json.dumps({"groups": groups, "per_episode": episodes}, allow_nan=False)
 
 
 def test_selection_requires_complete_finite_surviving_suite():

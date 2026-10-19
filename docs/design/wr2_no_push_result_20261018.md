@@ -16,12 +16,13 @@ the commanded speed. A paired fixed-friction replay improves tracking
 only **0.58%** and preserves the poor directional response.
 
 This result revises the [setup audit's decision tree](wr2_tb_paper_setup_audit_20261018.md).
-The required foot colliders remain active. Additional body colliders and the
-proposed flight guard should be deferred. The next step is the matched TB/WR2
-contact and joint-target comparison before choosing another full-budget run.
-TB's effective fixed sliding friction **1.0** is a candidate control with weak
-current evidence for improving propulsion; it is not established as the cause
-of the large tracking gap.
+The next step focuses on the leading reward hypothesis: a fresh **0.28.6 /
+seed 3 /300M** control changes air-time weight **500 →0**, with support-phase
+and foot-contact measurements and paired initial/selected confirmation. See
+the [prepared experiment and decision criteria](wr2_airtime_ablation_20261018.md).
+Required sole colliders remain active. TB's effective fixed sliding friction
+**1.0** remains a secondary candidate with weak current evidence for improving
+propulsion; it is not established as the cause of the large tracking gap.
 WR2's wider feet receive maximum spacing reward while colliding with each
 other, but the proposed global 70 mm bound also penalizes valid rightward
 reference poses. That geometry finding is an investigation target, rather
@@ -362,8 +363,9 @@ loss **−3.16**. The existing spacing term awards its maximum despite the
 observed foot contact, as detailed below. These scores explain why the found
 behavior earns considerable return. The causal explanation for why training
 converges to it remains unisolated: TB has the same air-time/contact formulas
-and weights and succeeds. WR2's geometry, actuator response and the other
-declared differences must be compared before assigning the gap to one term.
+and weights and succeeds. The next ablation tests the objective contribution;
+WR2's geometry, actuator response and other declared differences remain
+possible contributors requiring matched measurements.
 The zero-air-time standing/lateral traces also retain foot contact, so air-time
 credit alone does not explain every command's behavior.
 
@@ -436,73 +438,45 @@ reward does not directly encode signed surface clearance.
 
 ## 5. Updated next plan
 
-The [training difference audit](wr2_tb_paper_setup_audit_20261018.md) maps to
-these actions. Matched diagnostics should determine the next training
-intervention. Fixed contact friction remains a candidate for testing one
-exposure difference; it does not make every WR2/TB training condition identical.
+The [training difference audit](wr2_tb_paper_setup_audit_20261018.md) and reward
+timing audit above support a focused **air-time acquisition control**, now
+prepared as **0.28.6**. This replaces the earlier sequencing that prioritized
+friction diagnostics before selecting a full-budget experiment.
 
-| Audited difference | Application to the next step |
-| --- | --- |
-| Physical pushes absent in frozen TB | Keep zero pushes for acquisition; realized pushes remain a diagnostic and later training stage |
-| Effective contact friction fixed at 1.0 in TB | Candidate fresh 300M control fixes WR2 sliding friction at 1.0; first check early-policy/reference execution for friction-dependent slip, failure or return loss |
-| Dry friction .8–1.2 versus .7–1.3; torso/hand mass changes versus all-body variation; different torque/speed variation | Retain and explicitly declare these differences for the friction control. If needed, test a subsequent TB-style variation control with valid WR2 body mapping and mass scaling; broader body variation alone does not prove greater difficulty |
-| PPO, networks, distribution, action home and moving imitation already aligned | Keep Swish 512/256/128, NormalTanh, 1024×20/four-pass PPO, LR 1e-4, fixed home +.25 rad actions and moving leg imitation |
-| All 25 reward weights match; torque/power means use different motor counts and physical effort units | Keep coefficients for the controlled run. Compare normalized kinematics and per-leg physical effort; the hypothetical torque scale alone does not justify reweighting effort |
-| TB smoothness gather, slip broadcast and timeout-history bugs | Retain WR2's correct local action indexing, per-foot mask and synchronized reset. These are declared differences from frozen code; reproducing bugs is not supported as a production fix |
-| TB 960-tick reference tail/wrap versus WR2 extended reference | Keep the corrected reference, and compare the actual selected reference and contact schedule in diagnostics |
-| WR2 20 ms tick is 24.27 ms in TB units; 30 versus 36 decisions per cycle | Keep the current hardware/control clock for this experiment and report normalized time. A clock change requires a separate controller/delay/target-rate experiment |
-| Wider WR2 feet and persistent policy foot contact | Keep required sole colliders; compare matching TB/WR2 policy and reference traces. The global 70 mm bound penalizes some valid reference poses and is not a validated fix |
-| HTD response, target quantization/slew, joint limits and identified uncertainty | Keep the physical plant; measure request/delivery/actual/reference by joint. Known-load timing and high-load torque-speed/braking must precede parameter replacement |
-| Device, matmul precision and XLA flags missing from WR2 provenance | Record actual values in the next run. Explicitly declare any numerical-mode alignment with TB; saved logs cannot establish the old values |
-| Training seed differs and final checkpoints regress | Keep the paired seed-3 control and all 20M intermediates; confirm held-out draws and repeat a promising recipe with another training seed |
+1. **Test the competing incentive with one objective change.** Start fresh
+   seed 3 for 300M with `feet_air_time: 0`, versus the completed control's 500.
+   Use the same no-push acquisition, native .7–1.3 sliding friction, other
+   variation, plant, reference, joint limits, remaining rewards and PPO. The
+   coefficient change isolates an objective contribution to acquisition;
+   it does not establish a TB recipe bug or guarantee improved walking.
 
-1. **Make checkpoint qualification explicit and complete the diagnostics.**
-   Evaluate initial parameters on both selection and confirmation seeds for
-   paired stationary-baseline comparisons. Record six cardinal responses,
-   start/stop behavior, per-joint clipping and geometric support/foot-contact
-   measures. Add pure-yaw cases because 30% of sampled training commands are
-   turning while the existing benchmark is XY-only. Evaluate TB **180M/200M**
-   from `paper-walking-baseline` with the corresponding contact/target measures
-   before selecting a new gait reward. Keep height eligibility distinct from
-   demonstrated walking and TB parity.
-   Compare early WR2 checkpoints and feasible reference-target execution at
-   sliding friction .7, 1.0 and 1.3 with paired resets and other variation held
-   constant. Record per-contact tangential/normal forces and foot slip, rather
-   than inferring traction limits from commanded speed or total force magnitude.
-   A substantial friction-dependent loss would strengthen the case for the
-   training control. Insensitivity would lower its priority without proving
-   that all effects on fresh learning are absent.
+2. **Measure the strategy and actual commanded motion.** Add reference
+   double-support requests and conditional matches, foot-to-foot contact,
+   stance-label matching and unweighted air-time credit. Reevaluate the old
+   260M checkpoint using its saved configuration for the matching full-suite
+   baseline. Retain all approximately 20M checkpoints, and evaluate initial
+   parameters and the selected trained candidate on held-out seed 22102.
+   Record whether the selected candidate beats its own stationary start.
+   Devices, matmul precision and XLA flags enter run provenance.
 
-2. **Choose the next full-budget acquisition control from those measurements.**
-   If contact-friction variation is supported as a relevant obstacle, use fresh
-   **seed 3 /300M**, physical pushes zero, **friction fixed at 1.0**. Hold the
-   current reward weights/formulas, other variation, plant, joint limits, reference and PPO
-   constant. Retain approximately every 20M. Evaluate both fixed-1.0 and native
-   .7–1.3 friction on both training controls, plus the pushed diagnostic;
-   confirm candidates on held-out draws. Better commanded translation under
-   both evaluation profiles would support an acquisition effect; it is a
-   conditional result, not a predicted benefit. Confirm a promising change
-   with another training seed. Use the regular trainer, with no launch wrapper.
+3. **Judge acquisition against the initial policy and TB Paper.** Require
+   better actual directional translation and normalized walking error on both
+   evaluation seeds, with finite states and ≤1% height failures. Increased
+   double support without translation is not walking acquisition. TB Paper
+   200M error .037025 remains the tracking anchor; retain its 180M survival
+   checkpoint and WR2 intermediates. Repeat a promising recipe with another
+   training seed before treating the result as reproducible.
 
-3. **Use matching TB traces to distinguish the other measured gaps.**
-   Test geometry/reference compatibility, requested/delivered/actual target
-   tracking and the remaining variation differences before a new shaping
-   term. A spacing change must respect attainable, collision-free reference
-   poses. If feasible targets execute but the actor still chooses unloading
-   without progress, a single air-time-term ablation can test the objective
-   tradeoff against a full-budget Paper control. An opposite-support guard
-   has weak justification for this almost flight-free policy.
+4. **Use the result to select the following experiment.** If removing air-time
+   credit changes support but leaves tracking stalled, complete matched
+   TB/WR2 reference-execution and requested/delivered/actual joint traces to
+   choose a plant or geometry test. The global 70 mm spacing bound conflicts
+   with valid reference poses. Friction remains secondary pending stronger
+   acquisition evidence. Develop push robustness from a policy that has
+   acquired commanded walking.
 
-4. **Develop robustness after walking acquisition.** This checkpoint fails
-   the basic tracking qualification; its 47.8% held-out pushed failure rate
-   also records the remaining disturbance gap. Use a checkpoint that has
-   acquired commanded walking as the parent for robustness training, and a
-   TB control trained with realized pushes before comparing published
-   robustness.
-
-The canonical YAML currently reproduces completed **0.28.5**. The fixed-friction
-control remains a candidate pending the diagnostics above. Native epoch-mean KL
-rises to **.213** at the final callback;
+See the [prepared settings, standard commands and metric definitions](wr2_airtime_ablation_20261018.md).
+Native epoch-mean KL rises to **.213** at the final callback;
 the rollout log's recent-100-minibatch windows stay below **.031** and can miss
 larger updates. This late instability supports retaining intermediates, but
 the much earlier propulsion plateau does not justify an LR-only continuation.

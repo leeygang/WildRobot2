@@ -1118,6 +1118,8 @@ class WR2WalkingEnv(PipelineEnv):
                 "left_foot_displacement_m_per_step", "right_foot_displacement_m_per_step",
                 "single_support_per_step", "no_foot_support_per_step",
                 "left_foot_vertical_force_n_per_step", "right_foot_vertical_force_n_per_step",
+                "reference_double_support_per_step", "matched_reference_double_support_per_step",
+                "foot_self_contact_per_step", "air_time_credit_s_per_step",
             )})
         metrics = {name: jp.zeros_like(value) for name, value in metrics.items()}
         info = {
@@ -1644,6 +1646,10 @@ class WR2WalkingEnv(PipelineEnv):
             (pipeline.contact.dist < 0) & (jp.linalg.norm(forces[:, :3], axis=1) > 0.1)
             & (geom1 != self._floor_geom_id) & (geom2 != self._floor_geom_id)
         )
+        foot_pair = (
+            ((geom1 == self._foot_geom_ids[0]) & (geom2 == self._foot_geom_ids[1]))
+            | ((geom1 == self._foot_geom_ids[1]) & (geom2 == self._foot_geom_ids[0]))
+        )
         # Native TB counts both directions of each collider pair. Multiple
         # contact points on one pair still represent one collision.
         pairs = jp.minimum(geom1, geom2) * self.sys.ngeom + jp.maximum(geom1, geom2)
@@ -1758,6 +1764,12 @@ class WR2WalkingEnv(PipelineEnv):
             "no_foot_support_per_step": (~jp.any(contact)).astype(jp.float32),
             "left_foot_vertical_force_n_per_step": foot_vertical_forces[0],
             "right_foot_vertical_force_n_per_step": foot_vertical_forces[1],
+            "reference_double_support_per_step": jp.all(reference_contact).astype(jp.float32),
+            "matched_reference_double_support_per_step": (
+                jp.all(reference_contact) & jp.all(contact)
+            ).astype(jp.float32),
+            "foot_self_contact_per_step": jp.any(collision_active & foot_pair).astype(jp.float32),
+            "air_time_credit_s_per_step": terms["feet_air_time"],
             "contact_phase_match_per_step": terms["feet_contact"] / 2,
             "left_foot_height_m_per_step": foot_height[0], "right_foot_height_m_per_step": foot_height[1],
             "left_foot_target_height_m_per_step": reference_height[0], "right_foot_target_height_m_per_step": reference_height[1],

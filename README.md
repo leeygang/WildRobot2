@@ -102,15 +102,18 @@ evaluation seeds**, but barely translates: error remains **2.08× TB Paper
 200M** and exceeds the stationary initial policy. See the
 [completed no-push result and revised next plan](docs/design/wr2_no_push_result_20261018.md)
 and [experiment setup](docs/design/wr2_no_push_acquisition_20261018.md).
-The canonical configuration reproduces this completed control on the GPU host:
+The next **0.28.6 fresh 300M control** tests the leading reward hypothesis by
+changing the air-time coefficient from **500 to 0**. See the
+[controlled setup, evidence and decision criteria](docs/design/wr2_airtime_ablation_20261018.md).
+The canonical configuration is ready on the GPU host:
 
 ```bash
-uv run --extra training python -m wr2.locomotion.train \
+uv run --python 3.10 --extra training python -m wr2.locomotion.train \
   --config wr2/locomotion/configs/ppo_walking_paper.yaml
 ```
 
-The guide records the optional full GPU batch check, paired no-push/pushed
-reports, fixed crouched home, normalized reference/commands and retained controls.
+The guide records the optional full GPU batch check, paired initial/candidate
+comparisons, support-phase and foot-contact measurements, and retained controls.
 The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)
 compares actual reward formulas, clocks, effective variation, resets and metrics.
 Actor/critic inputs are 975/1485 for this recipe. WR2 training is self-contained.

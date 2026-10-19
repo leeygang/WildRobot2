@@ -53,6 +53,11 @@ MEASUREMENTS = (
     "no_foot_support_fraction",
     "left_foot_vertical_force_n",
     "right_foot_vertical_force_n",
+    "reference_double_support_fraction",
+    "reference_double_support_match_fraction",
+    "foot_self_contact_fraction",
+    "air_time_credit_s",
+    "contact_phase_match_fraction",
 )
 
 
@@ -92,6 +97,9 @@ def set_command(state, command, scale):
 def summarize(sums, counts):
     """Average within episodes first; RMSE is sqrt of each episode's mean MSE."""
     groups, per_episode = {}, {}
+    reference_index = MEASUREMENTS.index("reference_double_support_fraction")
+    match_index = MEASUREMENTS.index("reference_double_support_match_fraction")
+    air_index = MEASUREMENTS.index("air_time_credit_s")
     for group_index, name in enumerate(GROUPS):
         count = counts[:, group_index]
         eligible = count > 0
@@ -104,20 +112,29 @@ def summarize(sums, counts):
         mean[:, 4] = np.sqrt(np.maximum(mean[:, 4], 0))
         mean[:, 5] = np.sqrt(np.maximum(mean[:, 5], 0))
         mean[:, 13:15] = sums[:, group_index, 13:15]
+        mean[:, air_index] = sums[:, group_index, air_index]
+        reference_count = sums[:, group_index, reference_index]
+        mean[:, match_index] = np.divide(
+            sums[:, group_index, match_index], reference_count,
+            out=np.zeros_like(reference_count), where=reference_count > 0,
+        )
         groups[name] = {
             "sample_count": int(count.sum()),
             "episode_count": int(eligible.sum()),
         }
         per_episode[name] = {"sample_count": count.tolist()}
         for index, measurement in enumerate(MEASUREMENTS):
-            values = mean[eligible, index]
+            measurement_eligible = eligible & (reference_count > 0) if index == match_index else eligible
+            values = mean[measurement_eligible, index]
             groups[name][measurement] = {
                 "mean": float(values.mean()) if values.size else None,
                 "std": float(values.std()) if values.size else None,
             }
+            if index == match_index:
+                groups[name][measurement]["episode_count"] = int(measurement_eligible.sum())
             per_episode[name][measurement] = [
                 float(v) if valid else None
-                for v, valid in zip(mean[:, index], eligible, strict=True)
+                for v, valid in zip(mean[:, index], measurement_eligible, strict=True)
             ]
     return groups, per_episode
 
@@ -243,6 +260,11 @@ class PaperEvaluator:
                     m["no_foot_support_per_step"],
                     m["left_foot_vertical_force_n_per_step"],
                     m["right_foot_vertical_force_n_per_step"],
+                    m["reference_double_support_per_step"],
+                    m["matched_reference_double_support_per_step"],
+                    m["foot_self_contact_per_step"],
+                    m["air_time_credit_s_per_step"],
+                    m["contact_phase_match_per_step"],
                 ],
                 axis=1,
             )
@@ -306,7 +328,7 @@ class PaperEvaluator:
                 }
             )
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "seed": self.seed,
             "normalization_scale": self.scale,
             "com_height_m": self.com_height,
@@ -316,6 +338,8 @@ class PaperEvaluator:
             "measurement_sampling": "end_of_control_step",
             "support_contact_rule": "summed upward floor/foot force",
             "support_contact_force_threshold_n": self.env.config.contact_force_threshold_n,
+            "reference_double_support_match_rule": "per-episode matched/reference double-support ticks; null without reference double support",
+            "air_time_credit_rule": "sum of command-eligible landing durations before reward weight and control-period multiplication",
             "profile": "engineering_20s"
             if self.schedule_scale == 1.0
             else "TB_normalized",

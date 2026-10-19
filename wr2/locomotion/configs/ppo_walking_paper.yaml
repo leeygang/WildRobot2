@@ -11,9 +11,10 @@
 # Keep the interval/key split; critic push features become zero.
 # Paired checkpoint evaluations also test realized, size-scaled TB pushes.
 # Train without --restore-checkpoint; compare with the fresh seed-3 control.
+# Air-time ablation: 0.28.5 used 500; this control changes only that reward weight.
 # See docs/design/wr2_paper_training.md for the experiment and retained controls.
-version: 0.28.5
-version_name: WR2 ToddlerBot paper acquisition without physical pushes
+version: 0.28.6
+version_name: WR2 ToddlerBot paper acquisition air-time ablation
 seed: 3
 environment:
   episode_length: 1000
@@ -105,7 +106,7 @@ reward_weights:
   arm_motor_pos: 0.0
   waist_motor_pos: 0.0
   feet_contact: 1.0
-  feet_air_time: 500.0
+  feet_air_time: 0.0
   feet_clearance: 0.05
   feet_distance: 1.0
   feet_slip: 0.05
@@ -233,4 +234,4 @@ checkpoints:
   qualification_goal: null
 output:
   root: results/wr2_walking
-  run_prefix: wr2_paper
+  run_prefix: wr2_paper_airtime0

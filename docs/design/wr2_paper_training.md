@@ -27,27 +27,44 @@ velocity normalization already works. The **0.28.5 no-push control completed
 but tracking error **.07684** is **2.08× TB Paper 200M** and exceeds the
 stationary initial policy. The learned policy barely translates. See the
 [completed no-push result and revised next plan](wr2_no_push_result_20261018.md).
-Required foot colliders remain active. The next step is matched TB/WR2 contact
-and joint-target diagnostics before choosing another full-budget run. TB's
-effective **fixed sliding friction 1.0** remains a candidate control; its
-0.58% frozen-policy benefit provides weak evidence for a propulsion gain.
-Body collider expansion and the flight guard are deferred. A global 70 mm
-foot-spacing bound conflicts with valid rightward
-reference poses, so it is an unvalidated proposal. The canonical configuration
-still records completed **0.28.5**.
+The canonical configuration now prepares **0.28.6**, a fresh 300M control with
+air-time weight **500 →0**. The measured reward/support-timing conflict makes
+this a focused test of the leading acquisition hypothesis. See the
+[evidence, controlled settings and decision criteria](wr2_airtime_ablation_20261018.md).
+TB's effective fixed sliding friction 1.0 remains a secondary candidate: its
+0.58% frozen-policy benefit supplies weak propulsion evidence. The required
+sole colliders and current foot-spacing/reference geometry are retained for
+the objective comparison.
+
+## Start the prepared air-time acquisition control
+
+Use the regular trainer on the GPU host:
+
+```bash
+uv run --python 3.10 --extra training python -m wr2.locomotion.train \
+  --config wr2/locomotion/configs/ppo_walking_paper.yaml
+```
+
+This starts fresh, **seed 3 / fixed LR 1e−4 / 300M**, with air-time weight zero.
+Python 3.10 selects the existing locked GPU-control runtime. The
+[experiment guide](wr2_airtime_ablation_20261018.md) includes the optional
+actual-batch check, baseline evaluation command, added contact measurements
+and paired initial/selected held-out confirmation. Judge actual translation
+and normalized walking error against the initial policy and TB Paper.
 
 ## Reproduce the completed no-push acquisition control
 
 Use the regular trainer on the GPU host:
 
 ```bash
-uv run --extra training python -m wr2.locomotion.train \
-  --config wr2/locomotion/configs/ppo_walking_paper.yaml
+uv run --python 3.10 --extra training python -m wr2.locomotion.train \
+  --config results/wr2_walking/wr2_paper_20261018_121025_seed3/training_config.yaml
 ```
 
 This starts fresh, **seed 3 / fixed LR 1e−4 / 300M**, with physical push
 amplitudes zero and the current actuator physics, TB rewards/reference and
-PPO settings. Each retained checkpoint gets paired no-push and physical-push
+PPO settings. Its saved 0.28.5 YAML preserves air-time weight 500. Each retained
+checkpoint gets paired no-push and physical-push
 evaluations. Selection uses the no-push score. See the
 [experiment setup, commands and interpretation](wr2_no_push_acquisition_20261018.md).
 
