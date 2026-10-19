@@ -1,6 +1,8 @@
 # Matching TB Paper stance diagnostic — 2026-10-18
 
-**Ready for the GPU measurement.** The diagnostic loads TB Paper's completed
+**The GPU measurement completed and its copied traces passed the independent
+audit.** See the [paired result, CAD check and focused next plan](wr2_tb_stance_result_20261018.md).
+The setup below records the completed measurement. The diagnostic loads TB Paper's completed
 200M policy and uses the same learned, hip-roll-reference and full-leg-reference
 controls as the [completed WR2 test](wr2_stance_result_20261018.md). It retains
 the frozen local `paper-walking-baseline` source at `a4f693d`, native Brax

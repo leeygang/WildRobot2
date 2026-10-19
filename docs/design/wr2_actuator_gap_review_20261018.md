@@ -117,8 +117,11 @@ scaled; the actuator's response does not acquire that scaling automatically.**
 WR2 is also not a uniform geometric copy. Its foot-center separation is about
 81.4 mm versus TB's 74.0 mm despite its smaller CoM height. Both collision feet
 are approximately 120 mm long; WR2's lateral width is about 58.8 mm versus
-49 mm TB. Leg geometry, body CoM and contact lever arms must be measured on
-each model. A scalar height ratio cannot remove those differences.
+42 mm TB. The [matching stance/CAD audit](wr2_tb_stance_result_20261018.md)
+corrects this lateral comparison: 49 mm is TB's other local box dimension;
+its native-home lateral projection is 42 mm. Leg geometry, body CoM and contact
+lever arms must be measured on each model. A scalar height ratio cannot remove
+those differences.
 
 ### Velocity point matters, but does not remove the remaining gap
 

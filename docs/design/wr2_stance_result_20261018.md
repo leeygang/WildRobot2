@@ -1,5 +1,12 @@
 # WR2 GPU stance diagnostic result — 2026-10-18
 
+**The matching TB GPU traces have now been reviewed.** The
+[paired result and CAD double check](wr2_tb_stance_result_20261018.md) supersede
+the pending TB measurement and conditional next plan below. Box contact occurs
+while the imported CAD feet remain separated; validate the collider before
+tuning spacing around those constraints. The inward target/coordination issue
+remains, so geometry correction alone is not established as a walking fix.
+
 ## Conclusion
 
 The copied **GPU diagnostic completed successfully**. It confirms a contribution

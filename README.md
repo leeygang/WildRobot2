@@ -106,11 +106,16 @@ The **GPU stance diagnostic completed**: reference hip rolls eliminate foot
 self-contact and improve joint execution, but worsen six-direction command
 tracking **44.2%**, with greater drift and poorer support timing. See the
 [result and revised next plan](docs/design/wr2_stance_result_20261018.md).
-The next measurement is the matching TB Paper 200M policy trace before choosing
-a training correction. The [matching TB diagnostic](docs/design/tb_stance_diagnostic_20261018.md)
-is ready with an isolated-checkout setup, a small text patch and the direct `uv`
-command. The [WR2 diagnostic guide](docs/design/wr2_stance_diagnostic_20261018.md)
-records its completed command and metrics.
+The **matching TB Paper 200M GPU diagnostic completed**. TB walks with no foot
+self-contact; nominal tracking error is **2.69× lower** than WR2. An independent
+CAD check finds that WR2's boxes contact while the imported foot parts remain
+separated. The first gate is validating a CAD-fitted collider; the policy also
+requests an inward stance that would overlap CAD convex hulls, so geometry
+alone is not an established walking fix. See the
+[paired result and focused next plan](docs/design/wr2_tb_stance_result_20261018.md).
+The [TB setup](docs/design/tb_stance_diagnostic_20261018.md) and
+[WR2 diagnostic guide](docs/design/wr2_stance_diagnostic_20261018.md) record the
+completed commands and measurements.
 
 The canonical config retains the completed TB-aligned weight-500 baseline.
 The previously prepared air-time ablation is deferred while stance/geometry

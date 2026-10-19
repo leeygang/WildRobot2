@@ -3,9 +3,9 @@
 **The paired nominal stance controls completed on the GPU.** All 21 episodes
 are finite. Reference hip rolls eliminate self-contact, but worsen six-direction
 command tracking **44.2%**. See the [GPU result and revised next plan](wr2_stance_result_20261018.md).
-The [matching TB Paper 200M diagnostic](tb_stance_diagnostic_20261018.md) is now
-prepared with a portable text patch, isolated-checkout setup and direct `uv`
-command. The canonical
+The [matching TB Paper 200M diagnostic](tb_stance_diagnostic_20261018.md) has also
+completed. See the [paired result and CAD double check](wr2_tb_stance_result_20261018.md)
+for the current priorities. The canonical
 configuration retains the completed **0.28.5 / air-time weight 500** baseline;
 the earlier weight-0 ablation is deferred.
 
