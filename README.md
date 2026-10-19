@@ -102,18 +102,25 @@ evaluation seeds**, but barely translates: error remains **2.08× TB Paper
 200M** and exceeds the stationary initial policy. See the
 [completed no-push result and revised next plan](docs/design/wr2_no_push_result_20261018.md)
 and [experiment setup](docs/design/wr2_no_push_acquisition_20261018.md).
-The next **0.28.6 fresh 300M control** tests the leading reward hypothesis by
-changing the air-time coefficient from **500 to 0**. See the
-[controlled setup, evidence and decision criteria](docs/design/wr2_airtime_ablation_20261018.md).
-The canonical configuration is ready on the GPU host:
+The next step is a **paired stance diagnostic** of the selected 260M policy:
+learned actions, reference hip-roll targets, and the full leg reference.
+It checks foot clearance, inward hip-roll clipping, support timing and actual
+translation through the existing actuator pipeline. See the
+[setup and decision criteria](docs/design/wr2_stance_diagnostic_20261018.md).
+Run from the WR2 checkout on the GPU host:
 
 ```bash
-uv run --python 3.10 --extra training python -m wr2.locomotion.train \
-  --config wr2/locomotion/configs/ppo_walking_paper.yaml
+uv run --python 3.10 --extra training python -m wr2.tools.diagnose_walking \
+  --paper-stance \
+  --run-dir results/wr2_walking/wr2_paper_20261018_121025_seed3 \
+  --output results/wr2_walking/wr2_paper_20261018_121025_seed3/stance_diagnostic \
+  --seeds 22102
 ```
 
-The guide records the optional full GPU batch check, paired initial/candidate
-comparisons, support-phase and foot-contact measurements, and retained controls.
+The canonical config retains the completed TB-aligned weight-500 baseline.
+The previously prepared air-time ablation is deferred while stance/geometry
+is investigated. The guide specifies the matching TB measurements and the
+evidence needed to choose a training change.
 The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)
 compares actual reward formulas, clocks, effective variation, resets and metrics.
 Actor/critic inputs are 975/1485 for this recipe. WR2 training is self-contained.

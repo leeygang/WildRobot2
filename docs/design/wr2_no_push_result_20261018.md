@@ -16,10 +16,12 @@ the commanded speed. A paired fixed-friction replay improves tracking
 only **0.58%** and preserves the poor directional response.
 
 This result revises the [setup audit's decision tree](wr2_tb_paper_setup_audit_20261018.md).
-The next step focuses on the leading reward hypothesis: a fresh **0.28.6 /
-seed 3 /300M** control changes air-time weight **500 →0**, with support-phase
-and foot-contact measurements and paired initial/selected confirmation. See
-the [prepared experiment and decision criteria](wr2_airtime_ablation_20261018.md).
+The next step focuses on **narrow stance, inward hip-roll clipping and persistent
+foot-to-foot contact**, using paired learned/reference controls through the
+native actuator pipeline. See the
+[prepared stance diagnostic and decision criteria](wr2_stance_diagnostic_20261018.md).
+The earlier weight-0 air-time ablation is deferred; the canonical configuration
+retains the completed TB-aligned weight-500 baseline.
 Required sole colliders remain active. TB's effective fixed sliding friction
 **1.0** remains a secondary candidate with weak current evidence for improving
 propulsion; it is not established as the cause of the large tracking gap.
@@ -363,7 +365,7 @@ loss **−3.16**. The existing spacing term awards its maximum despite the
 observed foot contact, as detailed below. These scores explain why the found
 behavior earns considerable return. The causal explanation for why training
 converges to it remains unisolated: TB has the same air-time/contact formulas
-and weights and succeeds. The next ablation tests the objective contribution;
+and weights and succeeds. The next diagnostic tests the stance contribution;
 WR2's geometry, actuator response and other declared differences remain
 possible contributors requiring matched measurements.
 The zero-air-time standing/lateral traces also retain foot contact, so air-time
@@ -438,44 +440,50 @@ reward does not directly encode signed surface clearance.
 
 ## 5. Updated next plan
 
-The [training difference audit](wr2_tb_paper_setup_audit_20261018.md) and reward
-timing audit above support a focused **air-time acquisition control**, now
-prepared as **0.28.6**. This replaces the earlier sequencing that prioritized
-friction diagnostics before selecting a full-budget experiment.
+The first investigation now targets the **stance/geometry interaction**. The
+reward timing calculation is evidence of competing incentives, but TB's
+successful weight-500 training prevents identifying that coefficient as the
+cause. The [air-time ablation](wr2_airtime_ablation_20261018.md) is deferred.
 
-1. **Test the competing incentive with one objective change.** Start fresh
-   seed 3 for 300M with `feet_air_time: 0`, versus the completed control's 500.
-   Use the same no-push acquisition, native .7–1.3 sliding friction, other
-   variation, plant, reference, joint limits, remaining rewards and PPO. The
-   coefficient change isolates an objective contribution to acquisition;
-   it does not establish a TB recipe bug or guarantee improved walking.
+1. **Audit reference clearance and reachability.** Check signed sole-to-sole
+   separation, joint limits and the home-centered action range for every
+   nominal training lookup pose. A proposed global 70 mm body-spacing bound
+   already conflicts with valid rightward reference poses.
 
-2. **Measure the strategy and actual commanded motion.** Add reference
-   double-support requests and conditional matches, foot-to-foot contact,
-   stance-label matching and unweighted air-time credit. Reevaluate the old
-   260M checkpoint using its saved configuration for the matching full-suite
-   baseline. Retain all approximately 20M checkpoints, and evaluate initial
-   parameters and the selected trained candidate on held-out seed 22102.
-   Record whether the selected candidate beats its own stationary start.
-   Devices, matmul precision and XLA flags enter run provenance.
+2. **Test the observed hip-roll stance through the existing controller.** Replay
+   the selected 260M policy unchanged, then replace only its hip-roll targets
+   with the walking reference. Add full leg-reference execution as a teacher/
+   plant diagnostic. Use paired resets, fixed directional commands, nominal
+   physics and the real action delay, quantization, limits and slew. Measure
+   signed clearance, self-contact force, floor support, clipping, joint tracking
+   and actual translation. Prescribed reference controls can fall without
+   proving the plant cannot walk.
 
-3. **Judge acquisition against the initial policy and TB Paper.** Require
-   better actual directional translation and normalized walking error on both
-   evaluation seeds, with finite states and ≤1% height failures. Increased
-   double support without translation is not walking acquisition. TB Paper
-   200M error .037025 remains the tracking anchor; retain its 180M survival
-   checkpoint and WR2 intermediates. Repeat a promising recipe with another
-   training seed before treating the result as reproducible.
+3. **Obtain the same measurements from TB Paper.** Use the local
+   `paper-walking-baseline` source and its 200M policy, with the retained 180M
+   survival checkpoint. Compare normalized velocities and durations, support
+   timing, signed clearance and requested/delivered/actual hip-roll positions.
+   Different robots' aggregate leg-reference errors alone cannot identify
+   servo tracking quality.
 
-4. **Use the result to select the following experiment.** If removing air-time
-   credit changes support but leaves tracking stalled, complete matched
-   TB/WR2 reference-execution and requested/delivered/actual joint traces to
-   choose a plant or geometry test. The global 70 mm spacing bound conflicts
-   with valid reference poses. Friction remains secondary pending stronger
-   acquisition evidence. Develop push robustness from a policy that has
-   acquired commanded walking.
+4. **Select a training correction from the measured mechanism.** A reference
+   collision or action-reach failure requires reference/action validation
+   before training. The new diagnostic confirms both also occur in TB's
+   cached teacher, so neither property automatically calls for changing the
+   shared action/reference design. Reduced self-contact plus restored
+   command tracking under the hip-roll control would support a stance-specific
+   acquisition change. If
+   contact improves without translation, stance clearance is insufficient;
+   investigate reference execution and delivered-to-actual joint response.
+   Use a fresh 200–300M TB-aligned run for a justified correction, retain all
+   intermediate checkpoints and require improvement over the initial policy
+   and the completed WR2 control on both evaluation seeds.
 
-See the [prepared settings, standard commands and metric definitions](wr2_airtime_ablation_20261018.md).
+See the [standard diagnostic command, controls and metric definitions](wr2_stance_diagnostic_20261018.md).
+The completed CPU control eliminates self-contact and improves net propulsion,
+but increases drift/oscillation and worsens six-direction tracking. GPU
+confirmation and matching TB policy traces are the prepared next measurement;
+hard reference hip-roll commands have not qualified as a training correction.
 Native epoch-mean KL rises to **.213** at the final callback;
 the rollout log's recent-100-minibatch windows stay below **.031** and can miss
 larger updates. This late instability supports retaining intermediates, but

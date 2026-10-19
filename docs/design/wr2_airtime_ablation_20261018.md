@@ -1,11 +1,16 @@
 # WR2 air-time acquisition control — 2026-10-18
 
-**Prepared: 0.28.6, fresh seed 3, 300M transitions.** The controlled objective
-change is `feet_air_time: 500 → 0`. Use the regular WR2 trainer.
+**Deferred.** The earlier preparation at commit `d4008ee` specified 0.28.6,
+fresh seed 3, 300M transitions and `feet_air_time: 500 → 0`. The current
+canonical configuration restores the completed weight-500 baseline.
+First run the [paired stance diagnostic](wr2_stance_diagnostic_20261018.md)
+to investigate inward hip-roll clipping and foot contact. The commands below
+describe the historical ablation configuration and require that configuration;
+they do not launch an air-time ablation from the current checkout.
 
 ## Hypothesis and evidence
 
-The leading working hypothesis is that the reward allows WR2 to acquire
+The ablation hypothesis is that the reward allows WR2 to acquire
 near-stationary foot unloading instead of commanded translation. The
 [completed 0.28.5 review](wr2_no_push_result_20261018.md) identifies a concrete
 incentive competing with the reference support schedule. In the selected

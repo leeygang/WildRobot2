@@ -27,30 +27,37 @@ velocity normalization already works. The **0.28.5 no-push control completed
 but tracking error **.07684** is **2.08× TB Paper 200M** and exceeds the
 stationary initial policy. The learned policy barely translates. See the
 [completed no-push result and revised next plan](wr2_no_push_result_20261018.md).
-The canonical configuration now prepares **0.28.6**, a fresh 300M control with
-air-time weight **500 →0**. The measured reward/support-timing conflict makes
-this a focused test of the leading acquisition hypothesis. See the
-[evidence, controlled settings and decision criteria](wr2_airtime_ablation_20261018.md).
+The next step investigates the **narrow stance, inward hip-roll clipping and
+foot contact** in the selected policy with paired reference controls. See the
+[stance diagnostic and decision criteria](wr2_stance_diagnostic_20261018.md).
+The canonical config retains the completed **0.28.5 / weight-500** baseline;
+the [previously prepared air-time ablation](wr2_airtime_ablation_20261018.md)
+is deferred. TB succeeds with the same air-time coefficient, so this term's
+causal contribution remains unisolated.
 TB's effective fixed sliding friction 1.0 remains a secondary candidate: its
 0.58% frozen-policy benefit supplies weak propulsion evidence. The required
 sole colliders and current foot-spacing/reference geometry are retained for
-the objective comparison.
+the stance comparison.
 
-## Start the prepared air-time acquisition control
+## Run the prepared stance diagnostic
 
-Use the regular trainer on the GPU host:
+Use the existing diagnostic tool on the GPU host:
 
 ```bash
-uv run --python 3.10 --extra training python -m wr2.locomotion.train \
-  --config wr2/locomotion/configs/ppo_walking_paper.yaml
+uv run --python 3.10 --extra training python -m wr2.tools.diagnose_walking \
+  --paper-stance \
+  --run-dir results/wr2_walking/wr2_paper_20261018_121025_seed3 \
+  --output results/wr2_walking/wr2_paper_20261018_121025_seed3/stance_diagnostic \
+  --seeds 22102
 ```
 
-This starts fresh, **seed 3 / fixed LR 1e−4 / 300M**, with air-time weight zero.
-Python 3.10 selects the existing locked GPU-control runtime. The
-[experiment guide](wr2_airtime_ablation_20261018.md) includes the optional
-actual-batch check, baseline evaluation command, added contact measurements
-and paired initial/selected held-out confirmation. Judge actual translation
-and normalized walking error against the initial policy and TB Paper.
+This evaluates the selected 260M checkpoint through three nominal controls,
+without noise, randomization or pushes. The saved training configuration
+supplies the reference, controller and limits. Python 3.10 selects the existing
+locked GPU-control runtime. Full reference-table geometry checks and raw joint/
+contact traces accompany `summary.json`. The
+[diagnostic guide](wr2_stance_diagnostic_20261018.md) explains the controls,
+matching TB measurements and the evidence required before another training run.
 
 ## Reproduce the completed no-push acquisition control
 

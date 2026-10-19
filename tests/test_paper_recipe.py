@@ -326,6 +326,80 @@ def home_pipeline(env):
     )
 
 
+def test_paper_stance_intervention_retains_native_action_delay_and_target_pipeline(
+    paper_env,
+):
+    from wr2.tools.diagnose_walking import reference_action, target_trace
+
+    env = paper_env
+    command = jp.asarray([0.1 * env.config.normalization_scale, 0.0, 0.0])
+    state = jax.jit(env.reset)(jax.random.PRNGKey(14), command)
+    reference, _, _ = env._zmp_reference.get_reference(0.28, command)
+    names = [env.robot.actuator_names[j] for j in np.asarray(env._active_indices)]
+    hip_mask = jp.asarray([name.endswith("_hip_roll") for name in names])
+    action = jp.full(env.action_size, 0.7)
+    amended = reference_action(env, action, reference, hip_mask)
+    np.testing.assert_array_equal(amended[~hip_mask], action[~hip_mask])
+    np.testing.assert_allclose(
+        env._policy_target(amended)[env._active_indices][hip_mask],
+        reference[env._active_indices][hip_mask],
+        atol=1e-7,
+    )
+    step = jax.jit(env.step)
+    learned = step(state, action)
+    hybrid = step(state, amended)
+    # At tick one both physically apply the same previous action, despite
+    # different current requests. The intervention preserves the real delay.
+    np.testing.assert_array_equal(learned.pipeline_state.q, hybrid.pipeline_state.q)
+    np.testing.assert_array_equal(learned.pipeline_state.qd, hybrid.pipeline_state.qd)
+    following = step(hybrid, amended)
+    assert float(following.done) == 0
+    _, delivered, _, _, _ = target_trace(env, hybrid, amended)
+    np.testing.assert_allclose(delivered, following.info["previous_target"], atol=1e-7)
+    assert np.max(np.abs(np.asarray(delivered - hybrid.info["previous_target"]))) > 0
+
+
+def test_reference_geometry_audit_uses_actual_time_zero_home(paper_env):
+    from wr2.tools.diagnose_walking import reference_geometry_audit
+
+    env = paper_env
+    reference = env._zmp_reference
+    # Deliberately invalid saved frame zero: production substitutes standing
+    # motors/geometry and double support at time zero for every command.
+    bogus = reference.standing_qpos.copy()
+    bogus[np.asarray(env._joint_qpos_indices)] += 2.0
+    audit_env = SimpleNamespace(
+        config=env.config,
+        _foot_geom_ids=env._foot_geom_ids,
+        _active_indices=env._active_indices,
+        _home_ctrl=env._home_ctrl,
+        _ctrl_lower=env._ctrl_lower,
+        _ctrl_upper=env._ctrl_upper,
+        _zmp_reference=SimpleNamespace(
+            standing_qpos=reference.standing_qpos,
+            _joint_indices=reference._joint_indices,
+            _host={
+                "commands": np.zeros((1, 3)),
+                "qpos": bogus[None, None, :],
+                "stance": np.zeros((1, 1, 2), bool),
+            },
+        ),
+    )
+    result = reference_geometry_audit(audit_env, env.sys.mj_model)
+    data = mujoco.MjData(env.sys.mj_model)
+    data.qpos[:] = reference.standing_qpos
+    mujoco.mj_kinematics(env.sys.mj_model, data)
+    expected = mujoco.mj_geomDistance(
+        env.sys.mj_model, data, *np.asarray(env._foot_geom_ids), 1.0, None
+    )
+    assert result["minimum_foot_gap_m"] == pytest.approx(expected)
+    assert result["commands"][0]["minimum_double_support_gap_m"] == pytest.approx(
+        expected
+    )
+    assert result["maximum_joint_limit_violation_rad"] == 0
+    assert not np.any(result["commands"][0]["outside_action_range_fraction_per_joint"])
+
+
 def test_paper_home_observation_layout_and_actor_reference_independence(paper_env):
     env = paper_env
     np.testing.assert_allclose(

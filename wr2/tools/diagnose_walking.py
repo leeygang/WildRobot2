@@ -1,8 +1,9 @@
-"""Matched MJX heading, stance-force/slip, and joint-clipping diagnostics."""
+"""Matched MJX heading, Paper stance, force/slip and clipping diagnostics."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -468,11 +469,533 @@ def run_diagnostics(
     return report
 
 
+def reference_action(env, action, reference, mask):
+    """Replace selected action coordinates through the normal target pipeline."""
+    import jax.numpy as jp
+
+    active = env._active_indices
+    requested = (
+        reference[active] - env._home_ctrl[active]
+    ) / env.config.policy_action_scale_rad
+    return jp.where(mask, jp.clip(requested, -1.0, 1.0), action)
+
+
+def signed_foot_distances(model, geom_ids, centers, rotations, valid):
+    """Use the traced geometry frames, without re-forwarding integrated qpos.
+
+    Solver/contact frames and integrated qpos need not represent the same
+    physics instant. MuJoCo computes distance from these cached geom frames.
+    """
+    import mujoco
+
+    data = mujoco.MjData(model)
+    distances = np.zeros(len(valid))
+    for index in np.flatnonzero(valid):
+        data.geom_xpos[geom_ids] = centers[index]
+        data.geom_xmat[geom_ids] = rotations[index].reshape(2, 9)
+        distances[index] = mujoco.mj_geomDistance(model, data, *geom_ids, 1.0, None)
+    return distances
+
+
+def summarize_stance(trace, names, scale, dt):
+    """One censored episode; never pool its padding or count resets as survival."""
+    valid = trace["valid"].astype(bool)
+    count = int(valid.sum())
+
+    def mean(value):
+        return float(np.mean(value[valid])) if count else None
+
+    def rms(value):
+        return float(np.sqrt(np.mean(np.square(value[valid])))) if count else None
+
+    requested_double = trace["reference_contact"].all(axis=1) & valid
+    actual_double = trace["contact"].all(axis=1)
+    error = np.linalg.norm(trace["velocity_m_s"] - trace["command_m_s"][:, :2], axis=1)
+    return {
+        "sample_count": count,
+        "duration_physical_s": count * dt,
+        "duration_TB_equivalent_s": count * dt / scale,
+        "fell": bool(trace["fall_event"].any()),
+        "nonfinite": bool(trace["nonfinite_event"].any()),
+        "velocity_TB_equivalent_m_s": [
+            mean(trace["velocity_m_s"][:, j] / scale) for j in range(2)
+        ],
+        "velocity_std_TB_equivalent_m_s": [
+            float(np.std(trace["velocity_m_s"][valid, j] / scale)) if count else None
+            for j in range(2)
+        ],
+        "translation_TB_equivalent_m": (
+            trace["path_delta_m"][valid].sum(axis=0) / scale**2
+        ).tolist(),
+        "net_velocity_TB_equivalent_m_s": [
+            mean(trace["path_delta_m"][:, j] / (dt * scale)) for j in range(2)
+        ],
+        "xy_error_TB_equivalent_m_s": mean(error / scale),
+        "single_support_fraction": mean(np.logical_xor(*trace["contact"].T)),
+        "double_support_fraction": mean(actual_double),
+        "no_support_fraction": mean(~trace["contact"].any(axis=1)),
+        "reference_double_support_sample_count": int(requested_double.sum()),
+        "reference_double_support_match_fraction": (
+            float(actual_double[requested_double].mean())
+            if requested_double.any()
+            else None
+        ),
+        "foot_self_contact_fraction": mean(trace["foot_self_force_n"] > 0.1),
+        "foot_gap_min_m": float(trace["foot_gap_m"][valid].min()) if count else None,
+        "foot_gap_median_m": float(np.median(trace["foot_gap_m"][valid]))
+        if count
+        else None,
+        "maximum_foot_self_force_n": float(trace["foot_self_force_n"][valid].max())
+        if count
+        else None,
+        "target_reconstruction_max_error_rad": float(
+            trace["target_reconstruction_error_rad"][valid].max()
+        )
+        if count
+        else None,
+        "air_time_credit_s": float(trace["air_time_credit_s"][valid].sum()),
+        "leg_actual_reference_rmse_rad": rms(
+            trace["actual_rad"] - trace["reference_rad"]
+        ),
+        "leg_actual_delivered_rmse_rad": rms(
+            trace["actual_rad"] - trace["delivered_rad"]
+        ),
+        "feet_lateral_distance_m": mean(trace["feet_lateral_distance_m"]),
+        "feet_distance_reward_per_step": mean(trace["feet_distance_reward_per_step"]),
+        "foot_vertical_force_mean_n": [
+            mean(trace["foot_vertical_force_n"][:, j]) for j in range(2)
+        ],
+        "joints": {
+            name: {
+                "actor_request_reference_rmse_rad": rms(
+                    trace["actor_request_rad"][:, j] - trace["reference_rad"][:, j]
+                ),
+                "current_request_reference_rmse_rad": rms(
+                    trace["current_request_rad"][:, j] - trace["reference_rad"][:, j]
+                ),
+                "delivered_reference_rmse_rad": rms(
+                    trace["delivered_rad"][:, j] - trace["reference_rad"][:, j]
+                ),
+                "actual_delivered_rmse_rad": rms(
+                    trace["actual_rad"][:, j] - trace["delivered_rad"][:, j]
+                ),
+                "target_clip_fraction": mean(trace["target_clip"][:, j]),
+                "target_slew_fraction": mean(trace["target_slew"][:, j]),
+                "reference_outside_action_range_fraction": mean(
+                    trace["reference_outside_action_range"][:, j]
+                ),
+            }
+            for j, name in enumerate(names)
+        },
+    }
+
+
+def reference_geometry_audit(env, model):
+    """Check every nominal training lookup pose, including reference time zero."""
+    import mujoco
+
+    reference = env._zmp_reference
+    geom_ids = np.asarray(env._foot_geom_ids)
+    body_ids = model.geom_bodyid[geom_ids]
+    torso = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "torso")
+    data = mujoco.MjData(model)
+    active = np.asarray(env._active_indices)
+    entries = []
+    for command, poses, stance in zip(
+        reference._host["commands"],
+        reference._host["qpos"],
+        reference._host["stance"],
+        strict=True,
+    ):
+        gaps, spacing = [], []
+        double = stance.all(axis=1).copy()
+        double[0] = True
+        motors = poses[:, reference._joint_indices][:, active].copy()
+        motors[0] = np.asarray(env._home_ctrl)[active]
+        for frame, pose in enumerate(poses):
+            data.qpos[:] = reference.standing_qpos if frame == 0 else pose
+            mujoco.mj_kinematics(model, data)
+            gaps.append(mujoco.mj_geomDistance(model, data, *geom_ids, 1.0, None))
+            spacing.append(
+                abs(
+                    (
+                        data.xmat[torso].reshape(3, 3).T
+                        @ (data.xpos[body_ids[0]] - data.xpos[body_ids[1]])
+                    )[1]
+                )
+            )
+        gaps, spacing = np.asarray(gaps), np.asarray(spacing)
+        outside = (
+            np.abs(motors - np.asarray(env._home_ctrl)[active])
+            > env.config.policy_action_scale_rad + 1e-7
+        )
+        entries.append(
+            {
+                "command_TB_equivalent": (
+                    command
+                    * [
+                        1 / env.config.normalization_scale,
+                        1 / env.config.normalization_scale,
+                        env.config.normalization_scale,
+                    ]
+                ).tolist(),
+                "samples": len(gaps),
+                "minimum_foot_gap_m": float(gaps.min()),
+                "overlap_fraction": float((gaps < -1e-5).mean()),
+                "minimum_double_support_gap_m": float(gaps[double].min())
+                if double.any()
+                else None,
+                "below_spacing_reward_minimum_fraction": float(
+                    (spacing < env.config.min_feet_lateral_distance_m).mean()
+                ),
+                "outside_action_range_fraction_per_joint": outside.mean(
+                    axis=0
+                ).tolist(),
+                "maximum_joint_limit_violation_rad": float(
+                    np.maximum(
+                        np.maximum(
+                            np.asarray(env._ctrl_lower)[active] - motors,
+                            motors - np.asarray(env._ctrl_upper)[active],
+                        ),
+                        0,
+                    ).max()
+                ),
+            }
+        )
+    return {
+        "scope": "all nominal training lookup commands, kinematics only",
+        "command_count": len(entries),
+        "sample_count": sum(entry["samples"] for entry in entries),
+        "minimum_foot_gap_m": min(entry["minimum_foot_gap_m"] for entry in entries),
+        "commands_with_overlap": sum(
+            entry["overlap_fraction"] > 0 for entry in entries
+        ),
+        "maximum_joint_limit_violation_rad": max(
+            entry["maximum_joint_limit_violation_rad"] for entry in entries
+        ),
+        "commands": entries,
+    }
+
+
+def run_paper_stance_diagnostics(
+    run_dir, output, seeds, *, checkpoint_path=None, allow_cpu=False
+):
+    """Compare learned, reference hip-roll, and full leg-reference controls."""
+    _configure_backend_logging()
+    with _filter_optional_backend_import_messages():
+        import jax
+        import jax.numpy as jp
+        import mujoco
+        from brax.io import model as brax_model
+        from brax.training import types
+        from brax.training.acme import running_statistics
+        from brax.training.agents.ppo import checkpoint, networks
+        from wr2.locomotion.configs import load_training_config
+        from wr2.locomotion.paper_evaluation import CONDITIONS
+        from wr2.locomotion.ppo import make_network_factory
+        from wr2.locomotion.train import _training_provenance
+        from wr2.locomotion.walking_env import WR2WalkingEnv
+
+    if jax.default_backend() != "gpu" and not allow_cpu:
+        raise RuntimeError(
+            "Paper stance diagnostics require a GPU; --allow-cpu is for development"
+        )
+    if (output / "summary.json").exists():
+        raise FileExistsError(f"Diagnostic already exists: {output}")
+    config = load_training_config(run_dir / "training_config.yaml")
+    if config.environment.recipe != "tb_paper":
+        raise ValueError("--paper-stance requires a saved Paper training configuration")
+    path = (checkpoint_path or run_dir / "best_params").resolve()
+    params = (
+        checkpoint.load(str(path)) if path.is_dir() else brax_model.load_params(path)
+    )
+    if any(
+        not np.isfinite(np.asarray(value)).all() for value in jax.tree.leaves(params)
+    ):
+        raise ValueError("Checkpoint has nonfinite parameters")
+    scale = config.environment.normalization_scale
+    length = round(1000 * scale)
+    nominal = replace(
+        config.environment,
+        command_resample_steps=length + 1,
+        randomization=replace(config.environment.randomization, enabled=False),
+    )
+    print(
+        "Building the recorded Paper reference and checking the full command grid...",
+        flush=True,
+    )
+    env = WR2WalkingEnv(nominal, add_observation_noise=False)
+    model = mujoco.MjModel.from_xml_path(str(env.robot.directory / "scene_mjx.xml"))
+    geometry = reference_geometry_audit(env, model)
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "reference_geometry.json").write_text(
+        json.dumps(geometry, indent=2, allow_nan=False) + "\n"
+    )
+    print(
+        json.dumps(
+            {key: value for key, value in geometry.items() if key != "commands"}
+        ),
+        flush=True,
+    )
+    active = np.asarray(env._active_indices)
+    names = [env.robot.actuator_names[j] for j in active]
+    masks = {
+        "learned": np.zeros(len(active), bool),
+        "hip_roll_reference": np.asarray(
+            [name.endswith("_hip_roll") for name in names]
+        ),
+        "leg_reference": np.ones(len(active), bool),
+    }
+    conditions = [
+        item
+        for item in CONDITIONS
+        if item[0]
+        in (
+            "forward_010",
+            "backward_010",
+            "forward_005",
+            "backward_005",
+            "left_005",
+            "right_005",
+            "standing",
+        )
+    ]
+    cases = [
+        (mode, name, xy, seed)
+        for mode in masks
+        for name, xy, _ in conditions
+        for seed in seeds
+    ]
+    commands = jp.asarray([[*np.asarray(xy) * scale, 0.0] for _, _, xy, _ in cases])
+    keys = jp.stack(
+        [
+            jax.random.split(jax.random.split(jax.random.PRNGKey(seed))[1], 8)[0]
+            for _, _, _, seed in cases
+        ]
+    )
+    action_masks = jp.asarray(np.stack([masks[mode] for mode, *_ in cases]))
+    preprocess = (
+        running_statistics.normalize
+        if config.ppo.normalize_observations
+        else types.identity_observation_preprocessor
+    )
+    network = make_network_factory(config.network)(
+        env.observation_size, env.action_size, preprocess_observations_fn=preprocess
+    )
+    policy = networks.make_inference_fn(network)(params[:2], deterministic=True)
+    geom_ids = env._foot_geom_ids
+    foot_sizes = jp.asarray(model.geom_size[np.asarray(geom_ids)])
+    dt = env.robot.control_period_s
+
+    def sample(before, after, actor_action, action, reference, reference_contact):
+        requested, delivered, lower, upper, slew = target_trace(env, before, action)
+        pipeline, metrics = after.pipeline_state, after.metrics
+        forces = env._contact_forces(pipeline)[:, :3]
+        pair = (
+            (pipeline.contact.geom1 == geom_ids[0])
+            & (pipeline.contact.geom2 == geom_ids[1])
+        ) | (
+            (pipeline.contact.geom1 == geom_ids[1])
+            & (pipeline.contact.geom2 == geom_ids[0])
+        )
+        pair &= (pipeline.contact.dist < 0) & (pipeline._impl.contact.efc_address >= 0)
+        delta = pipeline.q[:2] - before.pipeline_state.q[:2]
+        heading = before.info["reference_heading"]
+        c, s = jp.cos(heading), jp.sin(heading)
+        return {
+            "qpos": pipeline.q,
+            "path_delta_m": jp.asarray(
+                [c * delta[0] + s * delta[1], -s * delta[0] + c * delta[1]]
+            ),
+            "velocity_m_s": jp.asarray(
+                [
+                    metrics["forward_velocity_m_s_per_step"],
+                    metrics["lateral_velocity_m_s_per_step"],
+                ]
+            ),
+            "command_m_s": before.info["command"],
+            "actor_request_rad": env._policy_target(actor_action)[active],
+            "current_request_rad": env._policy_target(action)[active],
+            "delayed_request_rad": requested[active],
+            "delivered_rad": delivered[active],
+            "actual_rad": pipeline.q[env._joint_qpos_indices][active],
+            "reference_rad": reference[active],
+            "target_clip": (lower | upper)[active],
+            "target_slew": slew[active],
+            "reference_outside_action_range": jp.abs(
+                reference[active] - env._home_ctrl[active]
+            )
+            > env.config.policy_action_scale_rad + 1e-7,
+            "target_reconstruction_error_rad": jp.where(
+                after.done == 0,
+                jp.max(jp.abs(delivered - after.info["previous_target"])),
+                0.0,
+            ),
+            "contact": jp.asarray(
+                [
+                    metrics["left_foot_contact_per_step"],
+                    metrics["right_foot_contact_per_step"],
+                ]
+            )
+            > 0,
+            "reference_contact": reference_contact,
+            "foot_geom_center_m": pipeline.geom_xpos[geom_ids],
+            "foot_geom_rotation": pipeline.geom_xmat[geom_ids],
+            "sole_clearance_m": pipeline.geom_xpos[geom_ids, 2]
+            - jp.sum(jp.abs(pipeline.geom_xmat[geom_ids, 2, :]) * foot_sizes, axis=1)
+            - model.geom_pos[env._floor_geom_id, 2],
+            "foot_vertical_force_n": jp.asarray(
+                [
+                    metrics["left_foot_vertical_force_n_per_step"],
+                    metrics["right_foot_vertical_force_n_per_step"],
+                ]
+            ),
+            "feet_lateral_distance_m": metrics["feet_lateral_distance_m_per_step"],
+            "feet_distance_reward_per_step": metrics["paper_reward/feet_distance"],
+            "torso_height_m": metrics["torso_height_m_per_step"],
+            "foot_self_force_n": jp.max(
+                jp.where(pair, jp.linalg.norm(forces, axis=1), 0.0)
+            ),
+            "air_time_credit_s": metrics["air_time_credit_s_per_step"],
+        }
+
+    def rollout():
+        initial = jax.vmap(env.reset)(keys, commands)
+
+        def step(carry, _):
+            before, alive = carry
+            reference, contact, _ = jax.vmap(env._zmp_reference.get_reference)(
+                before.info["step_count"] * dt, commands
+            )
+            actor_action, _ = policy(before.obs, keys[0])
+            action = jax.vmap(lambda a, r, m: reference_action(env, a, r, m))(
+                actor_action, reference, action_masks
+            )
+            after = jax.vmap(env.step)(before, action)
+            values = jax.vmap(sample)(
+                before, after, actor_action, action, reference, contact
+            )
+            finite = jp.isfinite(after.pipeline_state.q).all(axis=1) & jp.isfinite(
+                after.pipeline_state.qd
+            ).all(axis=1)
+            for value in (*values.values(), *after.obs.values(), after.reward):
+                finite &= jp.isfinite(value).reshape((len(cases), -1)).all(axis=1)
+            values["valid"] = alive & finite
+            values["fall_event"] = alive & finite & (after.metrics["fall"] > 0)
+            values["nonfinite_event"] = alive & (
+                ~finite | (after.metrics["nonfinite_state"] > 0)
+            )
+            following_alive = alive & finite & (after.done == 0)
+            following = jax.tree.map(
+                lambda old, new: jp.where(
+                    following_alive.reshape((-1,) + (1,) * (new.ndim - 1)), new, old
+                ),
+                before,
+                after,
+            )
+            return (following, following_alive), values
+
+        return jax.lax.scan(
+            step, (initial, jp.ones(len(cases), dtype=bool)), jp.arange(length)
+        )[1]
+
+    print(f"Running {len(cases)} paired nominal stance episodes...", flush=True)
+    traces = jax.tree.map(np.asarray, jax.jit(rollout)())
+    results = []
+    for index, (mode, name, xy, seed) in enumerate(cases):
+        trace = {key: value[:, index] for key, value in traces.items()}
+        trace["foot_gap_m"] = signed_foot_distances(
+            model,
+            np.asarray(geom_ids),
+            trace["foot_geom_center_m"],
+            trace["foot_geom_rotation"],
+            trace["valid"],
+        )
+        np.savez_compressed(output / f"{mode}_{name}_seed{seed}.npz", **trace)
+        summary = summarize_stance(trace, names, scale, dt)
+        results.append(
+            {
+                "control": mode,
+                "condition": name,
+                "seed": seed,
+                "command_TB_equivalent_m_s": list(xy),
+                **summary,
+            }
+        )
+        print(
+            json.dumps(
+                {
+                    key: results[-1][key]
+                    for key in (
+                        "control",
+                        "condition",
+                        "sample_count",
+                        "fell",
+                        "net_velocity_TB_equivalent_m_s",
+                        "xy_error_TB_equivalent_m_s",
+                        "foot_self_contact_fraction",
+                    )
+                }
+            ),
+            flush=True,
+        )
+    report = {
+        "schema_version": 1,
+        "run": str(run_dir.resolve()),
+        "checkpoint": str(path),
+        "checkpoint_sha256": hashlib.sha256(path.read_bytes()).hexdigest()
+        if path.is_file()
+        else None,
+        "evaluation_source": _training_provenance(),
+        "training_config_version": config.version,
+        "normalization_scale": scale,
+        "control_period_s": dt,
+        "seeds": list(seeds),
+        "scope": "nominal paired controls; prescribed references are diagnostics, not trained policies",
+        "domain_randomization": False,
+        "observation_noise": False,
+        "physical_pushes": False,
+        "action_intervention": "current reference mapped into bounded actions; native delay, quantization, limits and slew retained",
+        "reference_error_timing": "current reference vs end-of-tick joint positions; delivered targets retain the recorded action delay",
+        "geometry_sampling": "cached last-substep geometry/solver frames; not re-forwarded integrated qpos",
+        "termination": "finite terminal tick included; nonfinite tick excluded; no autoreset samples",
+        "active_joint_names": names,
+        "home_position_rad": np.asarray(env._home_ctrl)[active].tolist(),
+        "joint_limits_rad": np.stack(
+            [np.asarray(env._ctrl_lower)[active], np.asarray(env._ctrl_upper)[active]],
+            axis=1,
+        ).tolist(),
+        "policy_action_scale_rad": nominal.policy_action_scale_rad,
+        "reference_geometry": geometry,
+        "results": results,
+    }
+    (output / "summary.json").write_text(
+        json.dumps(report, indent=2, allow_nan=False) + "\n"
+    )
+    print(f"Wrote stance traces and summary to {output}", flush=True)
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--seeds", default="101,202,303,404")
+    parser.add_argument("--seeds")
+    parser.add_argument(
+        "--paper-stance",
+        action="store_true",
+        help="Paired learned/reference stance controls for a Paper checkpoint",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        help="Paper checkpoint; defaults to run-dir/best_params",
+    )
+    parser.add_argument(
+        "--allow-cpu",
+        action="store_true",
+        help="Allow development Paper diagnostics on CPU",
+    )
     parser.add_argument("--solver-iterations", type=int)
     parser.add_argument(
         "--summarize-only",
@@ -482,9 +1005,29 @@ def main():
     args = parser.parse_args()
     if args.solver_iterations is not None and args.solver_iterations < 1:
         parser.error("solver iterations must be positive")
-    seeds = tuple(int(value) for value in args.seeds.split(","))
+    from wr2.locomotion.evaluate import _parse_seeds
+
+    seeds = _parse_seeds(
+        args.seeds or ("22102" if args.paper_stance else "101,202,303,404")
+    )
+    if args.paper_stance:
+        if args.summarize_only or args.solver_iterations is not None:
+            parser.error(
+                "--paper-stance uses the recorded solver and runs fresh diagnostics"
+            )
+        run_paper_stance_diagnostics(
+            args.run_dir,
+            args.output,
+            seeds,
+            checkpoint_path=args.checkpoint,
+            allow_cpu=args.allow_cpu,
+        )
+        return
     run_diagnostics(
-        args.run_dir, args.output, seeds, summarize_only=args.summarize_only,
+        args.run_dir,
+        args.output,
+        seeds,
+        summarize_only=args.summarize_only,
         solver_iterations=args.solver_iterations,
     )
 

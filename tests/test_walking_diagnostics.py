@@ -9,13 +9,121 @@ import numpy as np
 from wr2.tools.diagnose_walking import (
     contact_point_velocity,
     foot_contact_samples,
+    reference_action,
     rotate_heading,
     sample_step,
+    signed_foot_distances,
     summarize,
+    summarize_stance,
 )
 
 
 class WalkingDiagnosticsTest(unittest.TestCase):
+    def test_reference_action_changes_only_selected_coordinates_and_bounds_reach(self):
+        env = SimpleNamespace(
+            _active_indices=jp.asarray([1, 3]),
+            _home_ctrl=jp.asarray([2.0, 0.1, 3.0, -0.2]),
+            config=SimpleNamespace(policy_action_scale_rad=0.25),
+        )
+        original = jp.asarray([-0.4, 0.7])
+        reference = jp.asarray([9.0, 0.5, 9.0, -0.3])
+        hip_only = reference_action(env, original, reference, jp.asarray([True, False]))
+        np.testing.assert_array_equal(hip_only, [1.0, original[1]])
+        all_active = reference_action(env, original, reference, jp.ones(2, bool))
+        np.testing.assert_allclose(all_active, [1.0, -0.4], atol=1e-7)
+        # The first target exceeds the action range; the intervention does not
+        # bypass that range to deliver the unachievable 0.5-rad reference.
+        self.assertAlmostEqual(float(env._home_ctrl[1] + 0.25 * all_active[0]), 0.35)
+
+    def test_signed_foot_distance_uses_cached_rotated_frames_and_skips_padding(self):
+        import mujoco
+
+        model = mujoco.MjModel.from_xml_string(
+            "<mujoco><worldbody>"
+            '<geom type="box" size="0.1 0.2 0.1"/>'
+            '<geom type="box" size="0.1 0.2 0.1"/>'
+            "</worldbody></mujoco>"
+        )
+        centers = np.zeros((4, 2, 3))
+        centers[:3, 1, 0] = [0.25, 0.15, 0.35]
+        rotations = np.tile(np.eye(3), (4, 2, 1, 1))
+        rotations[2, 1] = [[0, -1, 0], [1, 0, 0], [0, 0, 1]]
+        centers[3] = np.nan
+        rotations[3] = np.nan
+        distances = signed_foot_distances(
+            model,
+            np.asarray([0, 1]),
+            centers,
+            rotations,
+            np.asarray([1, 1, 1, 0], bool),
+        )
+        # Separation, penetration, and a rotated box with doubled x extent.
+        np.testing.assert_allclose(distances, [0.05, -0.05, 0.05, 0.0], atol=1e-8)
+
+    def test_stance_summary_censors_padding_and_uses_conditional_support_denominator(
+        self,
+    ):
+        trace = {
+            "valid": np.asarray([1, 1, 1, 0, 0], bool),
+            "fall_event": np.asarray([0, 0, 1, 0, 0], bool),
+            "nonfinite_event": np.asarray([0, 0, 0, 1, 0], bool),
+            "velocity_m_s": np.asarray([[0.1, 0.0]] * 3 + [[np.nan, np.nan]] * 2),
+            "path_delta_m": np.asarray([[0.002, 0.0]] * 3 + [[np.nan, np.nan]] * 2),
+            "command_m_s": np.tile([0.2, 0.0, 0.0], (5, 1)),
+            "contact": np.asarray([[1, 1], [0, 1], [1, 0], [1, 1], [1, 1]], bool),
+            "reference_contact": np.asarray(
+                [[1, 1], [1, 0], [1, 1], [1, 1], [1, 1]], bool
+            ),
+            "foot_self_force_n": np.asarray([0.0, 2.0, 0.0, 99.0, np.nan]),
+            "foot_gap_m": np.asarray([0.01, -0.002, 0.005, -0.5, np.nan]),
+            "target_reconstruction_error_rad": np.asarray(
+                [0.0, 1e-7, 0.0, 1.0, np.nan]
+            ),
+            "air_time_credit_s": np.asarray([0.1, 0.2, 0.3, np.nan, np.nan]),
+            "feet_lateral_distance_m": np.asarray([0.08] * 3 + [np.nan] * 2),
+            "feet_distance_reward_per_step": np.asarray([0.02] * 3 + [np.nan] * 2),
+            "foot_vertical_force_n": np.asarray(
+                [[5.0, 6.0]] * 3 + [[np.nan, np.nan]] * 2
+            ),
+        }
+        for name, value in (
+            ("actor_request_rad", 0.4),
+            ("current_request_rad", 0.1),
+            ("delivered_rad", 0.2),
+            ("actual_rad", 0.3),
+            ("reference_rad", 0.0),
+        ):
+            trace[name] = np.asarray([[value, value]] * 3 + [[np.nan, np.nan]] * 2)
+        trace["target_clip"] = np.asarray([[1, 0]] * 5, bool)
+        trace["target_slew"] = np.zeros((5, 2), bool)
+        trace["reference_outside_action_range"] = np.zeros((5, 2), bool)
+        result = summarize_stance(trace, ["left_hip_roll", "right_hip_roll"], 0.5, 0.02)
+        self.assertEqual(result["sample_count"], 3)  # Includes the finite fall tick.
+        self.assertTrue(result["fell"])
+        self.assertTrue(result["nonfinite"])
+        self.assertAlmostEqual(result["duration_TB_equivalent_s"], 0.12)
+        self.assertAlmostEqual(result["xy_error_TB_equivalent_m_s"], 0.2)
+        np.testing.assert_allclose(result["translation_TB_equivalent_m"], [0.024, 0.0])
+        np.testing.assert_allclose(result["net_velocity_TB_equivalent_m_s"], [0.2, 0.0])
+        self.assertEqual(result["reference_double_support_sample_count"], 2)
+        self.assertEqual(result["reference_double_support_match_fraction"], 0.5)
+        self.assertAlmostEqual(result["single_support_fraction"], 2 / 3)
+        self.assertAlmostEqual(result["foot_self_contact_fraction"], 1 / 3)
+        self.assertEqual(result["foot_gap_min_m"], -0.002)
+        self.assertEqual(result["maximum_foot_self_force_n"], 2.0)
+        self.assertAlmostEqual(result["air_time_credit_s"], 0.6)
+        self.assertAlmostEqual(result["leg_actual_delivered_rmse_rad"], 0.1)
+        self.assertEqual(result["joints"]["left_hip_roll"]["target_clip_fraction"], 1.0)
+        self.assertEqual(
+            result["joints"]["right_hip_roll"]["target_clip_fraction"], 0.0
+        )
+        trace["reference_contact"][:] = [1, 0]
+        self.assertIsNone(
+            summarize_stance(trace, ["left", "right"], 0.5, 0.02)[
+                "reference_double_support_match_fraction"
+            ]
+        )
+
     def test_target_trace_uses_delayed_request_not_current_action(self):
         env = SimpleNamespace(
             config=SimpleNamespace(action_delay_steps=1),
