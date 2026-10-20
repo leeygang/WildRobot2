@@ -1,4 +1,4 @@
-"""Replay a recorded WR2 stance diagnostic in the interactive MuJoCo viewer."""
+"""Replay WR2 or ToddlerBot Paper policy recordings in the MuJoCo viewer."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import numpy as np
 
 
 MODEL_PATH = Path(__file__).resolve().parents[1] / "descriptions/wr2/scene_mjx.xml"
+TB_PAPER_ROOT = Path(__file__).resolve().parents[2] / ".worktrees/tb-paper-stance"
 BOX_CORNERS = np.asarray(list(itertools.product((-1, 1), repeat=3)))
 BOX_EDGES = [
     (i, j)
@@ -21,6 +22,71 @@ BOX_EDGES = [
     for j in range(i + 1, 8)
     if np.count_nonzero(BOX_CORNERS[i] != BOX_CORNERS[j]) == 1
 ]
+
+
+def load_recording(trace_path: Path, robot: str, tb_root: Path):
+    """Normalize recorded foot pairs while preserving their cached world frames."""
+    metadata = json.loads(trace_path.with_name("summary.json").read_text())
+    fields = (
+        "qpos", "valid", "foot_geom_center_m", "foot_geom_rotation",
+        "foot_self_force_n", "foot_gap_m", "command_m_s", "delivered_rad",
+        "actual_rad", "contact",
+    )
+    with np.load(trace_path) as recording:
+        trace = {name: recording[name] for name in fields if name in recording.files}
+    count = int(trace["valid"].sum())
+    if count == 0 or not np.array_equal(
+        np.flatnonzero(trace["valid"]), np.arange(count)
+    ):
+        raise ValueError("The recording must have a nonempty valid sample prefix")
+    if robot == "wr2":
+        model_path = MODEL_PATH
+        pair_names = [[f"{side}_foot_collision" for side in ("left", "right")]]
+    else:
+        model_path = tb_root.expanduser() / "toddlerbot/descriptions/toddlerbot/toddlerbot_scene.xml"
+        if not model_path.is_file():
+            raise FileNotFoundError(
+                f"Missing TB Paper model: {model_path}. Set --tb-root to the "
+                "frozen Paper checkout with its original model/mesh assets."
+            )
+        pair_names = metadata["collision_pairs"]
+    model = mujoco.MjModel.from_xml_path(str(model_path))
+    if trace["qpos"].shape != (len(trace["valid"]), model.nq):
+        raise ValueError(f"Recorded poses do not match the {robot} model")
+    pairs = np.asarray([[model.geom(name).id for name in pair] for pair in pair_names])
+    feet = pairs.flatten()
+    ticks = len(trace["valid"])
+    trace["foot_geom_center_m"] = trace["foot_geom_center_m"].reshape(ticks, len(feet), 3)
+    trace["foot_geom_rotation"] = trace["foot_geom_rotation"].reshape(ticks, len(feet), 3, 3)
+    forces = trace["foot_self_force_n"].reshape(ticks, len(pairs))
+    trace["foot_self_force_per_foot_n"] = np.repeat(forces, 2, axis=1)
+    trace["foot_self_force_n"] = forces.max(axis=1)
+    if "command_m_s" not in trace:
+        result = next(
+            r for r in metadata["results"]
+            if f"{r['policy']}_{r['mode']}" == trace_path.stem
+        )
+        command = np.append(
+            np.asarray(result["command_TB_m_s"]) * metadata["normalization_scale"], 0.
+        )
+        trace["command_m_s"] = np.broadcast_to(command, (ticks, 3))
+    for name, value in trace.items():
+        if not np.isfinite(value[:count]).all():
+            raise ValueError(f"Nonfinite recorded {name}")
+    if "foot_gap_m" in trace:
+        trace["foot_gap_m"] = trace["foot_gap_m"].reshape(ticks, -1).min(axis=1)
+    else:
+        # The latest CPU probes retain geometry but omit signed distances.
+        # Use their cached contact-time frames, not integrated-qpos foot poses.
+        data = mujoco.MjData(model)
+        gaps = np.zeros(ticks)
+        for index in range(count):
+            apply_trace_frame(model, data, trace, index, feet)
+            gaps[index] = min(
+                mujoco.mj_geomDistance(model, data, *pair, 1.0, None) for pair in pairs
+            )
+        trace["foot_gap_m"] = gaps
+    return metadata, trace, model, feet
 
 
 def apply_trace_frame(model, data, trace, index, foot_ids) -> None:
@@ -49,12 +115,12 @@ def apply_trace_frame(model, data, trace, index, foot_ids) -> None:
 
 def draw_foot_boxes(scene, model, trace, index, foot_ids) -> None:
     """Outline cached collision boxes; red means recorded model self-contact."""
-    color = (
-        [1.0, 0.15, 0.1, 1.0]
-        if trace["foot_self_force_n"][index] > 0.1
-        else [0.1, 0.7, 1.0, 1.0]
-    )
     for side, geom in enumerate(foot_ids):
+        color = (
+            [1.0, 0.15, 0.1, 1.0]
+            if trace["foot_self_force_per_foot_n"][index, side] > 0.1
+            else [0.1, 0.7, 1.0, 1.0]
+        )
         vertices = (BOX_CORNERS * model.geom_size[geom]) @ trace["foot_geom_rotation"][
             index, side
         ].T
@@ -76,30 +142,16 @@ def draw_foot_boxes(scene, model, trace, index, foot_ids) -> None:
 
 
 def view_trace(args: argparse.Namespace) -> int:
-    metadata = json.loads(args.trace.with_name("summary.json").read_text())
-    with np.load(args.trace) as recording:
-        trace = {name: recording[name] for name in recording.files}
+    metadata, trace, model, feet = load_recording(args.trace, args.robot, args.tb_root)
     count = int(trace["valid"].sum())
-    if count == 0 or not np.array_equal(
-        np.flatnonzero(trace["valid"]), np.arange(count)
-    ):
-        raise ValueError("The recording must have a nonempty valid sample prefix")
-    model = mujoco.MjModel.from_xml_path(str(MODEL_PATH))
-    if (
-        trace["qpos"].shape[1] != model.nq
-        or not np.isfinite(trace["qpos"][:count]).all()
-    ):
-        raise ValueError("Recorded poses must be finite and match the WR2 model")
     data = mujoco.MjData(model)
-    feet = [
-        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, f"{side}_foot_collision")
-        for side in ("left", "right")
-    ]
     hips = [
         metadata["active_joint_names"].index(f"{side}_hip_roll")
         for side in ("left", "right")
     ]
     dt = metadata["control_period_s"]
+    scale = metadata["normalization_scale"]
+    hip_signs = np.asarray([-1, 1 if args.robot == "wr2" else -1])
     playback = {"time": 0.0, "paused": args.paused, "boxes": True, "view": 1}
 
     def key_callback(keycode: int) -> None:
@@ -119,13 +171,23 @@ def view_trace(args: argparse.Namespace) -> int:
             playback["view"] = keycode - ord("0")
 
     print(
-        f"Replaying {args.trace.name}: {count} ticks, {count * dt:.2f} physical seconds"
+        f"Replaying {args.robot} / {args.trace.name}: {count} ticks, "
+        f"{count * dt:.2f} physical / {count * dt / scale:.2f} TB seconds"
     )
+    print("Hip angles in the overlay use outward-positive directions for both legs.")
+    if args.check_only:
+        scene = mujoco.MjvScene(model, maxgeom=100)
+        for index in (0, count // 2, count - 1):
+            apply_trace_frame(model, data, trace, index, feet)
+            scene.ngeom = 0
+            draw_foot_boxes(scene, model, trace, index, feet)
+        print(f"Checked recorded poses and {len(feet)} foot collision boxes.")
+        return 0
     print(
         "Space pause; [ / ] step; R restart; C collision outlines; 1 front / 2 side / 3 top / 4 perspective"
     )
     print(
-        "Blue outlines = clear boxes; red = recorded box self-contact. CAD feet use recorded box/body frames."
+        "Blue = no recorded self-contact force; red = force above 0.1 N on the pair. CAD feet use recorded body frames."
     )
     with mujoco.viewer.launch_passive(model, data, key_callback=key_callback) as viewer:
         with viewer.lock():
@@ -134,8 +196,8 @@ def view_trace(args: argparse.Namespace) -> int:
             )
             viewer.opt.geomgroup[2] = 1  # Keep the CAD surfaces visible.
             viewer.opt.sitegroup[:] = 0
-            viewer.cam.distance = 0.8
-            viewer.cam.lookat[2] = 0.22
+            viewer.cam.distance = max(0.8, 1.3 * model.stat.extent)
+            viewer.cam.lookat[:] = model.stat.center
         previous_time = time.monotonic()
         while viewer.is_running():
             now = time.monotonic()
@@ -161,17 +223,17 @@ def view_trace(args: argparse.Namespace) -> int:
                 viewer.user_scn.ngeom = 0
                 if playback["boxes"]:
                     draw_foot_boxes(viewer.user_scn, model, trace, index, feet)
-            target = np.rad2deg(trace["delivered_rad"][index, hips])
-            actual = np.rad2deg(trace["actual_rad"][index, hips])
+            target = np.rad2deg(trace["delivered_rad"][index, hips]) * hip_signs
+            actual = np.rad2deg(trace["actual_rad"][index, hips]) * hip_signs
             force = float(trace["foot_self_force_n"][index])
-            command = trace["command_m_s"][index]
+            command = trace["command_m_s"][index] / scale
             support = trace["contact"][index].astype(int)
             viewer.set_texts(
                 (
                     mujoco.mjtFontScale.mjFONTSCALE_100,
                     mujoco.mjtGridPos.mjGRID_TOPLEFT,
-                    "Recorded rollout\nWR2 time (s)\nCommand XY (m/s)\nFloor support L/R\nBox self-force (N)\nBox gap (mm)\nHip target L/R (deg)\nHip actual L/R (deg)",
-                    f"{args.trace.stem}\n{(index + 1) * dt:.2f}\n{command[0]:+.4f}, {command[1]:+.4f}\n{support[0]} / {support[1]}\n{force:.3f}\n{trace['foot_gap_m'][index] * 1000:+.3f}\n{target[0]:+.2f} / {target[1]:+.2f}\n{actual[0]:+.2f} / {actual[1]:+.2f}",
+                    "Recorded rollout\nPhysical / TB time (s)\nCommand XY (TB m/s)\nFloor support L/R\nBox self-force (N)\nRecorded box gap (mm)\nHip target outward L/R (deg)\nHip actual outward L/R (deg)",
+                    f"{args.robot}: {args.trace.stem}\n{(index + 1) * dt:.2f} / {(index + 1) * dt / scale:.2f}\n{command[0]:+.4f}, {command[1]:+.4f}\n{support[0]} / {support[1]}\n{force:.3f}\n{trace['foot_gap_m'][index] * 1000:+.3f}\n{target[0]:+.2f} / {target[1]:+.2f}\n{actual[0]:+.2f} / {actual[1]:+.2f}",
                 )
             )
             viewer.sync()
@@ -181,6 +243,7 @@ def view_trace(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--robot", choices=("wr2", "toddlerbot"), default="wr2")
     parser.add_argument(
         "--trace",
         type=Path,
@@ -189,6 +252,11 @@ def main() -> int:
     )
     parser.add_argument("--playback-speed", type=float, default=0.25)
     parser.add_argument("--paused", action="store_true")
+    parser.add_argument(
+        "--tb-root", type=Path, default=TB_PAPER_ROOT,
+        help="Local ToddlerBot Paper checkout with original model/mesh assets",
+    )
+    parser.add_argument("--check-only", action="store_true", help="Check replay without opening a window")
     args = parser.parse_args()
     if not np.isfinite(args.playback_speed) or args.playback_speed <= 0:
         parser.error("--playback-speed must be finite and positive")

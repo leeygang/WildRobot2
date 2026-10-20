@@ -35,7 +35,36 @@ ignored results directory.
 
 ## Replay the recorded policy visually
 
-Replay the copied GPU rollout locally on the Mac:
+Replay the current collision-weight **300M** policy's nominal CPU recording
+locally on the Mac:
+
+```bash
+uv run --no-sync mjpython -m wr2.tools.view_walking \
+  --trace results/wr2_walking/wr2_paper_collision1_20261020_072851_seed3/review_20261020/nominal_cpu/selected_forward_010_learned.npz \
+  --playback-speed 0.25
+```
+
+The recording contains learned policy actions, not substituted references.
+Change `selected_forward_010_learned.npz` to `selected_backward_010_learned.npz`,
+`selected_left_005_learned.npz`, `selected_right_005_learned.npz` or
+`selected_standing_learned.npz` in the same directory to inspect other commands.
+
+Replay the matching **TB Paper 200M** copied GPU recording:
+
+```bash
+uv run --no-sync mjpython -m wr2.tools.view_walking \
+  --robot toddlerbot \
+  --trace results/toddlerbot_walk_ppo_20261015_194347/stance_diagnostic/learned_forward_010_seed22102.npz \
+  --playback-speed 0.25
+```
+
+TB loads its original MuJoCo model and mesh assets from the existing frozen
+Paper checkout at `.worktrees/tb-paper-stance`. Use `--tb-root <checkout>` if
+those assets are elsewhere. This viewer imports no ToddlerBot Python code or
+training dependencies. The frozen model XMLs were checked against local
+`paper-walking-baseline`; the active TB checkout is not modified.
+
+The old WR2 collision-0.1 copied GPU recording remains available:
 
 ```bash
 uv run --no-sync mjpython -m wr2.tools.view_walking \
@@ -58,21 +87,34 @@ NPZ and adjacent `summary.json`, so a GPU or checkpoint loading is unnecessary.
 | Mouse drag /wheel | Rotate /zoom using the native viewer |
 
 The recording loops at its end. Add `--paused` to start on the first frame.
-Blue outlines indicate clear boxes; red indicates recorded box self-contact
-force above .1 N. The text overlay shows recorded floor support, box force,
-signed gap and delivered/actual hip angles. Inspect the foot close-up with C
+Blue outlines indicate no recorded self-contact force above .1 N; red indicates
+that force on the recorded collider pair. TB's two pairs are colored separately.
+The text overlay shows physical/TB-normalized time, normalized commands,
+recorded floor support, box force, signed gap and delivered/actual hip angles.
+Hip angles are **outward-positive for both legs and both robots**, correcting
+the opposite native right-joint signs. Inspect the foot close-up with C
 both on and off, then check the front view for lateral weight transfer and
 the side view for lift, swing and forward movement. Compare the matching
 `hip_roll_reference_…` or `leg_reference_…` NPZ by changing `--trace`; these
 remain intervention controls, not trained walking policies.
 
-This is pose replay using the current canonical model. It reconstructs foot
+This is pose replay using the corresponding robot model. It reconstructs foot
 CAD surfaces and outlines from the recorded final-substep foot frames, matching
 the contact sampling instant; the remaining body uses integrated end-of-tick
 qpos. It performs kinematics rather than new dynamics. Contact/force values
 come from the recording. Use the recorded model revision when inspecting a
 historical result after model changes. Pixels alone cannot establish a
 millimeter clearance; use the signed-gap and CAD audits for that decision.
+
+For CPU recordings that omit command/gap arrays, commands come from the
+recording's summary and gaps are computed from its saved contact-time foot
+frames. Existing GPU recordings retain their saved gaps. Add `--check-only`
+to validate/load and check frame geometry without opening a window.
+
+Five focused tests verify cached collider/visual-body poses, per-pair colors,
+derived command/gap fields and native hip directions. Both WR2 and TB passed
+the bare macOS launcher with the caller's library-path variable unset, and
+both native passive viewers rendered frames and closed normally.
 
 Reference: [MuJoCo Python passive viewer and macOS launcher](https://mujoco.readthedocs.io/en/stable/python.html#passive-viewer).
 This follows the native MuJoCo viewer used for the reference and complements
