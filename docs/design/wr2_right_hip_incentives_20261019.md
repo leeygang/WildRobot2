@@ -1,5 +1,12 @@
 # Why WR2 keeps its right leg inward — 2026-10-19
 
+The [phase and retained-checkpoint review](wr2_phase_learning_review_20261020.md)
+revises the next priority below. WR2 partially learned outward movement at
+20M, lost it by 40M as angular-stability return increased, and survives a
+phase-specific outward intervention with the existing geometry. The
+whole-episode controls here measure dependence of the frozen policy; they
+do not establish that outward movement during left swing is infeasible.
+
 ## Conclusion
 
 **The current policy has learned to depend on its inward right-leg stance for
@@ -210,6 +217,12 @@ initial-phase and small geometric-asymmetry effects unresolved; they are not
 evidence for selecting one as the cause of handedness.
 
 ## 5. Focused next step
+
+**Revised on 2026-10-20:** prioritize the early moving policy's angular
+instability and the 20M→40M loss of coordination, with matching TB Paper
+checkpoints. See the [phase review](wr2_phase_learning_review_20261020.md#6-revised-next-priority)
+for the evidence and current plan. The geometry-first sequence below is the
+earlier proposal, whose primary-cause assumption has not been established.
 
 1. **Validate the foot contact approximation against CAD**, including floor
    support and foot self-contact. Compare the same frozen checkpoint before

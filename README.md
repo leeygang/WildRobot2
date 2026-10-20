@@ -113,15 +113,18 @@ tracking **44.2%**, with greater drift and poorer support timing. See the
 The **matching TB Paper 200M GPU diagnostic completed**. TB walks with no foot
 self-contact; nominal tracking error is **2.69× lower** than WR2. An independent
 CAD check finds that WR2's boxes contact while the imported foot parts remain
-separated. The first gate is validating a CAD-fitted collider; the policy also
-requests an inward stance that would overlap CAD convex hulls, so geometry
-alone is not an established walking fix. See the
+separated. The policy also requests an inward stance that would overlap CAD
+convex hulls; geometry's contribution to learning this stance remains
+unisolated. See the
 [paired result and focused next plan](docs/design/wr2_tb_stance_result_20261018.md).
 The [right-hip investigation](docs/design/wr2_right_hip_incentives_20261019.md)
 finds that the current policy falls sideways when only the right hip is
 returned to neutral or moved outward, including during zero-air-time standing.
-TB's successful policy uses an outward right stance; coordinated movement and
-the validated contact model remain the priorities.
+The [phase and retained-checkpoint review](docs/design/wr2_phase_learning_review_20261020.md)
+then finds that WR2 partially learns outward movement at 20M, loses it by 40M
+as angular-stability return improves, and survives phase-specific outward
+movement with the existing geometry. The current priority is understanding
+that early loss of coordination with matched TB Paper checkpoints.
 The [TB setup](docs/design/tb_stance_diagnostic_20261018.md) and
 [WR2 diagnostic guide](docs/design/wr2_stance_diagnostic_20261018.md) record the
 completed commands and measurements.
@@ -130,9 +133,9 @@ to inspect the copied GPU rollout on the Mac with slow motion, frame stepping
 and foot collision outlines.
 
 The canonical config retains the completed TB-aligned weight-500 baseline.
-The previously prepared air-time ablation is deferred while stance/geometry
-is investigated. The guide specifies the matching TB measurements and the
-evidence needed to choose a training change.
+The previously prepared air-time ablation is deferred while early walking
+coordination is investigated. The guide specifies the matching TB
+measurements and the evidence needed to choose a training change.
 The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)
 compares actual reward formulas, clocks, effective variation, resets and metrics.
 Actor/critic inputs are 975/1485 for this recipe. WR2 training is self-contained.

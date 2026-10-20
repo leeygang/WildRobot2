@@ -1,5 +1,13 @@
 # WR2 and TB Paper GPU stance results — 2026-10-18
 
+**Priority revised on 2026-10-20:** the
+[phase and retained-checkpoint review](wr2_phase_learning_review_20261020.md)
+finds outward movement in the learned 20M policy and in a surviving
+phase-specific intervention with the existing model. Diagnose the early
+policy's angular instability and the 20M→40M loss of coordination before
+treating geometry as the primary cause. The geometry audit below remains
+valid; its causal role in learning the stance remains unisolated.
+
 The [right-only intervention and reward review](wr2_right_hip_incentives_20261019.md)
 adds evidence that the current policy depends on its inward right leg for
 lateral balance, including during standing with zero air-time reward. It also
