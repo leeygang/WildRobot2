@@ -17,6 +17,16 @@ dependencies = [
 sim = [
     "mujoco>=3.3,<4",
 ]
+zmp-viewer = [
+    # Imports required by the frozen ToddlerBot Paper reference code.
+    "control>=0.10,<0.11",
+    "joblib",
+    "lz4",
+    "pyserial",
+    "colorama",
+    "line-profiler",
+    "tqdm",
+]
 training = [
     # Brax 0.14 still calls jax.device_put_replicated, removed by newer JAX.
     "brax>=0.14,<0.15",

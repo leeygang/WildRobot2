@@ -185,6 +185,28 @@ class PaperReferenceDiagnostics:
 _TABLE_CACHE = {}
 
 
+def paper_command_grid(scale):
+    """Native training lookup keys, shared with the reference viewer."""
+    xy = np.stack(
+        np.meshgrid(
+            np.arange(-0.1, 0.2001, 0.02) * scale,
+            np.arange(-0.1, 0.1001, 0.02) * scale,
+            indexing="ij",
+        ),
+        axis=-1,
+    ).reshape(-1, 2)
+    turns = np.arange(-0.5, 0.5001, 0.02) / scale
+    return np.unique(
+        np.concatenate(
+            [
+                np.column_stack([xy, np.zeros(len(xy))]),
+                np.column_stack([np.zeros((len(turns), 2)), turns]),
+            ]
+        ),
+        axis=0,
+    )
+
+
 class PaperWalkReference:
     """Generated TB-style motor/contact lookup shared by rewards and critic."""
 
@@ -216,21 +238,7 @@ class PaperWalkReference:
         )
         scale = normalization_scale
         if command_vectors is None:
-            xy = np.stack(
-                np.meshgrid(
-                    np.arange(-0.1, 0.2001, 0.02) * scale,
-                    np.arange(-0.1, 0.1001, 0.02) * scale,
-                    indexing="ij",
-                ),
-                axis=-1,
-            ).reshape(-1, 2)
-            turns = np.arange(-0.5, 0.5001, 0.02) / scale
-            command_vectors = np.concatenate(
-                [
-                    np.column_stack([xy, np.zeros(len(xy))]),
-                    np.column_stack([np.zeros((len(turns), 2)), turns]),
-                ]
-            )
+            command_vectors = paper_command_grid(scale)
         commands = np.unique(
             np.asarray(command_vectors, dtype=float).reshape(-1, 3), axis=0
         )
