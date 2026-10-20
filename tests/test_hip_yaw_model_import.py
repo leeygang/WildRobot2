@@ -19,7 +19,7 @@ from wr2.locomotion.rsl_rl_training import RSLPPOTrainer, _jax_policy_factory
 from wr2.locomotion.walking_env import WR2WalkingEnv
 from wr2.reference.walk_zmp import WR2ZMPReference
 from wr2.reference.zmp_validation import apply_reference_frame, create_reference_context
-from wr2.tools.view_zmp_reference import _draw_reference_overlay
+from wr2.tools.view_legacy_zmp_reference import _draw_reference_overlay
 from wr2.tools.verify_walking_symmetry import joint_reflection, verify_model_reference
 
 
@@ -224,8 +224,8 @@ class HipYawModelImportTest(unittest.TestCase):
                 context, phase_rad=1.0, command_forward_m_s=command
             )
             with (
-                patch("wr2.tools.view_zmp_reference._add_sphere") as sphere,
-                patch("wr2.tools.view_zmp_reference._add_line"),
+                patch("wr2.tools.view_legacy_zmp_reference._add_sphere") as sphere,
+                patch("wr2.tools.view_legacy_zmp_reference._add_line"),
             ):
                 _draw_reference_overlay(viewer, context, sample, root_x)
             planned = sphere.call_args_list[1].args[1]

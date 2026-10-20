@@ -196,7 +196,7 @@ will necessarily succeed.
 For numeric reference checks (Mac or GPU, no hardware):
 
 ```bash
-uv run python -m wr2.tools.view_zmp_reference \
+uv run python -m wr2.tools.view_legacy_zmp_reference \
   --config wr2/locomotion/configs/ppo_walking_xy.yaml \
   --xy-commands '0.1,0;-0.1,0;0,0.05;0,-0.05;0.1,0.05;-0.1,-0.05;0,0' \
   --validate-only

@@ -11,7 +11,7 @@ on visual judgment.
 Run the full command set used by the walking curriculum:
 
 ```bash
-uv run --extra training python -m wr2.tools.view_zmp_reference \
+uv run --extra training python -m wr2.tools.view_legacy_zmp_reference \
   --validate-only --commands 0.10,0.15,0.20,0.25 --samples 72
 ```
 
@@ -46,7 +46,7 @@ standalone report.
 Replay one speed in MuJoCo Viewer:
 
 ```bash
-uv run --extra training python -m wr2.tools.view_zmp_reference \
+uv run --extra training python -m wr2.tools.view_legacy_zmp_reference \
   --commands 0.20
 ```
 

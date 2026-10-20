@@ -62,8 +62,8 @@ The viewer then uses the regular `uv run --no-sync mjpython` command.
 
 ```bash
 uv sync --extra training --extra dev --extra zmp-viewer
-uv run --no-sync mjpython -m wr2.tools.view_paper_reference --robot wr2
-uv run --no-sync mjpython -m wr2.tools.view_paper_reference --robot tb
+uv run --no-sync mjpython -m wr2.tools.view_zmp_reference --robot wr2
+uv run --no-sync mjpython -m wr2.tools.view_zmp_reference --robot tb
 ```
 
 Run each viewer separately. Both default to forward 0.10 m/s in TB units

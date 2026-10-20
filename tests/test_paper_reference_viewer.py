@@ -13,7 +13,7 @@ import pytest
 from wr2.locomotion.configs import load_training_config
 from wr2.reference.paper_walk import PaperWalkReference, paper_command_grid
 from wr2.sim.robot import RobotDescription
-from wr2.tools.view_paper_reference import (
+from wr2.tools.view_zmp_reference import (
     PAPER_CONFIG,
     TB_PAPER_ROOT,
     draw_overlay,

@@ -14,10 +14,10 @@ if needed. Open either robot separately:
 
 ```bash
 # WR2: current Paper training reference, generated on the canonical WR2 model.
-uv run --no-sync mjpython -m wr2.tools.view_paper_reference --robot wr2
+uv run --no-sync mjpython -m wr2.tools.view_zmp_reference --robot wr2
 
 # TB: original Paper lookup and native reference code in the prepared local checkout.
-uv run --no-sync mjpython -m wr2.tools.view_paper_reference --robot tb
+uv run --no-sync mjpython -m wr2.tools.view_zmp_reference --robot tb
 ```
 
 On Linux, replace `mjpython` with `python`. The TB default on this workspace is
@@ -25,9 +25,12 @@ On Linux, replace `mjpython` with `python`. The TB default on this workspace is
 commit `a4f693d`. On another workspace, specify that checkout explicitly:
 
 ```bash
-uv run --no-sync mjpython -m wr2.tools.view_paper_reference \
+uv run --no-sync mjpython -m wr2.tools.view_zmp_reference \
   --robot tb --tb-root /path/to/toddlerbot-paper
 ```
+
+The earlier sinusoidal WR2 viewer is available as
+`wr2.tools.view_legacy_zmp_reference`.
 
 The checkout must include its original `toddlerbot/descriptions/toddlerbot/`
 model/configuration files, `walk_zmp_lookup_table.pkl` and arm dataset. The
@@ -43,19 +46,19 @@ leg joints and stance before displaying overlays.
 
 ```bash
 # Backward, with paused start.
-uv run --no-sync mjpython -m wr2.tools.view_paper_reference \
+uv run --no-sync mjpython -m wr2.tools.view_zmp_reference \
   --robot wr2 --command -0.10 0 0 --paused
 
 # Lateral.
-uv run --no-sync mjpython -m wr2.tools.view_paper_reference \
+uv run --no-sync mjpython -m wr2.tools.view_zmp_reference \
   --robot tb --command 0 0.05 0
 
 # Pure turn. The Paper lookup supports XY walking or pure yaw.
-uv run --no-sync mjpython -m wr2.tools.view_paper_reference \
+uv run --no-sync mjpython -m wr2.tools.view_zmp_reference \
   --robot wr2 --command 0 0 0.5
 
 # Standing.
-uv run --no-sync mjpython -m wr2.tools.view_paper_reference \
+uv run --no-sync mjpython -m wr2.tools.view_zmp_reference \
   --robot tb --command 0 0 0
 ```
 
@@ -131,8 +134,8 @@ records the geometry, height and timing differences.
 For a check without opening a window:
 
 ```bash
-uv run --no-sync python -m wr2.tools.view_paper_reference --robot wr2 --check-only
-uv run --no-sync python -m wr2.tools.view_paper_reference --robot tb --check-only
+uv run --no-sync python -m wr2.tools.view_zmp_reference --robot wr2 --check-only
+uv run --no-sync python -m wr2.tools.view_zmp_reference --robot tb --check-only
 uv run --no-sync pytest -q tests/test_paper_reference_viewer.py
 ```
 
