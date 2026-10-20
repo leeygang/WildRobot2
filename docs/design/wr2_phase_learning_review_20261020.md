@@ -1,5 +1,9 @@
 # Why WR2 loses outward right-leg coordination — 2026-10-20
 
+The approved next training run is the
+[collision-weight experiment](wr2_collision_experiment_20261020.md), retaining
+20M/40M checkpoints to compare the acquisition path described here.
+
 ## Revised conclusion
 
 **The evidence does not establish geometry as the primary cause.** WR2 can

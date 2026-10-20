@@ -19,7 +19,8 @@ matches the local TB run's effective acquisition exposure.
 
 The approved **0.28.5** experiment used the regular WR2 trainer and Paper
 configuration, now archived in the completed run's `training_config.yaml`.
-The canonical YAML prepares the [next air-time control](wr2_airtime_ablation_20261018.md).
+The canonical YAML now prepares the
+[collision-weight experiment](wr2_collision_experiment_20261020.md).
 Relative to completed **0.28.4**, its effective configuration changes only:
 
 | Field | Completed control | Prepared control |

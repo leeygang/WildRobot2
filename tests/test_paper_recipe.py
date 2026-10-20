@@ -554,6 +554,54 @@ def test_air_time_ablation_preserves_transition_and_unweighted_credit(paper_env)
     assert float(ablated.metrics["foot_self_contact_per_step"]) == 0
 
 
+def test_collision_weight_changes_only_native_reward(paper_env):
+    env = copy.copy(paper_env)
+    env.config = replace(
+        env.config,
+        rewards=replace(env.config.rewards, collision=0.1),
+        randomization=replace(env.config.randomization, enabled=False),
+    )
+    command = jp.asarray([0.1 * env.config.normalization_scale, 0.0, 0.0])
+    state = jax.jit(env.reset)(jax.random.PRNGKey(0), command)
+    step = jax.jit(env.step)
+    floor_only = step(state, jp.zeros(12))
+    assert float(floor_only.metrics["left_foot_vertical_force_n_per_step"]) > 1
+    assert float(floor_only.metrics["paper_reward/collision"]) == 0
+
+    # Move both hips inward to create an actual solver foot-to-foot contact.
+    names = [env.robot.actuator_names[j] for j in np.asarray(env._active_indices)]
+    left, right = names.index("left_hip_roll"), names.index("right_hip_roll")
+    action = jp.zeros(12).at[left].set(0.4).at[right].set(-0.4)
+    qpos = env._default_qpos.at[env._joint_qpos_indices[env._active_indices]].set(
+        env._policy_target(action)[env._active_indices]
+    )
+    pipeline = jax.jit(env.pipeline_init)(
+        qpos, jp.zeros_like(state.pipeline_state.qd),
+        ctrl=jp.zeros(env.robot.actuator_count),
+    )
+    state = state.replace(
+        pipeline_state=pipeline,
+        info={**state.info, "previous_action": action},
+    )
+    baseline = step(state, action)
+    stronger_env = copy.copy(env)
+    stronger_env.config = replace(
+        env.config, rewards=replace(env.config.rewards, collision=1.0)
+    )
+    stronger = jax.jit(stronger_env.step)(state, action)
+    assert float(baseline.metrics["foot_self_contact_per_step"]) == 1
+    assert float(baseline.metrics["paper_reward/collision"]) == pytest.approx(-0.004)
+    assert float(stronger.metrics["paper_reward/collision"]) == pytest.approx(-0.04)
+    assert float(stronger.reward - baseline.reward) == pytest.approx(-0.036, abs=2e-6)
+    np.testing.assert_array_equal(stronger.pipeline_state.q, baseline.pipeline_state.q)
+    np.testing.assert_array_equal(stronger.pipeline_state.qd, baseline.pipeline_state.qd)
+    for name in baseline.obs:
+        np.testing.assert_array_equal(stronger.obs[name], baseline.obs[name])
+    for name, value in baseline.metrics.items():
+        if name.startswith("paper_reward/") and name != "paper_reward/collision":
+            np.testing.assert_array_equal(stronger.metrics[name], value)
+
+
 def test_explicit_checkpoint_initializer_preserves_legacy_normal_initialization():
     from brax.training.agents.ppo import networks as ppo_networks
 

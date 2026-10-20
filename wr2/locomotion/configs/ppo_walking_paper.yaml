@@ -11,10 +11,12 @@
 # Keep the interval/key split; critic push features become zero.
 # Paired checkpoint evaluations also test realized, size-scaled TB pushes.
 # Train without --restore-checkpoint; compare with the fresh seed-3 control.
-# Stance diagnostics use the completed baseline; the air-time ablation is deferred.
-# See docs/design/wr2_paper_training.md for the experiment and retained controls.
-version: 0.28.5
-version_name: WR2 ToddlerBot paper acquisition without physical pushes
+# Collision control: increase only the TB collision coefficient from 0.1 to 1.0.
+# The current foot boxes define the conservative clearance being penalized.
+# Air-time remains 500; compare contact reduction AND commanded translation.
+# See docs/design/wr2_collision_experiment_20261020.md for the matched control.
+version: 0.28.7
+version_name: WR2 ToddlerBot paper collision weight 1.0 control
 seed: 3
 environment:
   episode_length: 1000
@@ -114,7 +116,7 @@ reward_weights:
   stand_still: 1.0
   torso_roll: 0.5
   torso_pitch: 0.5
-  collision: 0.1
+  collision: 1.0
   leg_action_rate: 0.05
   leg_action_acc: 0.05
   motor_torque: 0.01
@@ -234,4 +236,4 @@ checkpoints:
   qualification_goal: null
 output:
   root: results/wr2_walking
-  run_prefix: wr2_paper
+  run_prefix: wr2_paper_collision1
