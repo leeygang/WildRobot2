@@ -217,6 +217,13 @@ physically absent, as established in the earlier source/runtime audit.
 
 ## 7. Proposed next step
 
+**Revised after visual evaluation:** the
+[foot-planting review](wr2_foot_plant_review_20261020.md) finds frequent short
+contacts, tiny placement changes and a CAD/floor-contact discrepancy in the
+provided CPU replay. Confirm that gait on the training GPU and diagnose
+planting before executing the additional-200M proposal below. The aggregate
+tracking improvement does not establish normal foot steps.
+
 1. **Retain collision weight 1.0.** The contact objective is essentially met;
    increasing it again has little direct incentive to improve translation.
 2. **Test an additional 200M from the selected 300M checkpoint**, preserving

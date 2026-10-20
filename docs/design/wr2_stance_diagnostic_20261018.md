@@ -106,6 +106,12 @@ come from the recording. Use the recorded model revision when inspecting a
 historical result after model changes. Pixels alone cannot establish a
 millimeter clearance; use the signed-gap and CAD audits for that decision.
 
+The overlay also shows floor force and the duration of the current force-based
+contact interval, reset on unloading and expressed in TB seconds. This makes
+short taps visible in the numerical display. "Box floor contact" is a collider
+label, not proof of a sustained visible sole plant. See the
+[hovering-foot diagnosis](wr2_foot_plant_review_20261020.md).
+
 For CPU recordings that omit command/gap arrays, commands come from the
 recording's summary and gaps are computed from its saved contact-time foot
 frames. Existing GPU recordings retain their saved gaps. Add `--check-only`

@@ -30,7 +30,7 @@ def load_recording(trace_path: Path, robot: str, tb_root: Path):
     fields = (
         "qpos", "valid", "foot_geom_center_m", "foot_geom_rotation",
         "foot_self_force_n", "foot_gap_m", "command_m_s", "delivered_rad",
-        "actual_rad", "contact",
+        "actual_rad", "contact", "foot_vertical_force_n",
     )
     with np.load(trace_path) as recording:
         trace = {name: recording[name] for name in fields if name in recording.files}
@@ -70,6 +70,11 @@ def load_recording(trace_path: Path, robot: str, tb_root: Path):
             np.asarray(result["command_TB_m_s"]) * metadata["normalization_scale"], 0.
         )
         trace["command_m_s"] = np.broadcast_to(command, (ticks, 3))
+    age = np.zeros(2)
+    trace["support_age_s"] = np.zeros((ticks, 2))
+    for index in range(count):
+        age = (age + metadata["control_period_s"]) * trace["contact"][index]
+        trace["support_age_s"][index] = age
     for name, value in trace.items():
         if not np.isfinite(value[:count]).all():
             raise ValueError(f"Nonfinite recorded {name}")
@@ -228,12 +233,17 @@ def view_trace(args: argparse.Namespace) -> int:
             force = float(trace["foot_self_force_n"][index])
             command = trace["command_m_s"][index] / scale
             support = trace["contact"][index].astype(int)
+            age = trace["support_age_s"][index] / scale
+            floor_force = (
+                f"{trace['foot_vertical_force_n'][index, 0]:.2f} / {trace['foot_vertical_force_n'][index, 1]:.2f}"
+                if "foot_vertical_force_n" in trace else "n/a"
+            )
             viewer.set_texts(
                 (
                     mujoco.mjtFontScale.mjFONTSCALE_100,
                     mujoco.mjtGridPos.mjGRID_TOPLEFT,
-                    "Recorded rollout\nPhysical / TB time (s)\nCommand XY (TB m/s)\nFloor support L/R\nBox self-force (N)\nRecorded box gap (mm)\nHip target outward L/R (deg)\nHip actual outward L/R (deg)",
-                    f"{args.robot}: {args.trace.stem}\n{(index + 1) * dt:.2f} / {(index + 1) * dt / scale:.2f}\n{command[0]:+.4f}, {command[1]:+.4f}\n{support[0]} / {support[1]}\n{force:.3f}\n{trace['foot_gap_m'][index] * 1000:+.3f}\n{target[0]:+.2f} / {target[1]:+.2f}\n{actual[0]:+.2f} / {actual[1]:+.2f}",
+                    "Recorded rollout\nPhysical / TB time (s)\nCommand XY (TB m/s)\nBox floor contact L/R\nLoaded duration L/R (TB s)\nFloor force L/R (N)\nBox self-force (N)\nFoot-to-foot box gap (mm)\nHip target outward L/R (deg)\nHip actual outward L/R (deg)",
+                    f"{args.robot}: {args.trace.stem}\n{(index + 1) * dt:.2f} / {(index + 1) * dt / scale:.2f}\n{command[0]:+.4f}, {command[1]:+.4f}\n{support[0]} / {support[1]}\n{age[0]:.3f} / {age[1]:.3f}\n{floor_force}\n{force:.3f}\n{trace['foot_gap_m'][index] * 1000:+.3f}\n{target[0]:+.2f} / {target[1]:+.2f}\n{actual[0]:+.2f} / {actual[1]:+.2f}",
                 )
             )
             viewer.sync()

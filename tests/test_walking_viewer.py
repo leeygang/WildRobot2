@@ -73,7 +73,8 @@ def test_replay_preserves_cached_bodies_pair_colors_and_missing_fields(
         'foot_geom_rotation': rotations if robot == 'wr2' else rotations.reshape(2, pair_count, 2, 3, 3),
         'foot_self_force_n': np.asarray([0., 2.]) if robot == 'wr2' else np.asarray([[0., 0.], [0., 2.]]),
         'delivered_rad': np.zeros((2, 2)), 'actual_rad': np.zeros((2, 2)),
-        'contact': np.ones((2, 2), bool),
+        'contact': np.asarray([[True, False], [True, True]]),
+        'foot_vertical_force_n': np.asarray([[12., 0.], [9., 3.]]),
     }
     scale = .8 if robot == 'wr2' else 1.
     command = np.asarray([.1 * scale, -.05 * scale, 0.])
@@ -94,6 +95,8 @@ def test_replay_preserves_cached_bodies_pair_colors_and_missing_fields(
     )
     np.testing.assert_allclose(replay['command_m_s'], np.tile(command, (2, 1)))
     np.testing.assert_allclose(replay['foot_gap_m'], gaps.min(axis=1), atol=1e-10)
+    np.testing.assert_allclose(replay['support_age_s'], [[.02, 0.], [.04, .02]])
+    np.testing.assert_array_equal(replay['foot_vertical_force_n'], trace['foot_vertical_force_n'])
     data = mujoco.MjData(replay_model)
     scene = mujoco.MjvScene(replay_model, maxgeom=100)
     for frame in range(2):
