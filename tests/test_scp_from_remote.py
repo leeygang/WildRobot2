@@ -220,7 +220,7 @@ class RemoteResultCopyTest(unittest.TestCase):
 
     def test_rejects_parent_directory_path(self):
         result = subprocess.run(
-            [str(SCRIPT), "../outside"],
+            [str(SCRIPT), "--host", "test-host", "../outside"],
             check=False,
             capture_output=True,
             text=True,
@@ -228,19 +228,59 @@ class RemoteResultCopyTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("invalid repository-relative path", result.stderr)
 
-    def test_linux_pc_profile_uses_public_environment(self):
-        environment = dict(os.environ)
-        environment["LINUX_PUBLIC_IP"] = "203.0.113.42"
-        environment["LINUX_PUBLIC_PORT"] = "2222"
-        result = subprocess.run(
-            [str(SCRIPT), "--linux-pc", "../outside"],
-            check=False,
-            capture_output=True,
-            text=True,
-            env=environment,
+    def test_default_linux_pc_connection_and_explicit_overrides(self):
+        cases = (
+            ({"LINUX_PUBLIC_IP": "203.0.113.42", "LINUX_PUBLIC_PORT": "2222"},
+             [], "203.0.113.42", "2222"),
+            ({"WR2_PUBLIC_IP": "203.0.113.43", "WR2_PUBLIC_PORT": "3333"},
+             [], "203.0.113.43", "3333"),
+            ({"LINUX_PUBLIC_IP": "203.0.113.42", "LINUX_PUBLIC_PORT": "2222"},
+             ["--host", "test-host"], "test-host", None),
+            ({"LINUX_PUBLIC_IP": "203.0.113.42", "LINUX_PUBLIC_PORT": "2222"},
+             ["--wrdev"], "wrdev.local", None),
+            ({"LINUX_PUBLIC_IP": "203.0.113.42", "LINUX_PUBLIC_PORT": "2222"},
+             ["--port", "4444"], "203.0.113.42", "4444"),
         )
-        self.assertIn("Remote: leeygang@203.0.113.42", result.stdout)
-        self.assertIn("/home/leeygang/projects/WildRobot2", result.stdout)
+        with tempfile.TemporaryDirectory() as temp:
+            fake_bin = Path(temp)
+            log = fake_bin / "ssh.json"
+            fake_ssh = fake_bin / "ssh"
+            fake_ssh.write_text(textwrap.dedent("""\
+                #!/usr/bin/env python3
+                import json, os, sys
+                from pathlib import Path
+                Path(os.environ["TEST_SSH_LOG"]).write_text(json.dumps(sys.argv[1:]))
+                if "find '" in sys.argv[-1]:
+                    print("400.0\\td\\ttraining-run")
+                """))
+            fake_ssh.chmod(0o755)
+            for overrides, arguments, host, port in cases:
+                with self.subTest(arguments=arguments, overrides=overrides):
+                    environment = dict(os.environ)
+                    for name in (
+                        "WR2_REMOTE_HOST", "WR2_REMOTE_USER", "WR2_REMOTE_PORT", "WR2_REMOTE_BASE",
+                        "LINUX_PUBLIC_IP", "LINUX_PUBLIC_PORT", "WR2_PUBLIC_IP", "WR2_PUBLIC_PORT",
+                    ):
+                        environment.pop(name, None)
+                    environment.update(overrides)
+                    environment.update({
+                        "PATH": f"{fake_bin}:{environment['PATH']}",
+                        "TEST_SSH_LOG": str(log),
+                        "WR2_SSH_CONTROL_DIR": str(fake_bin / "ssh-control"),
+                    })
+                    result = subprocess.run(
+                        [str(SCRIPT), "--latest", "training", "--dry-run", *arguments],
+                        capture_output=True, text=True, env=environment,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn(f"Remote: leeygang@{host}", result.stdout)
+                    self.assertIn("/home/leeygang/projects/WildRobot2", result.stdout)
+                    ssh_args = json.loads(log.read_text())
+                    self.assertIn(f"leeygang@{host}", ssh_args)
+                    if port:
+                        self.assertEqual(ssh_args[ssh_args.index("-p") + 1], port)
+                    else:
+                        self.assertNotIn("-p", ssh_args)
 
     def test_wrdev_profile_selects_deployment_host(self):
         result = subprocess.run(

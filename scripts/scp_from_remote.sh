@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 REMOTE_USER="${WR2_REMOTE_USER:-leeygang}"
-REMOTE_HOST="${WR2_REMOTE_HOST:-linux-pc.local}"
+REMOTE_HOST="${WR2_REMOTE_HOST:-}"
 REMOTE_BASE="${WR2_REMOTE_BASE:-}"
 REMOTE_PORT="${WR2_REMOTE_PORT:-}"
 SSH_CONNECT_TIMEOUT="${WR2_SSH_CONNECT_TIMEOUT:-10}"
@@ -48,18 +48,21 @@ Result groups live below results/ on both machines. Aliases:
 The folder is relative to results/ (for example wr2_solver_ab or
 wr2_solver_ab/newton10_seed0), and keeps the same local results/ path.
 
+The default connection uses LINUX_PUBLIC_IP (or WR2_PUBLIC_IP) and the
+optional LINUX_PUBLIC_PORT (or WR2_PUBLIC_PORT).
+
 Connection options may appear anywhere:
-  --linux-pc            Use LINUX_PUBLIC_IP and optional LINUX_PUBLIC_PORT
   --wrdev               Use leeygang@wrdev.local (deployment host)
-  --host <host>          Remote host (default: linux-pc.local)
+  --host <host>          Remote host (default: Linux PC public IP)
   --user <user>          Remote user (default: leeygang)
   --port <port>          SSH port
   --remote-base <path>   Remote WR2 checkout
-  --public [IPv4]        Use WR2_PUBLIC_IP or LINUX_PUBLIC_IP
+  --public [IPv4]        Use LINUX_PUBLIC_IP or WR2_PUBLIC_IP
   --dry-run              Resolve and print transfers without copying
 
 Environment overrides:
   WR2_REMOTE_HOST, WR2_REMOTE_USER, WR2_REMOTE_PORT, WR2_REMOTE_BASE,
+  LINUX_PUBLIC_IP, LINUX_PUBLIC_PORT,
   WR2_WRDEV_BASE, WR2_PUBLIC_IP, WR2_PUBLIC_PORT,
   WR2_SSH_CONNECT_TIMEOUT, WR2_SSH_CONTROL_DIR
 
@@ -86,7 +89,7 @@ select_linux_pc() {
     elif [ -n "${WR2_PUBLIC_IP:-}" ]; then
         REMOTE_HOST="$WR2_PUBLIC_IP"
     else
-        fail "--linux-pc requires LINUX_PUBLIC_IP (or WR2_PUBLIC_IP)"
+        fail "set LINUX_PUBLIC_IP (or WR2_PUBLIC_IP) for the default Linux PC connection, or use --host"
     fi
     if [ -z "$REMOTE_PORT" ]; then
         REMOTE_PORT="${LINUX_PUBLIC_PORT:-${WR2_PUBLIC_PORT:-}}"
@@ -116,10 +119,6 @@ validate_relative_path() {
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --linux-pc)
-            select_linux_pc
-            shift
-            ;;
         --wrdev)
             REMOTE_USER="leeygang"
             REMOTE_HOST="wrdev.local"
@@ -181,6 +180,10 @@ if [ "$POSITIONAL_COUNT" -eq 0 ]; then
     exit 1
 fi
 set -- "${POSITIONAL[@]}"
+
+if [ -z "$REMOTE_HOST" ]; then
+    select_linux_pc
+fi
 
 if [ -z "$REMOTE_BASE" ]; then
     REMOTE_BASE="/home/$REMOTE_USER/projects/WildRobot2"

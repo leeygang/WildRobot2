@@ -192,14 +192,15 @@ directory. JSON/NPZ servo captures with the same stem are treated as one run.
 ./scripts/scp_from_remote.sh --results wr2_solver_ab/newton10_seed0
 
 # GPU/training host through its public address
-./scripts/scp_from_remote.sh --linux-pc --latest training
+./scripts/scp_from_remote.sh --latest training
 
 # Deployment host
 ./scripts/scp_from_remote.sh --wrdev --latest servo_sysid
 ```
 
-It defaults to `leeygang@linux-pc.local:/home/leeygang/projects/wildrobot2`.
-`--linux-pc` selects `LINUX_PUBLIC_IP` and optional `LINUX_PUBLIC_PORT`;
+It defaults to the Linux PC's `LINUX_PUBLIC_IP` and optional
+`LINUX_PUBLIC_PORT`, with remote checkout `/home/leeygang/projects/WildRobot2`.
+`WR2_PUBLIC_IP` and `WR2_PUBLIC_PORT` are fallback environment variables;
 `--wrdev` selects
 `leeygang@wrdev.local:/home/leeygang/projects/WildRobot2`. Use `--host`,
 `--user`, `--port`, or `--remote-base` for other overrides. Any directory
