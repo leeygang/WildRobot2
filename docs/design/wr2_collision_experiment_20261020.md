@@ -1,5 +1,12 @@
 # WR2 collision-weight experiment — 2026-10-20
 
+**Completed:** `wr2_paper_collision1_20261020_072851_seed3` reached 300M.
+Selected tracking improves 10.1% /10.5% on the two evaluation seeds and foot
+self-contact is almost eliminated, but rightward walking and phase-dependent
+weight transfer remain incomplete. See the
+[result and proposed continuation](wr2_collision_result_20261020.md).
+The preparation and commands below preserve this experiment.
+
 **Prepared: 0.28.7, fresh seed 3, 300M requested transitions.** Test whether
 increasing the existing collision coefficient from **0.1 to 1.0** teaches
 foot separation together with better commanded walking. Use the regular

@@ -147,12 +147,14 @@ Use the [recorded-policy viewer](docs/design/wr2_stance_diagnostic_20261018.md#r
 to inspect the copied GPU rollout on the Mac with slow motion, frame stepping
 and foot collision outlines.
 
-The canonical Paper config now prepares the
-[collision-weight experiment](docs/design/wr2_collision_experiment_20261020.md):
-fresh seed 3, 300M steps, collision **0.1→1.0**, with air-time retained at 500.
-The output prefix is `wr2_paper_collision1`; success requires reduced foot
-self-contact together with better commanded translation. The earlier air-time
-ablation remains deferred.
+The **collision-weight experiment completed at 300M**: increasing collision
+**0.1→1.0** almost eliminates foot self-contact and changes the right hip
+outward. Selected tracking improves **10.1% /10.5%** on the two evaluation
+seeds, but error remains **1.87× TB Paper** and rightward response is incomplete.
+See the [result and proposed next step](docs/design/wr2_collision_result_20261020.md)
+and [experiment setup](docs/design/wr2_collision_experiment_20261020.md).
+The canonical config retains collision 1.0 and air-time 500; the earlier
+air-time ablation remains deferred.
 The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)
 compares actual reward formulas, clocks, effective variation, resets and metrics.
 Actor/critic inputs are 975/1485 for this recipe. WR2 training is self-contained.
