@@ -153,9 +153,11 @@ outward. Selected tracking improves **10.1% /10.5%** on the two evaluation
 seeds, but error remains **1.87× TB Paper** and rightward response is incomplete.
 See the [result and proposed next step](docs/design/wr2_collision_result_20261020.md)
 and [experiment setup](docs/design/wr2_collision_experiment_20261020.md).
-The [visual foot-planting review](docs/design/wr2_foot_plant_review_20261020.md)
-identifies short, tiny contacts in the CPU replay; GPU planting diagnostics
-are the next gate before a continuation.
+The [GPU confirmation and policy-feedback review](docs/design/wr2_policy_feedback_review_20261021.md)
+confirms rapid, tiny foot taps. Past-action feedback sustains the 6.1 Hz
+command loop even without physics integration; TB Paper's tested feedback
+remains stable. The next proposed experiment targets policy smoothness with
+translation and sustained planting evaluated together.
 The canonical config retains collision 1.0 and air-time 500; the earlier
 air-time ablation remains deferred.
 The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)

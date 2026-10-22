@@ -14,11 +14,66 @@ from wr2.tools.diagnose_walking import (
     sample_step,
     signed_foot_distances,
     summarize,
+    summarize_foot_planting,
     summarize_stance,
 )
 
 
 class WalkingDiagnosticsTest(unittest.TestCase):
+    def test_planting_excludes_inherited_and_censored_load_intervals(self):
+        valid = np.arange(24) < 22
+        contact = np.ones((24, 2), bool)
+        contact[:, 1] = False
+        contact[8:10, 1] = True
+        contact[14:17, 1] = True
+        contact[20:, 1] = True  # Last load interval ends in invalid padding.
+        centers = np.zeros((24, 2, 3))
+        centers[[8, 14, 20], 1, 0] = [0.01, 0.03, 0.07]
+        trace = {
+            "valid": valid,
+            "contact": contact,
+            "foot_geom_center_m": centers,
+            "command_m_s": np.tile([0.1, 0, 0], (24, 1)),
+        }
+        result = summarize_foot_planting(trace, [], 0.5, 0.1)
+        self.assertAlmostEqual(result["duration_TB_s"], 2.8)
+        left, right = result["feet"]["left"], result["feet"]["right"]
+        self.assertEqual(left["contact_onsets"], 0)
+        self.assertIsNone(left["median_loaded_interval_TB_s"])
+        self.assertAlmostEqual(left["contact_fraction"], 1)
+        self.assertEqual(right["contact_onsets"], 3)
+        self.assertEqual(right["complete_loaded_intervals"], 2)
+        self.assertAlmostEqual(right["contact_fraction"], 0.5)
+        self.assertAlmostEqual(right["median_loaded_interval_TB_s"], 0.5)
+        self.assertAlmostEqual(right["median_contact_onset_interval_TB_s"], 1.2)
+        self.assertAlmostEqual(right["median_commanded_foot_center_advance_TB_mm"], 120)
+        trace["command_m_s"][:] = 0
+        self.assertIsNone(
+            summarize_foot_planting(trace, [], 0.5, 0.1)["feet"]["right"][
+                "median_commanded_foot_center_advance_TB_mm"
+            ]
+        )
+
+    def test_request_frequency_uses_control_clock_and_excludes_padding(self):
+        trace = {
+            "valid": np.arange(400) < 338,
+            "contact": np.zeros((400, 2), bool),
+            "actor_request_rad": np.column_stack(
+                [np.ones(400), 0.1 * np.sin(2 * np.pi * 5 * np.arange(400) * 0.02)]
+            ),
+        }
+        trace["actor_request_rad"][338:] = np.nan
+        result = summarize_foot_planting(
+            trace, ["left_ankle_pitch", "right_ankle_pitch"], 0.5, 0.02
+        )["ankle_pitch_requests"]
+        self.assertIsNone(result["left_ankle_pitch"]["dominant_frequency_physical_hz"])
+        self.assertAlmostEqual(
+            result["right_ankle_pitch"]["dominant_frequency_physical_hz"], 5
+        )
+        self.assertAlmostEqual(
+            result["right_ankle_pitch"]["dominant_frequency_TB_hz"], 2.5
+        )
+        self.assertAlmostEqual(result["right_ankle_pitch"]["std_rad"], 0.1 / np.sqrt(2))
     def test_reference_action_changes_only_selected_coordinates_and_bounds_reach(self):
         env = SimpleNamespace(
             _active_indices=jp.asarray([1, 3]),

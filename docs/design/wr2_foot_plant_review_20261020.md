@@ -1,5 +1,10 @@
 # WR2 hovering foot and short contacts — 2026-10-20
 
+**Update 2026-10-21:** the [GPU confirmation and causal feedback review](wr2_policy_feedback_review_20261021.md)
+reproduces the pattern and identifies a learned past-action feedback loop.
+Its next experiment supersedes the GPU gate and conditional continuation below;
+this document retains the original CPU/CAD observations.
+
 ## Revised interpretation
 
 The user's visual evaluation identifies a real gait-quality problem in the

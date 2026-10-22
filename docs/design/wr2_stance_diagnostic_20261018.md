@@ -35,19 +35,23 @@ ignored results directory.
 
 ## Replay the recorded policy visually
 
-Replay the current collision-weight **300M** policy's nominal CPU recording
+Replay the current collision-weight **300M** policy's nominal GPU recording
 locally on the Mac:
 
 ```bash
 uv run --no-sync mjpython -m wr2.tools.view_walking \
-  --trace results/wr2_walking/wr2_paper_collision1_20261020_072851_seed3/review_20261020/nominal_cpu/selected_forward_010_learned.npz \
+  --trace results/wr2_walking/wr2_paper_collision1_20261020_072851_seed3/stance_diagnostic_gpu/learned_forward_010_seed22102.npz \
   --playback-speed 0.25
 ```
 
 The recording contains learned policy actions, not substituted references.
-Change `selected_forward_010_learned.npz` to `selected_backward_010_learned.npz`,
-`selected_left_005_learned.npz`, `selected_right_005_learned.npz` or
-`selected_standing_learned.npz` in the same directory to inspect other commands.
+Change `learned_forward_010_seed22102.npz` to `learned_backward_010_seed22102.npz`,
+`learned_left_005_seed22102.npz`, `learned_right_005_seed22102.npz` or
+`learned_standing_seed22102.npz` in the same directory to inspect other commands.
+
+The [GPU confirmation and feedback analysis](wr2_policy_feedback_review_20261021.md)
+explains the fast tapping. Future diagnostic summaries also include sampled
+contact durations, placement advances and ankle request frequencies.
 
 Replay the matching **TB Paper 200M** copied GPU recording:
 

@@ -217,6 +217,11 @@ physically absent, as established in the earlier source/runtime audit.
 
 ## 7. Proposed next step
 
+**Update 2026-10-21:** [GPU planting confirmation and policy feedback tests](wr2_policy_feedback_review_20261021.md)
+identify a learned autonomous command oscillation. The proposed controlled
+smoothness experiment supersedes the unchanged 200M continuation below.
+The original proposal is retained here to record the analysis sequence.
+
 **Revised after visual evaluation:** the
 [foot-planting review](wr2_foot_plant_review_20261020.md) finds frequent short
 contacts, tiny placement changes and a CAD/floor-contact discrepancy in the

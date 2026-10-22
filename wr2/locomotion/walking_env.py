@@ -1161,7 +1161,7 @@ class WR2WalkingEnv(PipelineEnv):
         target: jax.Array,
         actuator_noise: dict[str, jax.Array],
     ) -> jax.Array:
-        """Apply ToddlerBot's PD plus asymmetric torque-speed envelope."""
+        """Apply WR2's PD and configured asymmetric torque-speed envelope."""
         joint_position = pipeline_state.q[self._joint_qpos_indices]
         joint_velocity = pipeline_state.qd[self._joint_qvel_indices]
         joint_acceleration = pipeline_state.qacc[self._joint_qvel_indices]

@@ -497,6 +497,72 @@ def signed_foot_distances(model, geom_ids, centers, rotations, valid):
     return distances
 
 
+def summarize_foot_planting(trace, names, scale, dt):
+    """Describe sampled contacts after 1.5 TB seconds, not qualified strides.
+
+    Exclude load intervals that began before warmup or end at the recording
+    boundary. Placement compares the same foot's cached collider center at
+    successive contact onsets, projected onto the nominal world command direction.
+    """
+    valid = trace["valid"].astype(bool)
+    steady = valid & (np.arange(len(valid)) * dt / scale >= 1.5)
+    duration = int(steady.sum()) * dt / scale
+    result = {"warmup_TB_s": 1.5, "duration_TB_s": duration, "feet": {}}
+    for foot, side in enumerate(("left", "right")):
+        loaded = trace["contact"][:, foot].astype(bool) & valid
+        onsets = np.flatnonzero(loaded & ~np.r_[False, loaded[:-1]])
+        onsets = onsets[steady[onsets]]
+        intervals = []
+        for start in onsets:
+            end = start
+            while end < len(valid) and loaded[end]:
+                end += 1
+            if end < len(valid) and valid[end]:
+                intervals.append((end - start) * dt / scale)
+        progress = None
+        if len(onsets) > 1:
+            command = trace["command_m_s"][onsets[0], :2].astype(float)
+            speed = np.linalg.norm(command)
+            if speed > 1e-6:
+                centers = trace["foot_geom_center_m"][onsets, foot, :2]
+                advances = np.diff(centers.astype(float), axis=0) @ (command / speed)
+                progress = float(np.median(advances) / scale**2 * 1000)
+        result["feet"][side] = {
+            "contact_fraction": float(loaded[steady].mean()) if duration else None,
+            "contact_onsets": len(onsets),
+            "contact_onset_rate_TB_hz": len(onsets) / duration if duration else None,
+            "complete_loaded_intervals": len(intervals),
+            "median_loaded_interval_TB_s": float(np.median(intervals))
+            if intervals
+            else None,
+            "median_contact_onset_interval_TB_s": float(
+                np.median(np.diff(onsets)) * dt / scale
+            )
+            if len(onsets) > 1
+            else None,
+            "median_commanded_foot_center_advance_TB_mm": progress,
+        }
+    result["ankle_pitch_requests"] = {}
+    for index, name in enumerate(names):
+        if not name.endswith("ankle_pitch") or steady.sum() < 20:
+            continue
+        signal = trace["actor_request_rad"][steady, index].astype(float)
+        signal -= signal.mean()
+        std = float(signal.std())
+        frequency = None
+        if std > 1e-6:
+            power = np.abs(np.fft.rfft(signal)) ** 2
+            power[0] = 0
+            frequency = float(np.fft.rfftfreq(len(signal), dt)[power.argmax()])
+        result["ankle_pitch_requests"][name] = {
+            "std_rad": std,
+            "dominant_frequency_physical_hz": frequency,
+            "dominant_frequency_TB_hz": frequency * scale
+            if frequency is not None
+            else None,
+        }
+    return result
+
 def summarize_stance(trace, names, scale, dt):
     """One censored episode; never pool its padding or count resets as survival."""
     valid = trace["valid"].astype(bool)
@@ -565,6 +631,7 @@ def summarize_stance(trace, names, scale, dt):
         "foot_vertical_force_mean_n": [
             mean(trace["foot_vertical_force_n"][:, j]) for j in range(2)
         ],
+        "planting": summarize_foot_planting(trace, names, scale, dt),
         "joints": {
             name: {
                 "actor_request_reference_rmse_rad": rms(
@@ -940,7 +1007,7 @@ def run_paper_stance_diagnostics(
             flush=True,
         )
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run": str(run_dir.resolve()),
         "checkpoint": str(path),
         "checkpoint_sha256": hashlib.sha256(path.read_bytes()).hexdigest()
