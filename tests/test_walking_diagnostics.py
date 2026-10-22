@@ -140,6 +140,9 @@ class WalkingDiagnosticsTest(unittest.TestCase):
             "foot_vertical_force_n": np.asarray(
                 [[5.0, 6.0]] * 3 + [[np.nan, np.nan]] * 2
             ),
+            "paper_reward_feet_air_time": np.asarray([1.0, 2.0, 3.0, 100.0, np.nan]),
+            "paper_reward_lin_vel_xy": np.asarray([0.1, 0.2, 0.3, 100.0, np.nan]),
+            "reward": np.asarray([1.1, 2.2, 3.3, np.nan, np.nan]),
         }
         for name, value in (
             ("actor_request_rad", 0.4),
@@ -167,6 +170,10 @@ class WalkingDiagnosticsTest(unittest.TestCase):
         self.assertEqual(result["foot_gap_min_m"], -0.002)
         self.assertEqual(result["maximum_foot_self_force_n"], 2.0)
         self.assertAlmostEqual(result["air_time_credit_s"], 0.6)
+        self.assertAlmostEqual(result["reward_components"]["feet_air_time"], 6.0)
+        self.assertAlmostEqual(result["reward_components"]["lin_vel_xy"], 0.6)
+        self.assertAlmostEqual(result["total_reward"], 6.6)
+        self.assertAlmostEqual(result["reward_reconstruction_max_error"], 0.0)
         self.assertAlmostEqual(result["leg_actual_delivered_rmse_rad"], 0.1)
         self.assertEqual(result["joints"]["left_hip_roll"]["target_clip_fraction"], 1.0)
         self.assertEqual(

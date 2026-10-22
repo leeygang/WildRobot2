@@ -160,6 +160,11 @@ remains stable. The [acquisition audit](docs/design/wr2_tb_acquisition_root_revi
 shows the fast strategy already appears at 20M. Recipe changes are deferred
 until its initiating cause is identified; the late feedback mechanism alone
 does not explain why training diverges from TB.
+The [reward review](docs/design/wr2_reward_review_20261022.md) identifies weak
+step validity and competing incentives: brief taps collect air credit, while
+a more propulsive reference control loses reward through lateral sway and
+angular motion. Stance qualification is being evaluated in recorded-data
+accounting; reward and physics settings remain unchanged.
 The canonical config retains collision 1.0 and air-time 500; the earlier
 air-time ablation remains deferred.
 The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)

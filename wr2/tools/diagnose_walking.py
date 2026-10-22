@@ -577,7 +577,7 @@ def summarize_stance(trace, names, scale, dt):
     requested_double = trace["reference_contact"].all(axis=1) & valid
     actual_double = trace["contact"].all(axis=1)
     error = np.linalg.norm(trace["velocity_m_s"] - trace["command_m_s"][:, :2], axis=1)
-    return {
+    result = {
         "sample_count": count,
         "duration_physical_s": count * dt,
         "duration_TB_equivalent_s": count * dt / scale,
@@ -655,6 +655,23 @@ def summarize_stance(trace, names, scale, dt):
             for j, name in enumerate(names)
         },
     }
+    reward_fields = {
+        key.removeprefix("paper_reward_"): value
+        for key, value in trace.items()
+        if key.startswith("paper_reward_")
+    }
+    if reward_fields:
+        result["reward_components"] = {
+            name: float(value[valid].astype(float).sum())
+            for name, value in reward_fields.items()
+        }
+        result["total_reward"] = float(trace["reward"][valid].astype(float).sum())
+        component_sum = np.stack(list(reward_fields.values()), axis=1).sum(axis=1)
+        result["reward_reconstruction_max_error"] = (
+            float(np.abs(component_sum[valid] - trace["reward"][valid]).max())
+            if count else None
+        )
+    return result
 
 
 def reference_geometry_audit(env, model):
@@ -924,6 +941,12 @@ def run_paper_stance_diagnostics(
                 jp.where(pair, jp.linalg.norm(forces, axis=1), 0.0)
             ),
             "air_time_credit_s": metrics["air_time_credit_s_per_step"],
+            "reward": after.reward,
+            **{
+                "paper_reward_" + name.removeprefix("paper_reward/"): value
+                for name, value in metrics.items()
+                if name.startswith("paper_reward/")
+            },
         }
 
     def rollout():
@@ -1007,7 +1030,7 @@ def run_paper_stance_diagnostics(
             flush=True,
         )
     report = {
-        "schema_version": 2,
+        "schema_version": 3,
         "run": str(run_dir.resolve()),
         "checkpoint": str(path),
         "checkpoint_sha256": hashlib.sha256(path.read_bytes()).hexdigest()
@@ -1025,6 +1048,7 @@ def run_paper_stance_diagnostics(
         "action_intervention": "current reference mapped into bounded actions; native delay, quantization, limits and slew retained",
         "reference_error_timing": "current reference vs end-of-tick joint positions; delivered targets retain the recorded action delay",
         "geometry_sampling": "cached last-substep geometry/solver frames; not re-forwarded integrated qpos",
+        "reward_sampling": "native weighted components after control-dt multiplication; valid terminal tick retained, padding excluded",
         "termination": "finite terminal tick included; nonfinite tick excluded; no autoreset samples",
         "active_joint_names": names,
         "home_position_rad": np.asarray(env._home_ctrl)[active].tolist(),

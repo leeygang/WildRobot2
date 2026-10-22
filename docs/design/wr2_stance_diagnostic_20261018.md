@@ -52,6 +52,9 @@ Change `learned_forward_010_seed22102.npz` to `learned_backward_010_seed22102.np
 The [GPU confirmation and feedback analysis](wr2_policy_feedback_review_20261021.md)
 explains the fast tapping. Future diagnostic summaries also include sampled
 contact durations, placement advances and ankle request frequencies.
+Schema-3 recordings also retain every native weighted reward component and
+the total. The [reward review](wr2_reward_review_20261022.md) explains their
+accounting and the limits of interpreting episode totals as PPO incentives.
 
 Replay the matching **TB Paper 200M** copied GPU recording:
 

@@ -1,5 +1,10 @@
 # Why TB learns walking and WR2 does not: acquisition audit — 2026-10-21
 
+**Update 2026-10-22:** the [reward-direction review](wr2_reward_review_20261022.md)
+prioritizes step-credit validity and its competition with motion/stability
+incentives. It repeats existing controls for full accounting and rescores
+recorded contacts without changing training rewards or physical parameters.
+
 ## Current answer
 
 **The complete causal explanation is not established.** The feedback diagnostic

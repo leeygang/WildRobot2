@@ -1,5 +1,9 @@
 # WR2 rapid foot taps: GPU confirmation and policy feedback — 2026-10-21
 
+**Update 2026-10-22:** the [reward review](wr2_reward_review_20261022.md) examines
+which objective terms accept tapping and compares the existing reference
+controls with complete reward accounting. Training settings remain fixed.
+
 ## Conclusion
 
 **The current WR2 policy sustains a fast oscillation through its past-action
