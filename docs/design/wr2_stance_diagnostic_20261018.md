@@ -55,6 +55,9 @@ contact durations, placement advances and ankle request frequencies.
 Schema-3 recordings also retain every native weighted reward component and
 the total. The [reward review](wr2_reward_review_20261022.md) explains their
 accounting and the limits of interpreting episode totals as PPO incentives.
+Schema 4 additionally records physical qualified/cancelled credit and stance
+duration for the [step-reward experiment](wr2_step_reward_experiment_20261022.md),
+including metadata for its PPO discount compensation.
 
 Replay the matching **TB Paper 200M** copied GPU recording:
 

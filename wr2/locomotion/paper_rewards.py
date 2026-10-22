@@ -16,6 +16,41 @@ def range_reward(value, minimum, maximum, slope=100.0):
     return (jp.exp(-slope * jp.abs(below)) + jp.exp(-slope * jp.abs(above))) / 2
 
 
+def qualified_air_time_step(
+    state, contact, active, *, dt, minimum_stance_steps, discount_compensation
+):
+    """Pay supported swing time once its landing sustains sampled contact.
+
+    The caller uses gamma**(-(minimum_stance_steps - 1)) to preserve the
+    discounted value at the original landing time. Short contacts and command
+    stops cancel pending credit. Raw TB air/clearance counters are separate.
+    """
+    contact, active = jp.asarray(contact, dtype=bool), jp.asarray(active, dtype=bool)
+    landed = contact & (state["stance_steps"] == 0)
+    candidate = jp.where(landed & active, state["supported_air_time"], 0.0)
+    rejected = jp.where(~contact | ~active, state["pending_air_time"], 0.0)
+    pending = jp.where(landed, candidate, state["pending_air_time"])
+    pending = jp.where(contact & active, pending, 0.0)
+    steps = jp.where(contact, state["stance_steps"] + 1, 0)
+    qualified = contact & (steps >= minimum_stance_steps)
+    paid = jp.where(qualified, pending, 0.0)
+    following = {
+        "supported_air_time": jp.where(
+            contact, 0.0, state["supported_air_time"] + dt * contact[::-1]
+        ),
+        "pending_air_time": jp.where(qualified, 0.0, pending),
+        "stance_steps": steps,
+    }
+    metrics = {
+        "air_time_credit_s_per_step": jp.sum(paid) * discount_compensation,
+        "candidate_air_time_s_per_step": jp.sum(candidate),
+        "qualified_air_time_s_per_step": jp.sum(paid),
+        "rejected_air_time_s_per_step": jp.sum(rejected),
+        "left_foot_stance_duration_s_per_step": jp.maximum(steps[0] - 1, 0) * dt,
+        "right_foot_stance_duration_s_per_step": jp.maximum(steps[1] - 1, 0) * dt,
+    }
+    return following, metrics
+
 def paper_reward_terms(
     *,
     motor_position,

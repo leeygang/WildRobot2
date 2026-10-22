@@ -354,9 +354,15 @@ def run_diagnostics(
     factory = _jax_policy_factory(config.network.activation)
     for mode in ("heading", "transitions"):
         env = (
-            WR2WalkingEnv(environment_config, add_observation_noise=False)
+            WR2WalkingEnv(
+                environment_config, add_observation_noise=False,
+                reward_discounting=config.ppo.discounting,
+            )
             if mode == "heading"
-            else transition_environment(environment_config, add_observation_noise=False)
+            else transition_environment(
+                environment_config, add_observation_noise=False,
+                reward_discounting=config.ppo.discounting,
+            )
         )
         report["joint_limits_deg"] = {
             name: np.rad2deg(
@@ -671,6 +677,12 @@ def summarize_stance(trace, names, scale, dt):
             float(np.abs(component_sum[valid] - trace["reward"][valid]).max())
             if count else None
         )
+    for name in (
+        "raw_air_time_credit_s", "candidate_air_time_s",
+        "qualified_air_time_s", "rejected_air_time_s",
+    ):
+        if name in trace:
+            result[name] = float(trace[name][valid].astype(float).sum())
     return result
 
 
@@ -808,7 +820,9 @@ def run_paper_stance_diagnostics(
         "Building the recorded Paper reference and checking the full command grid...",
         flush=True,
     )
-    env = WR2WalkingEnv(nominal, add_observation_noise=False)
+    env = WR2WalkingEnv(
+        nominal, add_observation_noise=False, reward_discounting=config.ppo.discounting
+    )
     model = mujoco.MjModel.from_xml_path(str(env.robot.directory / "scene_mjx.xml"))
     geometry = reference_geometry_audit(env, model)
     output.mkdir(parents=True, exist_ok=True)
@@ -943,6 +957,14 @@ def run_paper_stance_diagnostics(
             "air_time_credit_s": metrics["air_time_credit_s_per_step"],
             "reward": after.reward,
             **{
+                name.removesuffix("_per_step"): metrics[name]
+                for name in (
+                    "raw_air_time_credit_s_per_step", "candidate_air_time_s_per_step",
+                    "qualified_air_time_s_per_step", "rejected_air_time_s_per_step",
+                    "left_foot_stance_duration_s_per_step", "right_foot_stance_duration_s_per_step",
+                ) if name in metrics
+            },
+            **{
                 "paper_reward_" + name.removeprefix("paper_reward/"): value
                 for name, value in metrics.items()
                 if name.startswith("paper_reward/")
@@ -1030,7 +1052,7 @@ def run_paper_stance_diagnostics(
             flush=True,
         )
     report = {
-        "schema_version": 3,
+        "schema_version": 4,
         "run": str(run_dir.resolve()),
         "checkpoint": str(path),
         "checkpoint_sha256": hashlib.sha256(path.read_bytes()).hexdigest()
@@ -1049,6 +1071,15 @@ def run_paper_stance_diagnostics(
         "reference_error_timing": "current reference vs end-of-tick joint positions; delivered targets retain the recorded action delay",
         "geometry_sampling": "cached last-substep geometry/solver frames; not re-forwarded integrated qpos",
         "reward_sampling": "native weighted components after control-dt multiplication; valid terminal tick retained, padding excluded",
+        "air_reward": {
+            "minimum_stance_requested_s": nominal.air_time_min_stance_s,
+            "minimum_stance_TB_s": nominal.air_time_min_stance_s / scale,
+            "minimum_contact_samples": env._air_time_min_stance_steps,
+            "payment_delay_ticks": max(env._air_time_min_stance_steps - 1, 0),
+            "discounting": config.ppo.discounting,
+            "payment_discount_compensation": env._air_time_discount_compensation,
+            "credit_units": "air_time_credit_s is seconds-equivalent reward credit; qualified_air_time_s is uncompensated physical credit",
+        },
         "termination": "finite terminal tick included; nonfinite tick excluded; no autoreset samples",
         "active_joint_names": names,
         "home_position_rad": np.asarray(env._home_ctrl)[active].tolist(),

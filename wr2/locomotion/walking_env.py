@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import jax
 import jax.numpy as jp
 import mujoco
@@ -11,7 +13,7 @@ from brax.io import mjcf
 from mujoco.mjx._src import support as mjx_support
 
 from wr2.locomotion.configs import WalkingEnvConfig, load_training_config
-from wr2.locomotion.paper_rewards import paper_reward_terms
+from wr2.locomotion.paper_rewards import paper_reward_terms, qualified_air_time_step
 from wr2.reference.paper_walk import PaperWalkReference
 from wr2.reference.walk_zmp import WR2ZMPReference, periodic_foot_reference
 from wr2.sim.robot import RobotDescription
@@ -256,10 +258,26 @@ class WR2WalkingEnv(PipelineEnv):
         config: WalkingEnvConfig | None = None,
         *,
         add_observation_noise: bool = True,
+        reward_discounting: float = 0.97,
     ):
         self.config = config or load_training_config().environment
         self._paper_recipe = self.config.recipe == "tb_paper"
         self.robot = RobotDescription.load(include_local_calibration=False)
+        # N contact samples span N-1 control intervals. A single sample
+        # cannot establish that the foot has sustained ground support.
+        self._air_time_min_stance_steps = (
+            math.ceil(self.config.air_time_min_stance_s / self.robot.control_period_s) + 1
+            if self.config.air_time_min_stance_s > 0 else 0
+        )
+        if self._air_time_min_stance_steps and not self._paper_recipe:
+            raise ValueError("qualified air time requires the paper recipe")
+        if self._air_time_min_stance_steps >= self.config.episode_length:
+            raise ValueError("minimum air-time stance must fit within an episode")
+        if not math.isfinite(reward_discounting) or not 0 < reward_discounting <= 1:
+            raise ValueError("reward_discounting must be in (0, 1]")
+        self._air_time_discount_compensation = reward_discounting ** (
+            -max(self._air_time_min_stance_steps - 1, 0)
+        )
         self.add_observation_noise = add_observation_noise
         self._joint_velocity_observation_scale = float(
             self.robot.config["observation"]["scales"]["joint_velocity"]
@@ -1121,6 +1139,12 @@ class WR2WalkingEnv(PipelineEnv):
                 "reference_double_support_per_step", "matched_reference_double_support_per_step",
                 "foot_self_contact_per_step", "air_time_credit_s_per_step",
             )})
+            if self._air_time_min_stance_steps:
+                metrics.update({name: zero for name in (
+                    "raw_air_time_credit_s_per_step", "candidate_air_time_s_per_step",
+                    "qualified_air_time_s_per_step", "rejected_air_time_s_per_step",
+                    "left_foot_stance_duration_s_per_step", "right_foot_stance_duration_s_per_step",
+                )})
         metrics = {name: jp.zeros_like(value) for name, value in metrics.items()}
         info = {
             "rng": rng,
@@ -1153,6 +1177,12 @@ class WR2WalkingEnv(PipelineEnv):
                 "initial_foot_body_z": pipeline_state.x.pos[self._foot_link_indices, 2],
                 "push_linear": jp.zeros(3), "push_angular": jp.zeros(3),
             })
+            if self._air_time_min_stance_steps:
+                info["step_air_time"] = {
+                    "supported_air_time": jp.zeros(2),
+                    "pending_air_time": jp.zeros(2),
+                    "stance_steps": jp.zeros(2, dtype=jp.int32),
+                }
         return State(pipeline_state, observation, zero, zero, metrics, info)
 
     def _controller_torque(
@@ -1678,6 +1708,18 @@ class WR2WalkingEnv(PipelineEnv):
             scale=self.config.normalization_scale,
             deadzone=self.config.command_active_threshold_m_s / self.config.normalization_scale,
         )
+        if self._air_time_min_stance_steps:
+            scale = self.config.normalization_scale
+            active = jp.linalg.norm(command * jp.asarray([1 / scale, 1 / scale, scale])) > (
+                self.config.command_active_threshold_m_s / scale
+            )
+            step_air_time, air_metrics = qualified_air_time_step(
+                state.info["step_air_time"], contact, active,
+                dt=dt, minimum_stance_steps=self._air_time_min_stance_steps,
+                discount_compensation=self._air_time_discount_compensation,
+            )
+            raw_air_credit = terms["feet_air_time"]
+            terms["feet_air_time"] = air_metrics["air_time_credit_s_per_step"]
         weighted = {name: getattr(self.config.rewards, name) * value for name, value in terms.items()}
         reward = sum(weighted.values()) * dt
         frames, imu = self._observation(
@@ -1725,6 +1767,10 @@ class WR2WalkingEnv(PipelineEnv):
             "imu_state": imu,
             "step_count": reset_if_done(step_count, jp.zeros_like(step_count)),
         }
+        if self._air_time_min_stance_steps:
+            info["step_air_time"] = jax.tree.map(
+                lambda value: reset_if_done(value, jp.zeros_like(value)), step_air_time
+            )
         active = self._active_indices
         clipped = (jp.abs(unconstrained_target[active] - desired_target[active]) > 1e-7) | (jp.abs(quantized_unclipped[active] - quantized_target[active]) > 1e-7)
         slew = jp.abs(target_delta[active] - limited_delta[active]) > 1e-7
@@ -1782,6 +1828,9 @@ class WR2WalkingEnv(PipelineEnv):
             "linear_push_m_s_per_step": jp.linalg.norm(push_linear), "angular_push_rad_s_per_step": jp.linalg.norm(push_angular),
             "left_foot_displacement_m_per_step": displacement[0], "right_foot_displacement_m_per_step": displacement[1],
         })
+        if self._air_time_min_stance_steps:
+            metrics.update(air_metrics)
+            metrics["raw_air_time_credit_s_per_step"] = raw_air_credit
         metrics.update(self._motion_metrics(state.pipeline_state, pipeline, command, phase, heading, state.info["command_age_steps"]))
         return state.replace(pipeline_state=pipeline, obs=observation, reward=reward,
                              done=terminal.astype(jp.float32), metrics=metrics, info=info)

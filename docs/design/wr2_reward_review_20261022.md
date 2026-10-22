@@ -1,5 +1,11 @@
 # WR2 reward direction: short taps versus useful steps — 2026-10-22
 
+**Implementation update:** the user-approved [experiment preparation](wr2_step_reward_experiment_20261022.md)
+uses .20 TB-second stance qualification and preserves qualifying landing-time
+discounted value. Its production-function verification reverses both raw and
+discounted ranking on the recorded controls. This supersedes the .10-second
+uncompensated candidate below, whose original limitations remain recorded.
+
 ## Findings
 
 **The reward permits the observed tapper to earn substantial return with little

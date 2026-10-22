@@ -135,6 +135,9 @@ class WalkingDiagnosticsTest(unittest.TestCase):
                 [0.0, 1e-7, 0.0, 1.0, np.nan]
             ),
             "air_time_credit_s": np.asarray([0.1, 0.2, 0.3, np.nan, np.nan]),
+            "raw_air_time_credit_s": np.asarray([0.1, 0.2, 0.3, 99.0, np.nan]),
+            "qualified_air_time_s": np.asarray([0.0, 0.05, 0.1, 99.0, np.nan]),
+            "rejected_air_time_s": np.asarray([0.0, 0.02, 0.0, 99.0, np.nan]),
             "feet_lateral_distance_m": np.asarray([0.08] * 3 + [np.nan] * 2),
             "feet_distance_reward_per_step": np.asarray([0.02] * 3 + [np.nan] * 2),
             "foot_vertical_force_n": np.asarray(
@@ -170,6 +173,9 @@ class WalkingDiagnosticsTest(unittest.TestCase):
         self.assertEqual(result["foot_gap_min_m"], -0.002)
         self.assertEqual(result["maximum_foot_self_force_n"], 2.0)
         self.assertAlmostEqual(result["air_time_credit_s"], 0.6)
+        self.assertAlmostEqual(result["raw_air_time_credit_s"], 0.6)
+        self.assertAlmostEqual(result["qualified_air_time_s"], 0.15)
+        self.assertAlmostEqual(result["rejected_air_time_s"], 0.02)
         self.assertAlmostEqual(result["reward_components"]["feet_air_time"], 6.0)
         self.assertAlmostEqual(result["reward_components"]["lin_vel_xy"], 0.6)
         self.assertAlmostEqual(result["total_reward"], 6.6)

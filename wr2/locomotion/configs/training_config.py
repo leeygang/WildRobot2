@@ -167,6 +167,7 @@ class WalkingEnvConfig:
     push_linear_velocity_m_s: float = 0.0
     push_angular_velocity_rad_s: float = 0.0
     max_feet_lateral_distance_m: float = 0.13
+    air_time_min_stance_s: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -461,6 +462,10 @@ def load_training_config(
         raise ValueError("environment.action_delay_steps must be 0 or 1")
     if environment.normalization_scale <= 0:
         raise ValueError("environment.normalization_scale must be positive")
+    if environment.air_time_min_stance_s < 0:
+        raise ValueError("environment.air_time_min_stance_s must be non-negative")
+    if environment.air_time_min_stance_s > 0 and recipe != "tb_paper":
+        raise ValueError("qualified air time requires the paper recipe")
     if not 0 <= environment.turn_command_probability <= 1 - environment.zero_command_probability:
         raise ValueError("standing and turning probabilities must sum to at most one")
     if environment.push_interval_steps < 0 or min(environment.push_linear_velocity_m_s, environment.push_angular_velocity_rad_s) < 0:

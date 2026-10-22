@@ -284,7 +284,8 @@ def smoke_test(steps: int, training_config: TrainingConfig | None = None) -> Non
     zmp_preflight = _validate_training_zmp_reference(training_config)
     print(f"ZMP PPO preflight passed: {_format_zmp_preflight(zmp_preflight)}")
     environment = WR2WalkingEnv(
-        training_config.environment, add_observation_noise=False
+        training_config.environment, add_observation_noise=False,
+        reward_discounting=training_config.ppo.discounting,
     )
     reset = jax.jit(environment.reset)
     step = jax.jit(environment.step)
@@ -397,6 +398,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     environment = WR2WalkingEnv(
         training_config.environment,
         add_observation_noise=True,
+        reward_discounting=training_config.ppo.discounting,
     )
     evaluation_commands = _checkpoint_evaluation_xy_commands(training_config)
     paper_recipe = training_config.environment.recipe == "tb_paper"
@@ -420,6 +422,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                     training_config.ppo.evaluation_randomization
                     and training_config.environment.randomization.enabled
                 ),
+                reward_discounting=training_config.ppo.discounting,
             ),
         )
         for command in evaluation_commands
@@ -448,6 +451,12 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     print(f"  Run ID:       {run_id}")
     print(f"  Output:       {output}")
     print(f"  PPO backend:  {training_config.ppo.backend}")
+    if training_config.environment.air_time_min_stance_s > 0:
+        print(
+            f"  Step air:     {environment._air_time_min_stance_steps} consecutive contact samples; "
+            f"delay {environment._air_time_min_stance_steps - 1} ticks; "
+            f"discount compensation {environment._air_time_discount_compensation:.6f}"
+        )
     print(f"  JAX backend:  {backend}")
     print(f"  JAX memory:   preallocate={os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']}")
     print(f"  Devices:      {devices}")

@@ -20,7 +20,7 @@ from wr2.locomotion.train import (
 from wr2.locomotion.walking_metrics import evaluate_xy_goal, walking_score
 
 
-def transition_environment(config, *, add_observation_noise):
+def transition_environment(config, *, add_observation_noise, reward_discounting=0.97):
     """Repeat standing -> walking -> standing at deterministic command times."""
     import jax.numpy as jp
     from wr2.locomotion.walking_env import WR2WalkingEnv
@@ -45,6 +45,7 @@ def transition_environment(config, *, add_observation_noise):
     return TransitionEnvironment(
         replace(config, zero_command_probability=1.0, turn_command_probability=0.0),
         add_observation_noise=add_observation_noise,
+        reward_discounting=reward_discounting,
     )
 
 
@@ -184,7 +185,8 @@ def evaluate_checkpoint(
             zero_command_probability=0.0,
         )
         network_environment = WR2WalkingEnv(
-            eval_environment_config, add_observation_noise=False
+            eval_environment_config, add_observation_noise=False,
+            reward_discounting=config.ppo.discounting,
         )
         network_factory = make_network_factory(config.network)
         preprocess = (
@@ -227,11 +229,13 @@ def evaluate_checkpoint(
             # model variation, and reset/local actuator variation, as in the
             # new qualifying training evaluator.
             add_observation_noise=config.environment.randomization.enabled,
+            reward_discounting=config.ppo.discounting,
         )
         if transitions:
             environment = transition_environment(
                 environment.config,
                 add_observation_noise=config.environment.randomization.enabled,
+                reward_discounting=config.ppo.discounting,
             )
         seed_results = []
         for seed in seeds:
@@ -473,7 +477,10 @@ def evaluate_paper_checkpoint(args):
             raise ValueError("solver_iterations must be positive")
         config = replace(config, environment=replace(config.environment, solver_iterations=args.solver_iterations))
     varied = config.ppo.evaluation_randomization and not args.nominal
-    env = WR2WalkingEnv(config.environment, add_observation_noise=varied)
+    env = WR2WalkingEnv(
+        config.environment, add_observation_noise=varied,
+        reward_discounting=config.ppo.discounting,
+    )
     preprocess = running_statistics.normalize if config.ppo.normalize_observations else types.identity_observation_preprocessor
     networks = make_network_factory(config.network)(env.observation_size, env.action_size, preprocess_observations_fn=preprocess)
     make_policy = ppo_networks.make_inference_fn(networks)
