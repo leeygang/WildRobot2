@@ -2,8 +2,9 @@
 
 **Update 2026-10-21:** the [GPU confirmation and causal feedback review](wr2_policy_feedback_review_20261021.md)
 reproduces the pattern and identifies a learned past-action feedback loop.
-Its next experiment supersedes the GPU gate and conditional continuation below;
-this document retains the original CPU/CAD observations.
+The [acquisition audit](wr2_tb_acquisition_root_review_20261021.md) defers
+training modifications until the initiating cause is identified. This document
+retains the original CPU/CAD observations.
 
 ## Revised interpretation
 

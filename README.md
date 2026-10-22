@@ -156,8 +156,10 @@ and [experiment setup](docs/design/wr2_collision_experiment_20261020.md).
 The [GPU confirmation and policy-feedback review](docs/design/wr2_policy_feedback_review_20261021.md)
 confirms rapid, tiny foot taps. Past-action feedback sustains the 6.1 Hz
 command loop even without physics integration; TB Paper's tested feedback
-remains stable. The next proposed experiment targets policy smoothness with
-translation and sustained planting evaluated together.
+remains stable. The [acquisition audit](docs/design/wr2_tb_acquisition_root_review_20261021.md)
+shows the fast strategy already appears at 20M. Recipe changes are deferred
+until its initiating cause is identified; the late feedback mechanism alone
+does not explain why training diverges from TB.
 The canonical config retains collision 1.0 and air-time 500; the earlier
 air-time ablation remains deferred.
 The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)
