@@ -115,7 +115,7 @@ not its second ankle-link collider pair.
 
 The [completed v3 review](wr2_ppo_learning_result_20261024.md) found a large
 update in the WR2 120M probe containing a scheduled command change. It did not
-establish a training fix. Run the commands below into **v4** directories to
+establish a training fix. Run the commands below into **v5** directories to
 capture the missing TB comparison and reward-state evidence. All checkpoint,
 sampling, reward, physics, observation and native PPO settings remain the same.
 
@@ -203,6 +203,44 @@ cannot estimate the credit from its history. The check is retained in
 The TB CPU recording is retained under
 `results/toddlerbot_walk_ppo_20261015_194347/review_20261024/ppo_transition_cpu_verified`.
 
+### Correction for v4's first-minibatch assertion
+
+The GPU v4 attempt passed reconstruction, then stopped when two first-minibatch
+native scalars differed by **1.3292e−6** (`1.840554e−5` versus `1.707636e−5`).
+The old assertion omitted the metric name and allowed only `1e−6` absolute error
+near zero. Its placement also prevented saving this failed batch. The size is
+consistent with a near-zero policy surrogate, but the log alone does not
+identify the metric or prove this particular GPU rounding cause.
+
+Both WR2 Brax and TB Paper average a signed policy surrogate using normalized
+advantages. Positive and negative terms can be O(1) while their average is
+nearly zero. That average is the wrong scale for a relative rounding check.
+The corrected check verifies the probe's actual first **indices and entropy
+key exactly**, then requires scalar error at most:
+
+`1e−6 + 1e−5 × scale`
+
+For `policy_loss` and `total_loss`, scale is the maximum of the two scalar
+magnitudes and the mean absolute clipped policy surrogate. For other metrics,
+scale remains the scalar magnitude. The Float32 gradient/output reconstruction
+checks still require **5e−5**. This measures the saved native precision; it
+does not select a new training precision or reward.
+
+Each batch records `native_first_minibatch_metrics` and
+`first_minibatch_metric_comparison`, including names, both values, errors and
+limits. Every verification failure retains the minibatch plus comparison
+metadata in `failed_minibatch.pkl`. Regression tests cover the reported small
+policy-loss difference, rejection of larger/value-loss discrepancies, exact
+input checks and retention of failed inputs. Use **v5** to preserve v4's output.
+Validation passed **13 WR2 tests and 11 tests against the pinned TB fork**.
+
+The earlier exact v2 GPU batch was also evaluated on CPU with the matching core
+Brax/JAX/Flax/Optax stack. Its mean absolute surrogate was **.73023**, giving a
+policy-loss comparison limit **8.3023e−6**; actor/output-gradient reconstruction
+errors were **2.12e−7 /6.96e−8**. This validates the scale calculation and strict
+reconstruction, not the unavailable v4 GPU batch. The check used SciPy 1.13.1
+because the 1.15.3 macOS wheel failed to load; SciPy is not used by the loss.
+
 ## GPU command: WR2
 
 From the GPU's WR2 checkout, after pulling the committed diagnostic:
@@ -210,13 +248,13 @@ From the GPU's WR2 checkout, after pulling the committed diagnostic:
 ```bash
 uv run --locked --python 3.10 --extra training python -m wr2.tools.diagnose_ppo \
   --run-dir results/wr2_walking/wr2_paper_step_20261022_143550_seed3 \
-  --output results/wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v4
+  --output results/wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v5
 ```
 
 The output is:
 
 ```text
-results/wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v4
+results/wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v5
 ```
 
 The full native reference grid is constructed before the first rollout; this
@@ -384,7 +422,7 @@ uv run --no-project \
   ~/projects/WildRobot2/wr2/tools/diagnose_ppo.py \
   --tb-root ~/projects/toddlerbot/.worktrees/paper-ppo \
   --run-dir ~/projects/toddlerbot/results/toddlerbot_walk_ppo_20261015_194347 \
-  --output ~/projects/WildRobot2/results/toddlerbot_walk_ppo_20261015_194347/ppo_learning_diagnostic_v4
+  --output ~/projects/WildRobot2/results/toddlerbot_walk_ppo_20261015_194347/ppo_learning_diagnostic_v5
 ```
 
 This directly uses TB's existing runtime/source; WR2 does not vendor TB or its
@@ -396,10 +434,10 @@ From the Mac's WR2 checkout:
 
 ```bash
 ./scripts/scp_from_remote.sh --linux-pc --results \
-  wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v4
+  wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v5
 
 ./scripts/scp_from_remote.sh --linux-pc --results \
-  toddlerbot_walk_ppo_20261015_194347/ppo_learning_diagnostic_v4
+  toddlerbot_walk_ppo_20261015_194347/ppo_learning_diagnostic_v5
 ```
 
 `summary.json` and `batches.jsonl` contain checks and grouped measurements.

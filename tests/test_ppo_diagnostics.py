@@ -4,6 +4,7 @@ from dataclasses import replace
 from functools import partial
 from importlib import metadata
 import json
+import pickle
 from types import SimpleNamespace
 
 import jax
@@ -33,6 +34,42 @@ def test_common_gaussian_kl_has_analytic_values_and_no_optimizer_role():
     np.testing.assert_array_equal(
         gaussian_kl_old_to_new(mean, std, mean, std), jp.zeros(3)
     )
+
+
+def test_first_minibatch_checks_inputs_and_cancellation_scale():
+    from wr2.tools.diagnose_ppo import check_first_minibatch
+
+    indices, rng = np.array([2, 0]), np.array([1, 7], dtype=np.uint32)
+    audit = {
+        "native_metrics": {"policy_loss": np.float32(1.840554e-5), "v_loss": .02},
+        "policy_surrogate_abs_mean": .75,
+    }
+    update = {
+        "native_first_minibatch_metrics": {
+            "policy_loss": np.float32(1.707636e-5), "v_loss": .02
+        },
+        "first_minibatch_indices": indices,
+        "first_minibatch_rng": rng,
+    }
+    result = check_first_minibatch(audit, update, indices, rng)
+    assert 1e-6 < result["policy_loss"]["absolute_error"] < 2e-6
+    np.testing.assert_allclose(result["policy_loss"]["allowed_error"], 8.5e-6)
+    # Reject wrong inputs even if the scalar metrics are indistinguishable.
+    with pytest.raises(AssertionError):
+        check_first_minibatch(audit, update, indices[::-1], rng)
+    with pytest.raises(AssertionError):
+        check_first_minibatch(audit, update, indices, rng + 1)
+    # Cancellation allowance is restricted to the signed surrogate losses.
+    with pytest.raises(AssertionError, match="metric v_loss"):
+        check_first_minibatch(
+            {**audit, "native_metrics": {"policy_loss": 1.840554e-5, "v_loss": .020002}},
+            update, indices, rng,
+        )
+    with pytest.raises(AssertionError, match="metric policy_loss"):
+        check_first_minibatch(
+            {**audit, "native_metrics": {"policy_loss": .001, "v_loss": .02}},
+            update, indices, rng,
+        )
 
 
 def test_gpu_matrix_gap_uses_strict_float32_reference():
@@ -452,19 +489,18 @@ def test_driver_checks_the_same_minibatch_used_by_native_adam(
         )
     )
     output = tmp_path / "diagnostic"
-    driver.run(
-        SimpleNamespace(
-            run_dir=tmp_path,
-            output=output,
-            tb_root=None,
-            allow_cpu=True,
-            seed=22103,
-            num_envs=4,
-            warmup_steps=8,
-            batches=1,
-            checkpoint_steps=None,
-        )
+    args = SimpleNamespace(
+        run_dir=tmp_path,
+        output=output,
+        tb_root=None,
+        allow_cpu=True,
+        seed=22103,
+        num_envs=4,
+        warmup_steps=8,
+        batches=1,
+        checkpoint_steps=None,
     )
+    driver.run(args)
     result = json.loads((output / "summary.json").read_text())
     assert result["verified_batches"] == 1
     row = result["results"][0]
@@ -475,6 +511,7 @@ def test_driver_checks_the_same_minibatch_used_by_native_adam(
     ]
     assert not np.array_equal(before, after)
     assert not any("params" in path.name for path in output.iterdir())
+    assert "first_minibatch_metric_comparison" in row
     with np.load(output / "80_batch0.npz") as saved_data:
         np.testing.assert_array_equal(
             saved_data["after_tick"] - saved_data["before_tick"], 1
@@ -486,4 +523,22 @@ def test_driver_checks_the_same_minibatch_used_by_native_adam(
         np.testing.assert_allclose(
             row["probe_gaussian_kl_old_to_new_mean"],
             saved_data["probe_gaussian_kl_old_to_new"].mean(),
+        )
+    if not randomized:
+        check = driver.check_first_minibatch
+
+        def wrong_minibatch(audit, update, indices, rng):
+            update["first_minibatch_indices"] = update["first_minibatch_indices"] + 1
+            return check(audit, update, indices, rng)
+
+        monkeypatch.setattr(driver, "check_first_minibatch", wrong_minibatch)
+        args.output = tmp_path / "failed_probe"
+        with pytest.raises(RuntimeError, match="saved failed_minibatch.pkl"):
+            driver.run(args)
+        with (args.output / "failed_minibatch.pkl").open("rb") as stream:
+            failed = pickle.load(stream)
+        comparison = failed["first_minibatch_comparison"]
+        assert "First-minibatch indices" in comparison["failure"]
+        np.testing.assert_array_equal(
+            comparison["probe_indices"], comparison["audit_indices"] + 1
         )

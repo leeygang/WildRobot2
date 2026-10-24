@@ -484,6 +484,40 @@ def reconstruction_verified(native, reference):
     )
 
 
+def check_first_minibatch(audit, update, indices, rng):
+    """Check exact inputs and cancellation-aware native loss agreement."""
+    np.testing.assert_array_equal(
+        indices, update["first_minibatch_indices"], err_msg="First-minibatch indices"
+    )
+    np.testing.assert_array_equal(
+        rng, update["first_minibatch_rng"], err_msg="First-minibatch entropy key"
+    )
+    actual = audit["native_metrics"]
+    expected = update["native_first_minibatch_metrics"]
+    if actual.keys() != expected.keys():
+        raise AssertionError("First-minibatch native metric names differ")
+    comparison = {}
+    for name, value in actual.items():
+        value, probe = float(value), float(expected[name])
+        scale = max(abs(value), abs(probe))
+        if name in ("policy_loss", "total_loss"):
+            # The policy surrogate averages signed O(1) normalized advantages.
+            # Its nearly zero mean is not the scale of cross-graph rounding.
+            scale = max(scale, float(audit["policy_surrogate_abs_mean"]))
+        error = abs(value - probe)
+        limit = 1e-6 + 1e-5 * scale
+        comparison[name] = {
+            "audit": value, "probe": probe,
+            "absolute_error": error, "allowed_error": limit,
+        }
+        if not np.isfinite([value, probe, scale]).all() or error > limit:
+            raise AssertionError(
+                f"First-minibatch metric {name} differs: audit={value}, "
+                f"probe={probe}, absolute_error={error}, allowed_error={limit}"
+            )
+    return comparison
+
+
 def replay_minibatch(args):
     """Compare precisions on the exact failed WR2 batch, without simulation."""
     if args.tb_root:
@@ -764,13 +798,17 @@ def run(args):
                     params, normalizer, batch, gradient_key
                 )
                 updates, opt_state = optimizer.update(gradients, opt_state, params)
-                return (optax.apply_updates(params, updates), opt_state, key), metrics
+                return (optax.apply_updates(params, updates), opt_state, key), (
+                    metrics, gradient_key
+                )
 
-            (params, optimizer_state, key), metrics = jax.lax.scan(
+            (params, optimizer_state, key), (metrics, gradient_keys) = jax.lax.scan(
                 minibatch_step, (params, optimizer_state, key), shuffled
             )
             if epoch == 0:
                 first_metrics = jax.tree.map(lambda x: x[0], metrics)
+                first_indices = permutation[: context.batch_size]
+                first_rng = gradient_keys[0]
         old = networks.policy_network.apply(
             normalizer, initial.policy, data.observation
         )
@@ -787,6 +825,8 @@ def run(args):
                 old_dist.loc, old_dist.scale, new_dist.loc, new_dist.scale
             ),
             "native_first_minibatch_metrics": first_metrics,
+            "first_minibatch_indices": first_indices,
+            "first_minibatch_rng": first_rng,
             "native_last_epoch_metrics": jax.tree.map(jp.mean, metrics),
         }
 
@@ -841,6 +881,7 @@ def run(args):
         "learning_rate": context.learning_rate,
         "components": COMPONENTS,
         "measurement_schema": 2,
+        "first_minibatch_verification": "exact indices/key; metric error <= 1e-6 + 1e-5 * scale; policy/total scale includes mean absolute policy surrogate",
         "probe_kl_definition": "KL(original || after all 16 steps), full original observation batch; distinct from native last-epoch KL",
         "hips": ["left", "right"],
         "forward_joint_signs": context.signs,
@@ -877,14 +918,21 @@ def run(args):
                 reference = attribute(params, saved[0], minibatch, audit_key)
             _, update = probe_update(params, saved[0], data, update_key)
             audit, reference, update = jax.device_get((audit, reference, update))
-            if not all(
-                np.isfinite(x).all()
-                for x in jax.tree.leaves((audit, reference, update))
-            ):
-                raise RuntimeError("Nonfinite PPO audit")
-            if not reconstruction_verified(audit, reference):
-                # Preserve the exact failing batch for debugging without another
-                # full reference build/physics warmup. This stays in results.
+            try:
+                if not all(
+                    np.isfinite(x).all()
+                    for x in jax.tree.leaves((audit, reference, update))
+                ):
+                    raise RuntimeError("Nonfinite PPO audit")
+                if not reconstruction_verified(audit, reference):
+                    raise RuntimeError(
+                        f"PPO reconstruction failed: Float32_parameter_gradient={reference['gradient_relative_error']}, native_output_gradient={audit['output_gradient_relative_error']}, Float32_output_gradient={reference['output_gradient_relative_error']}, advantage={audit['advantage_max_error']}, reward={audit['reward_max_error']}"
+                    )
+                first_metric_comparison = check_first_minibatch(
+                    audit, update, np.asarray(indices), np.asarray(audit_key)
+                )
+            except (AssertionError, RuntimeError) as error:
+                # Both mathematical and probe checks retain the exact input.
                 with (output / "failed_minibatch.pkl").open("wb") as stream:
                     pickle.dump(
                         jax.device_get(
@@ -895,21 +943,23 @@ def run(args):
                                 "data": minibatch,
                                 "rng": audit_key,
                                 "settings": context.settings,
+                                "first_minibatch_comparison": {
+                                    "audit_metrics": audit["native_metrics"],
+                                    "probe_metrics": update["native_first_minibatch_metrics"],
+                                    "policy_surrogate_abs_mean": audit["policy_surrogate_abs_mean"],
+                                    "audit_indices": indices,
+                                    "probe_indices": update["first_minibatch_indices"],
+                                    "probe_rng": update["first_minibatch_rng"],
+                                    "failure": str(error),
+                                },
                             }
                         ),
                         stream,
                         protocol=5,
                     )
                 raise RuntimeError(
-                    f"PPO reconstruction failed: Float32_parameter_gradient={reference['gradient_relative_error']}, native_output_gradient={audit['output_gradient_relative_error']}, Float32_output_gradient={reference['output_gradient_relative_error']}, advantage={audit['advantage_max_error']}, reward={audit['reward_max_error']}; saved failed_minibatch.pkl"
-                )
-            for name in audit["native_metrics"]:
-                np.testing.assert_allclose(
-                    audit["native_metrics"][name],
-                    update["native_first_minibatch_metrics"][name],
-                    rtol=1e-5,
-                    atol=1e-6,
-                )
+                    f"{error}; saved failed_minibatch.pkl"
+                ) from error
             logits = networks.policy_network.apply(saved[0], saved[1], data.observation)
             distribution = networks.parametric_action_distribution
             samples = jax.device_get(
@@ -968,6 +1018,12 @@ def run(args):
                     name: float(value)
                     for name, value in audit["native_metrics"].items()
                 },
+                "native_first_minibatch_metrics": {
+                    name: float(value)
+                    for name, value in update["native_first_minibatch_metrics"].items()
+                },
+                "first_minibatch_metric_comparison": first_metric_comparison,
+                "policy_surrogate_abs_mean": float(audit["policy_surrogate_abs_mean"]),
                 "native_probe_metrics": {
                     name: float(value)
                     for name, value in update["native_last_epoch_metrics"].items()

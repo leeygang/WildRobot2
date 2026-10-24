@@ -217,6 +217,10 @@ def make_actor_attribution(networks, settings, hip_indices, forward_sign):
                 probability, old_probability, jp.ones_like(total)[None], total, epsilon
             ).sum()
         )(log_prob(logits))
+        ratio = jp.exp(log_prob(logits) - old_probability)
+        surrogate = jp.minimum(
+            ratio * total, jp.clip(ratio, 1 - epsilon, 1 + epsilon) * total
+        )
 
         def entropy_loss(output):
             return -settings["entropy_cost"] * distribution.entropy(output, rng).mean()
@@ -267,6 +271,7 @@ def make_actor_attribution(networks, settings, hip_indices, forward_sign):
             denominator=denominator,
             values=values,
             targets=targets,
+            policy_surrogate_abs_mean=jp.mean(jp.abs(surrogate)),
             truncation=truncation,
             termination=termination,
             score=score,
@@ -375,6 +380,7 @@ def make_actor_attribution(networks, settings, hip_indices, forward_sign):
             "value_prediction": native["values"],
             "value_target": native["targets"],
             "normalized_advantage": native["total"],
+            "policy_surrogate_abs_mean": native["policy_surrogate_abs_mean"],
         }
 
     return attribute
