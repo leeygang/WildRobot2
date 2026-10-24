@@ -172,6 +172,10 @@ strides, lateral velocity variation and standing remain gaps. See the
 [experiment setup](docs/design/wr2_step_reward_experiment_20261022.md) for the
 supported-swing/sustained-landing treatment. Its candidate config is
 `ppo_walking_step.yaml`; the control remains `ppo_walking_paper.yaml`.
+The [hip-pitch diagnostic](docs/design/wr2_hip_pitch_incentive_review_20261023.md)
+identifies backward left-target mean drift and tanh compression. Larger isolated
+left motion can gain translation while losing reward through fore-aft/yaw
+oscillation and reduced air credit; joint phase coordination remains a priority.
 The canonical config retains collision 1.0 and air-time 500; the earlier
 air-time ablation remains deferred.
 The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)

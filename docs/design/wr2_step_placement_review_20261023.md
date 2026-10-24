@@ -81,10 +81,11 @@ supported unloading and sustained landing without requiring the left foot to
 pass the right. This remains consistent with the reward competition documented
 in the main review; it does not prove the exact PPO update responsible.
 
-The next analysis should explain why left hip-pitch requests progressively shrink
-while the reward remains high. It should compare phase-dependent requests,
-execution, placement and reward contributions across 20M/80M/120M/300M and TB.
-No new training treatment is selected by this observation alone.
+The [completed hip-pitch incentive analysis](wr2_hip_pitch_incentive_review_20261023.md)
+explains shrinking requests through backward mean drift and tanh compression.
+Matched-state diagnostics measure why larger isolated left motion can gain
+translation yet lose reward through fore-aft/yaw oscillation and air credit.
+Hip/knee/ankle phase coordination is the next analysis priority.
 
 ## Source and measurement correction
 
