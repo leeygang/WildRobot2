@@ -163,11 +163,15 @@ does not explain why training diverges from TB.
 The [reward review](docs/design/wr2_reward_review_20261022.md) identifies weak
 step validity and competing incentives: brief taps collect air credit, while
 a more propulsive reference control loses reward through lateral sway and
-angular motion. Stance qualification is being evaluated in recorded-data
-accounting. The [qualified-step experiment is prepared](docs/design/wr2_step_reward_experiment_20261022.md):
-fresh seed 3 /300M with supported swing credit, sustained landing and
-discount-preserving payout. Use `ppo_walking_step.yaml` through the regular
-trainer. The completed Paper baseline remains in `ppo_walking_paper.yaml`.
+angular motion. That accounting motivated stance qualification.
+The [qualified-step experiment completed](docs/design/wr2_step_reward_result_20261023.md)
+at 300M: nominal learned replays show sustained alternating steps instead of
+rapid taps, but selected **120M** tracking is **11.0% /9.9% worse** than the
+control and **2.07× TB Paper**. Forward/rightward response improves; short
+strides, lateral velocity variation and standing remain gaps. See the
+[experiment setup](docs/design/wr2_step_reward_experiment_20261022.md) for the
+supported-swing/sustained-landing treatment. Its candidate config is
+`ppo_walking_step.yaml`; the control remains `ppo_walking_paper.yaml`.
 The canonical config retains collision 1.0 and air-time 500; the earlier
 air-time ablation remains deferred.
 The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)

@@ -1,6 +1,10 @@
 # Qualified step air reward experiment — 2026-10-22
 
-**Prepared: 0.28.8, fresh seed 3, 300M transitions**, using the regular WR2
+**Completed: 0.28.8, fresh seed 3, 300M transitions.**
+The [result review](wr2_step_reward_result_20261023.md) finds sustained alternating
+steps, with remaining short-stride/lateral-motion gaps and worse aggregate tracking
+than the control. The selected checkpoint is 120M. Preparation details below
+record the experiment as run, using the regular WR2
 trainer and [experiment YAML](../../wr2/locomotion/configs/ppo_walking_step.yaml).
 The completed 0.28.7 collision-1 run is the control. The existing
 `ppo_walking_paper.yaml` remains that baseline; the experiment has its own YAML.

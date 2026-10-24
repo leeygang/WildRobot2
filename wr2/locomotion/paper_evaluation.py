@@ -339,7 +339,11 @@ class PaperEvaluator:
             "support_contact_rule": "summed upward floor/foot force",
             "support_contact_force_threshold_n": self.env.config.contact_force_threshold_n,
             "reference_double_support_match_rule": "per-episode matched/reference double-support ticks; null without reference double support",
-            "air_time_credit_rule": "sum of command-eligible landing durations before reward weight and control-period multiplication",
+            "air_time_credit_rule": (
+                "sum of qualified supported-swing durations, including discount compensation; seconds-equivalent reward credit before reward weight and control-period multiplication"
+                if self.env.config.air_time_min_stance_s > 0
+                else "sum of command-eligible landing durations before reward weight and control-period multiplication"
+            ),
             "profile": "engineering_20s"
             if self.schedule_scale == 1.0
             else "TB_normalized",
