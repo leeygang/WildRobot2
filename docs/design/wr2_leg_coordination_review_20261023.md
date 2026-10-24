@@ -4,6 +4,13 @@ Follow-up to the [hip-pitch incentive analysis](wr2_hip_pitch_incentive_review_2
 Completed the requested hip/knee/ankle comparison at **80M and selected 120M**,
 then checked full foot orientation to investigate the remaining yaw cost.
 
+**Diagnostic centering correction:** the initial reference-wave normalization
+used an earlier cycle that still contained a startup transient. The recorded
+comparisons below remain valid for their actual commands, but the waveform was
+not strictly mean-preserving. The corrected repeat is documented in
+[Section 6](#6-reference-wave-centering-correction); it confirms the coordination
+benefit and the remaining short-stride/posture gap.
+
 ## Conclusion
 
 **Joint coordination explains most of the destabilization and return loss in
@@ -33,13 +40,14 @@ same complete environment state and compare:
 | Control | Changed targets | Constraint |
 | --- | --- | --- |
 | Policy | None | Original deterministic action sequence |
-| Hip only | Left hip pitch | Mean 3° forward plus native reference-shaped swing |
+| Hip only | Left hip pitch | Constant 3° forward-offset component plus reference-shaped swing |
 | Knee/ankle compensation | Same hip plus left knee/ankle pitch | Preserve commanded foot height and fore-aft sole angle |
 | Full orientation | Same hip plus left hip yaw, knee, ankle pitch/roll | Preserve commanded height and full foot orientation |
 | Duplicate policy | None | Verify the paired numerical baseline |
 
-The hip waveform has maximum added deviation **5.00° at 80M /about 4.62° at
-120M**, limited to the existing actor's reachable range. Its exact request and
+The initial hip waveform used scale coefficients **5.00° at 80M /about 4.62° at
+120M**, limited to the existing actor's reachable range. Those coefficients
+were not guaranteed peak deviations at the later reference times. Its exact request and
 delivered target are identical between all interventions. Other joint commands
 are fixed to the original policy's recorded sequence; full orientation also
 holds hip roll fixed. The actor does not react through those held commands.
@@ -183,6 +191,52 @@ controller comparison intact while establishing a consistently better coordinate
 control. The evidence from this test does not support disabling air time or
 increasing XY weight to compensate for uncoordinated hip-only motion.
 
+## 6. Reference-wave centering correction
+
+The WR2 reference retains a full episode trajectory, including settling of the
+preview/IK solution. Its mean left hip reference at ticks 30–59 differs from
+the later walking cycles. Normalizing the intervention with that early cycle
+introduced an unintended mean into the added waveform.
+
+In the originally viewed 120M start-180 recording, the constant offset component
+was 3° forward, but the added reference term and ramps made the actual mean
+change **2.01° forward over 66 ticks**, with a net target-change range of
+**7.19° forward to 2.00° backward**. This is a diagnostic-generation issue;
+the training reference and saved policies are not modified by the correction.
+
+The generator now centers the waveform over the **actual applied window**,
+including ramp weights, and normalizes its maximum applied deviation. The wave
+has zero applied mean and **5° peak** in all six cases. The constant 3° offset
+remains at full strength; with ramps its 66-tick average is **2.727° forward**.
+An offset-invariance test prevents startup/reference shifts entering the wave.
+
+The corrected **30-control repeat completes without falls or nonfinite values**;
+all actuator/IK constraints and identical hip-request checks pass. **Eight tests
+pass.** Corrected 120M means:
+
+| Measure | Policy | Hip only | Knee/ankle compensation | Full orientation |
+| --- | ---: | ---: | ---: | ---: |
+| Net forward speed, TB m/s | .0522 | .0553 | .0640 | .0649 |
+| Forward velocity std, TB m/s | .0320 | .0830 | .0444 | .0428 |
+| Left same-foot advance, actual WR2 mm | 26.2 | 17.6 | 34.2 | 35.3 |
+| Discounted return change | 0 | −2.307 | −.127 | −.071 |
+
+The conclusion survives: coordinated targets remove most hip-only instability.
+Air return is restored, while yaw remains a residual cost. Full-orientation
+controls remain below the policy in all three phases, so the correction does
+not establish a new training preference. Left landing position remains about
+**34 mm behind** the right.
+
+At the commanded **.0824055 physical m/s** and **.60-second gait cycle**, matching
+speed requires about **49.4 physical mm per same-foot stride**. The current
+34–35 mm advance remains short. The diagnostic changes the left leg; the right
+leg retains its forward-biased target pattern. Bilateral posture/propulsion
+coordination is still needed for natural alternating placements.
+
+[Corrected recordings and summary](../../results/wr2_walking/wr2_paper_step_20261022_143550_seed3/review_20261023/leg_coordination_centered_reference_diagnostic/summary.json)
+and [corrected comparison figure](../../results/wr2_walking/wr2_paper_step_20261022_143550_seed3/review_20261023/leg_coordination_centered_reference_diagnostic/coordination_comparison.png)
+are in a separate folder; the originally viewed recordings are retained.
+
 ## Artifacts and visual evaluation
 
 [Comparison figure](../../results/wr2_walking/wr2_paper_step_20261022_143550_seed3/review_20261023/leg_coordination_full_pose_diagnostic/coordination_comparison.png),
@@ -207,6 +261,8 @@ uv run --no-sync mjpython -m wr2.tools.view_walking \
 
 Use `120M_start180_hip_only.npz`, `120M_start180_coordinated.npz`, or
 `120M_start180_full_pose.npz` in the same directory for the interventions.
+For the corrected repeat, replace the directory with
+`leg_coordination_centered_reference_diagnostic`.
 The recordings begin at an intermediate episode state and last about 2.4
 TB seconds. They are diagnostic controls, not newly trained checkpoints.
 

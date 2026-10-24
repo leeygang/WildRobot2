@@ -1,5 +1,12 @@
 # Hip-pitch saturation and walking incentives — 2026-10-23
 
+**Control-label correction:** the earlier reference-wave probes used an early
+cycle for normalization, introducing a small mean shift. Their recorded return
+comparisons remain valid, but "waveform-only" does not isolate amplitude alone.
+The unmodified policy's saturation measurements are unaffected. The
+[corrected coordination generator and repeat](wr2_leg_coordination_review_20261023.md#6-reference-wave-centering-correction)
+use a strictly zero-mean applied waveform.
+
 **Follow-up completed:** the [matched leg-coordination test](wr2_leg_coordination_review_20261023.md)
 shows that knee/ankle compensation removes most hip-only fore-aft instability
 and restores air credit. Remaining costs are mainly yaw; the coordinated controls
