@@ -360,6 +360,23 @@ def summarize_samples(samples, indices, signs, home):
     return output
 
 
+def reconstruction_verified(native, reference):
+    """Verify native output closure and Float32-reference parameter closure.
+
+    DEFAULT/HIGH GPU matrix products may use TF32. Cross-graph parameter
+    equality at those precisions is not a valid Float32 accuracy gate.
+    """
+    return (
+        native["output_gradient_relative_error"] <= 5e-5
+        and reference["gradient_relative_error"] <= 5e-5
+        and reference["output_gradient_relative_error"] <= 5e-5
+        and native["advantage_max_error"] <= 5e-4
+        and reference["advantage_max_error"] <= 5e-4
+        and native["reward_max_error"] <= 1e-5
+        and reference["reward_max_error"] <= 1e-5
+    )
+
+
 def replay_minibatch(args):
     """Compare precisions on the exact failed WR2 batch, without simulation."""
     if args.tb_root:
@@ -429,6 +446,13 @@ def replay_minibatch(args):
             },
         }
         report["results"].append(row)
+    reference = report["results"][-1]  # The explicit highest/Float32 replay.
+    for row in report["results"]:
+        row["verification_precision"] = "highest"
+        row["verification_gradient_relative_error"] = reference[
+            "gradient_relative_error"
+        ]
+        row["verification_passed"] = bool(reconstruction_verified(row, reference))
         print(json.dumps(row, allow_nan=False), flush=True)
     output = (args.output or path.parent / "replay").resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -704,6 +728,7 @@ def run(args):
         "forward_joint_signs": context.signs,
         "protocol": "frozen_checkpoint_on_policy_batches; independent_fresh_Adam_PPO_probe_per_batch; probe_weights_discarded",
         "bookkeeping_dtype": "float64; native model/loss/entropy and probes retain float32",
+        "verification_precision": "highest; native sampling/pressure/PPO probes use saved precision",
         "gradient_interpretation": "native scalar-reward advantage and clip branch; float64 reward-only GAE plus native value/bootstrapping/rounding residual; projections are infinitesimal SGD, not Adam or causal reward ablations",
     }
     (output / "provenance.json").write_text(json.dumps(provenance, indent=2))
@@ -728,16 +753,18 @@ def run(args):
             ]
             minibatch = jax.tree.map(lambda x: x[indices], data)
             audit = attribute(params, saved[0], minibatch, audit_key)
+            # Validate mathematical parameter closure with full Float32 matrix
+            # products. Keep native pressures and the real probe at saved precision.
+            with jax.default_matmul_precision("highest"):
+                reference = attribute(params, saved[0], minibatch, audit_key)
             _, update = probe_update(params, saved[0], data, update_key)
-            audit, update = jax.device_get((audit, update))
-            if not all(np.isfinite(x).all() for x in jax.tree.leaves((audit, update))):
-                raise RuntimeError("Nonfinite PPO audit")
-            if (
-                audit["gradient_relative_error"] > 5e-5
-                or audit["output_gradient_relative_error"] > 5e-5
-                or audit["advantage_max_error"] > 5e-4
-                or audit["reward_max_error"] > 1e-5
+            audit, reference, update = jax.device_get((audit, reference, update))
+            if not all(
+                np.isfinite(x).all()
+                for x in jax.tree.leaves((audit, reference, update))
             ):
+                raise RuntimeError("Nonfinite PPO audit")
+            if not reconstruction_verified(audit, reference):
                 # Preserve the exact failing batch for debugging without another
                 # full reference build/physics warmup. This stays in results.
                 with (output / "failed_minibatch.pkl").open("wb") as stream:
@@ -756,7 +783,7 @@ def run(args):
                         protocol=5,
                     )
                 raise RuntimeError(
-                    f"PPO reconstruction failed: parameter_gradient={audit['gradient_relative_error']}, output_gradient={audit['output_gradient_relative_error']}, advantage={audit['advantage_max_error']}, reward={audit['reward_max_error']}; saved failed_minibatch.pkl"
+                    f"PPO reconstruction failed: Float32_parameter_gradient={reference['gradient_relative_error']}, native_output_gradient={audit['output_gradient_relative_error']}, Float32_output_gradient={reference['output_gradient_relative_error']}, advantage={audit['advantage_max_error']}, reward={audit['reward_max_error']}; saved failed_minibatch.pkl"
                 )
             for name in audit["native_metrics"]:
                 np.testing.assert_allclose(
@@ -800,6 +827,16 @@ def run(args):
                 "checkpoint_step": step,
                 "batch": batch_index,
                 "gradient_relative_error": float(audit["gradient_relative_error"]),
+                "native_head_backprop_relative_error": float(
+                    audit["native_head_backprop_relative_error"]
+                ),
+                "verification_precision": "highest",
+                "verification_gradient_relative_error": float(
+                    reference["gradient_relative_error"]
+                ),
+                "verification_output_gradient_relative_error": float(
+                    reference["output_gradient_relative_error"]
+                ),
                 "output_gradient_relative_error": float(
                     audit["output_gradient_relative_error"]
                 ),
@@ -851,7 +888,7 @@ def run(args):
                 audit_local_mu_pressure=audit_samples["local_pressure"],
             )
             print(
-                f"  batch {batch_index + 1}/{args.batches}: gradient error {row['gradient_relative_error']:.2g}; native PPO probe complete",
+                f"  batch {batch_index + 1}/{args.batches}: Float32 verification {row['verification_gradient_relative_error']:.2g}, native output error {row['output_gradient_relative_error']:.2g}, native matrix gap {row['gradient_relative_error']:.2g}; PPO probe complete",
                 flush=True,
             )
     (output / "summary.json").write_text(

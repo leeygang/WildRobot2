@@ -77,8 +77,9 @@ Every component shares the native total advantage's standard deviation and
 **total surrogate's clipping branch**. Independently clipping or normalizing
 each reward would produce a different gradient.
 
-Checks require reward reconstruction, advantage reconstruction and full actor
-parameter-gradient reconstruction, plus an independent output-gradient check.
+Checks require reward reconstruction, advantage reconstruction, native output
+reconstruction and full actor parameter reconstruction under the separate
+`highest` /Float32 reference described below.
 Native first-minibatch loss metrics must
 also match the actual first Adam step. Large cancelling component gradients are
 combined in float64 and cast to float32 once for native network backpropagation.
@@ -159,8 +160,9 @@ uv run --locked --python 3.10 --extra training python -m wr2.tools.diagnose_ppo 
   --output results/wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v2
 ```
 
-GPU verification of this fix is pending that rerun. The CPU reproduction
-establishes the numerical failure mechanism, not the exact failing GPU batch.
+The v2 GPU rerun confirmed output/advantage closure; its remaining parameter
+mismatch is analyzed below. The CPU reproduction established the component
+cancellation failure mechanism before that exact GPU batch was available.
 Validation passed **10 WR2 tests and 8 tests against the pinned TB Brax source**.
 A separate check used the actual WR2 80M actor/critic, full 975/1485 observation
 dimensions and a 256×20 synthetic batch: parameter/output-gradient relative
@@ -202,8 +204,59 @@ without component reconstruction, through the same cached network VJP. This
 distinguishes sensitivity to tiny cotangent differences from a difference
 between the standalone VJP and the native full-loss backpropagation.
 The full diagnostic's tolerances and the training recipe have not changed.
-GPU replay is required before selecting a further fix to the backpropagation
-check; another full physics diagnostic is not needed for that decision.
+The copied GPU replay established the precision effect below without another
+full physics diagnostic.
+
+### Confirmed GPU precision result and corrected verification
+
+The exact same GPU batch/checkpoint/key gives:
+
+| Matrix precision | Component-to-native parameter error | Native head's own VJP error | Output-gradient error |
+| --- | ---: | ---: | ---: |
+| Saved/default | 2.498e−4 | 2.491e−4 | 7.59e−8 |
+| `high` | 3.856e−4 | 3.852e−4 | 7.64e−8 |
+| `highest` /Float32 | **5.152e−7** | **5.075e−7** | **7.25e−8** |
+
+The original parameter check failed even for the **native head gradient with
+no component reconstruction**. `highest` removes that discrepancy. Together
+with the matched-version CPU replay, this confirms GPU matrix-precision
+rounding across separate backpropagation graphs; it does not establish a
+training-design bug or a cause of WR2's short steps. TB's saved `high` setting
+also permits the affected arithmetic, so this is not evidence that WR2 alone
+has an invalid trainer.
+
+Verification now keeps two distinct checks:
+
+- Native output-gradient reconstruction must pass **5e−5** at the saved precision.
+- A separately calculated `highest` /Float32 reference must pass **5e−5** for
+  both output and full parameter reconstruction.
+
+Reward/advantage reconstruction limits remain unchanged. Native default/high
+parameter differences are still recorded as `gradient_relative_error` and
+`native_head_backprop_relative_error`; they are no longer interpreted as a
+Float32 accuracy test. `verification_gradient_relative_error` records the
+strict Float32 reference result. The regression test uses the actual replay
+numbers and rejects corrupted native output, Float32 parameter, reward and
+advantage reconstructions.
+
+Only verification uses `highest`. Sampled rollouts, reported reward pressures,
+the native loss/entropy metrics and all 16 fresh-Adam probe steps use the saved
+precision. The native first-minibatch metrics still must match the actual
+probe. No reward, physics, action mapping, reference or training precision is
+changed.
+
+Resume the full measurement in a new folder after syncing the fix:
+
+```bash
+uv run --locked --python 3.10 --extra training python -m wr2.tools.diagnose_ppo \
+  --run-dir results/wr2_walking/wr2_paper_step_20261022_143550_seed3 \
+  --output results/wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v3
+```
+
+The mathematical check is verified on the saved GPU replay; execution of the
+complete v3 measurement is pending this command.
+Validation passed **11 WR2 tests and 9 tests against the pinned TB Brax source**,
+including the recorded GPU mismatch regression and native first-Adam-step checks.
 
 ## GPU command: native TB Paper
 

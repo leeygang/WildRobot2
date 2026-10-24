@@ -22,6 +22,46 @@ from wr2.locomotion.ppo_diagnostics import (
 )
 
 
+def test_gpu_matrix_gap_uses_strict_float32_reference():
+    from wr2.tools.diagnose_ppo import reconstruction_verified
+
+    # Exact failed GPU replay: even the native head's own VJP has this gap at
+    # DEFAULT/HIGH, while the Float32 highest reference reconstructs tightly.
+    native = dict(
+        gradient_relative_error=2.4978004512377083e-4,
+        native_head_backprop_relative_error=2.491352497600019e-4,
+        output_gradient_relative_error=7.593922676117791e-8,
+        advantage_max_error=8.881784197001252e-16,
+        reward_max_error=9.5367431640625e-7,
+    )
+    reference = {
+        **native,
+        "gradient_relative_error": 5.152364224159101e-7,
+        "native_head_backprop_relative_error": 5.075092985862284e-7,
+        "output_gradient_relative_error": 7.245428027758189e-8,
+    }
+    assert reconstruction_verified(native, reference)
+    assert not reconstruction_verified(native, native)
+    # Preserve the numerical gates; do not accept corrupted component outputs
+    # or parameter reconstruction, even when the other reference passes.
+    assert not reconstruction_verified(
+        {**native, "output_gradient_relative_error": 1e-3}, reference
+    )
+    assert not reconstruction_verified(
+        native, {**reference, "gradient_relative_error": 1e-3}
+    )
+    assert not reconstruction_verified(
+        native, {**reference, "output_gradient_relative_error": 1e-3}
+    )
+    assert not reconstruction_verified(
+        {**native, "advantage_max_error": 1e-2}, reference
+    )
+    assert not reconstruction_verified({**native, "reward_max_error": 1e-2}, reference)
+    assert not reconstruction_verified(
+        native, {**reference, "gradient_relative_error": float("nan")}
+    )
+
+
 def test_grouping_keeps_weighted_reward_units_and_unknown_terms():
     rewards = {
         "lin_vel_xy": jp.array([0.1, 0.2]),
