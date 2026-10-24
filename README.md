@@ -187,6 +187,10 @@ is prepared to measure normal stochastic learning at WR2 80M/120M and native
 TB Paper 80M/200M. It verifies reward/advantage/actor-gradient reconstruction
 and measures fresh-Adam PPO target changes. Probe weights are discarded;
 the coordinated target overrides are not a learned training improvement.
+The [WR2 PPO diagnostic completed](docs/design/wr2_ppo_learning_result_20261024.md):
+120M fresh-Adam probes usually reinforce the hip-posture asymmetry, and the
+command-resampling batch shows a large update. Matching TB Paper learning
+signals are still needed before selecting a training change.
 The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)
 compares actual reward formulas, clocks, effective variation, resets and metrics.
 Actor/critic inputs are 975/1485 for this recipe. WR2 training is self-contained.
