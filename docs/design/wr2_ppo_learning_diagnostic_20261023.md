@@ -167,6 +167,44 @@ dimensions and a 256×20 synthetic batch: parameter/output-gradient relative
 errors were **2.54e−7 /6.81e−8**, with advantage closure **2.22e−16**. This is a
 numerical verification, not a physical walking result.
 
+### Replay of the remaining GPU parameter-gradient mismatch
+
+The v2 attempt has output-gradient error **7.59e−8** and advantage closure
+**8.88e−16**, but parameter-gradient error **2.51e−4**. Thus the component
+bookkeeping closes; the remaining difference appears during network
+backpropagation. The exact saved batch was copied to the Mac. It produces
+parameter-gradient error **2.12e−7**, including with the GPU run's Python 3.10,
+Brax .14.1, Flax .10.7, JAX .6.2 and other core package versions.
+
+Backend matrix arithmetic is the leading explanation. JAX documents that
+GPU `DEFAULT` and `HIGH` may use TensorFloat32, while `HIGHEST` uses Float32.
+CPU results do not test GPU precision behavior. TB Paper explicitly sets
+`high`; that alone does not establish that it disables TensorFloat32.
+References: [JAX precision](https://docs.jax.dev/en/latest/_autosummary/jax.lax.Precision.html)
+and [default matrix precision](https://docs.jax.dev/en/latest/_autosummary/jax.default_matmul_precision.html).
+
+The new replay reads `failed_minibatch.pkl`, restores the saved actor/critic and
+key, and compares saved/default, `high`, and `highest` precision. It constructs
+no walking environment or reference table. After syncing the replay code, run
+this on the **same GPU**:
+
+```bash
+uv run --locked --python 3.10 --extra training python -m wr2.tools.diagnose_ppo \
+  --run-dir results/wr2_walking/wr2_paper_step_20261022_143550_seed3 \
+  --replay-minibatch results/wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v2/failed_minibatch.pkl
+```
+
+It prints three comparison rows and saves
+`ppo_learning_diagnostic_v2/replay/report.json`. It reports mismatches rather
+than aborting on the first precision, so all three modes can be inspected.
+`native_head_backprop_relative_error` also sends the native head gradient,
+without component reconstruction, through the same cached network VJP. This
+distinguishes sensitivity to tiny cotangent differences from a difference
+between the standalone VJP and the native full-loss backpropagation.
+The full diagnostic's tolerances and the training recipe have not changed.
+GPU replay is required before selecting a further fix to the backpropagation
+check; another full physics diagnostic is not needed for that decision.
+
 ## GPU command: native TB Paper
 
 Use a checkout/worktree containing **`paper-walking-baseline`** and its clean

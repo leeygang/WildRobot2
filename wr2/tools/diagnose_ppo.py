@@ -360,6 +360,82 @@ def summarize_samples(samples, indices, signs, home):
     return output
 
 
+def replay_minibatch(args):
+    """Compare precisions on the exact failed WR2 batch, without simulation."""
+    if args.tb_root:
+        raise ValueError("This replay targets the WR2 leg-only Paper batch")
+    path = args.replay_minibatch.resolve()
+    provenance = json.loads((path.parent / "provenance.json").read_text())
+    os.environ["XLA_FLAGS"] = provenance["xla_flags"]
+    os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+    import jax
+    from brax.training.agents.ppo import losses
+    from wr2.locomotion.configs import load_training_config
+    from wr2.locomotion.ppo import make_network_factory
+    from wr2.locomotion.ppo_diagnostics import make_actor_attribution
+
+    if jax.default_backend() != "gpu" and not args.allow_cpu:
+        raise RuntimeError(
+            "Use the GPU for the precision comparison; --allow-cpu is for development"
+        )
+    packages = {name: metadata.version(name) for name in provenance["packages"]}
+    if jax.default_backend() == "gpu" and packages != provenance["packages"]:
+        raise ValueError("Replay must use the saved GPU batch's dependency versions")
+    with path.open("rb") as stream:
+        payload = pickle.load(stream)
+    config = load_training_config(args.run_dir / "training_config.yaml")
+    data = payload["data"]
+    if config.environment.active_groups != ("leg",) or data.action.shape[-1] != 12:
+        raise ValueError("The saved 12-action WR2 Paper leg recipe is required")
+    shape = jax.tree.map(lambda value: value.shape[2:], data.observation)
+    networks = make_network_factory(config.network)(shape, data.action.shape[-1])
+    saved = payload["saved_params"]
+    params = losses.PPONetworkParams(policy=saved[1], value=saved[2])
+    attribute = make_actor_attribution(networks, payload["settings"], (0, 6), (-1, 1))
+    report = {
+        "input": str(path),
+        "input_sha256": sha(path),
+        "checkpoint_step": payload["checkpoint_step"],
+        "batch": payload["batch"],
+        "backend": jax.default_backend(),
+        "devices": [str(device) for device in jax.devices()],
+        "packages": packages,
+        "python": sys.version,
+        "saved_packages": provenance["packages"],
+        "saved_precision": provenance["jax_default_matmul_precision"],
+        "math_sha256": sha(
+            Path(__file__).resolve().parents[1] / "locomotion/ppo_diagnostics.py"
+        ),
+        "tool_sha256": sha(Path(__file__)),
+        "results": [],
+    }
+    for precision in (provenance["jax_default_matmul_precision"], "high", "highest"):
+        with jax.default_matmul_precision(precision):
+            result = jax.device_get(attribute(params, saved[0], data, payload["rng"]))
+        row = {
+            "precision": precision,
+            **{
+                name: float(result[name])
+                for name in (
+                    "gradient_relative_error",
+                    "native_head_backprop_relative_error",
+                    "output_gradient_relative_error",
+                    "advantage_max_error",
+                    "reward_max_error",
+                )
+            },
+            "native_metrics": {
+                name: float(value) for name, value in result["native_metrics"].items()
+            },
+        }
+        report["results"].append(row)
+        print(json.dumps(row, allow_nan=False), flush=True)
+    output = (args.output or path.parent / "replay").resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "report.json").write_text(json.dumps(report, indent=2, allow_nan=False))
+    print(f"Saved precision replay: {output / 'report.json'}", flush=True)
+
+
 def run(args):
     run_dir = args.run_dir.resolve()
     output = (args.output or run_dir / "ppo_learning_diagnostic").resolve()
@@ -793,6 +869,11 @@ def main():
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     parser.add_argument(
+        "--replay-minibatch",
+        type=Path,
+        help="Replay a saved failed WR2 batch across matrix precisions; skip simulation",
+    )
+    parser.add_argument(
         "--tb-root",
         type=Path,
         help="Existing frozen TB Paper checkout; uses its native fork/runtime",
@@ -812,7 +893,10 @@ def main():
         args.warmup_steps is not None and args.warmup_steps < 1
     ):
         parser.error("Batch, warmup and environment counts must be positive")
-    run(args)
+    if args.replay_minibatch:
+        replay_minibatch(args)
+    else:
+        run(args)
 
 
 if __name__ == "__main__":

@@ -343,8 +343,16 @@ def make_actor_attribution(networks, settings, hip_indices, forward_sign):
                 components["output"],
                 native["gradient"],
             )
+            native_head_error = backprop_stage(
+                params.policy,
+                normalizer,
+                data.observation,
+                native["head_gradient"],
+                native["gradient"],
+            )
         return {
             "gradient_relative_error": error,
+            "native_head_backprop_relative_error": native_head_error,
             "output_gradient_relative_error": components["head_error"],
             "advantage_max_error": components["advantage_error"],
             "reward_max_error": native["reward_error"],
