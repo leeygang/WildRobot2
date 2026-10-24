@@ -10,8 +10,11 @@ Its selection error is **2.07× TB Paper 200M**.
 
 This is useful evidence that the air-credit definition contributed to the
 tapping strategy. It does not establish the complete cause of WR2's remaining
-tracking gap. The current priorities are **short commanded strides and lateral
-velocity variation**, with standing/stop behavior also worse. Another physics
+tracking gap. The [visual follow-up](wr2_step_placement_review_20261023.md)
+confirms a large first right swing, then short swings with the left foot
+consistently trailing the right. The current priorities are **missing left
+forward hip swing, short strides and lateral velocity variation**, with
+standing/stop behavior also worse. Another physics
 change or a longer continuation is not justified by this result alone.
 
 Run: `results/wr2_walking/wr2_paper_step_20261022_143550_seed3`, configuration
@@ -159,7 +162,7 @@ After a 1.5-TB-second warmup, forward +.10:
 | Right contact onsets | 93 | **25** | 27 |
 | Median right loaded interval, TB seconds | .049 | **.388** | .340 |
 | Median same-foot onset interval, TB seconds | .194 | **.728** | .700 |
-| Median right foot-center advance, TB mm | 2.95 | **38.04** | 63.67 |
+| Median right foot-center advance, TB mm | 2.95 | **38.04** | 63.53 |
 | Right loaded fraction after warmup | 24.5% | **52.6%** | 49.8% |
 | Lateral velocity std, TB m/s | .0369 | **.0446** | .0211 |
 
@@ -194,6 +197,11 @@ The improvement in stepping therefore comes with a small contact regression,
 as well as worse standing and tracking. New leg-reference RMSE is **.216 rad**,
 versus control .168 and successful TB .232; tighter imitation is not established
 as the missing ingredient.
+
+The [per-landing follow-up](wr2_step_placement_review_20261023.md) separates
+startup from continued swings and qualifies the stepping interpretation:
+the selected left foot keeps landing behind the right despite alternating
+support, with nearly absent left hip-pitch motion.
 
 ## 4. What the reward experiment establishes
 
@@ -239,7 +247,8 @@ those contacts is not justified.
 1. **Retain 80M and selected 120M for comparison.** Inspect the supplied learned
    replays and confirm their foot intervals/placements with the existing GPU
    stance diagnostic before treating the nominal measurements as runtime-wide.
-2. **Focus the next reward review on progress versus stability and support duty.**
+2. **Focus the next reward review on left forward hip swing, progress versus
+   stability and support duty.**
    Compare 80M/120M/300M and TB: commanded displacement, lateral velocity variation,
    double support, qualified physical credit and individual reward terms. The
    simple air landing gate has passed its behavioral test, but the objective
