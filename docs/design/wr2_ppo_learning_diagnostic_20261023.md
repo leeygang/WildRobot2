@@ -111,19 +111,112 @@ Joint signs are WR2 `left−/right+` and TB
 sole collider pair,
 not its second ankle-link collider pair.
 
+## Next measurement: command transitions and critic state — 2026-10-24
+
+The [completed v3 review](wr2_ppo_learning_result_20261024.md) found a large
+update in the WR2 120M probe containing a scheduled command change. It did not
+establish a training fix. Run the commands below into **v4** directories to
+capture the missing TB comparison and reward-state evidence. All checkpoint,
+sampling, reward, physics, observation and native PPO settings remain the same.
+
+The additions record:
+
+| Field | Meaning and scope |
+| --- | --- |
+| `probe_gaussian_kl_old_to_new` | KL(original Gaussian policy \|\| policy after all 16 Adam steps), summed over actions, on every original batch observation. Both forks report the same definition. |
+| `new_std` | Final probe Gaussian scales for all actions, alongside existing means and target changes. |
+| `audit_value_prediction`, `audit_value_target`, `audit_normalized_advantage` | Original native critic prediction, Brax GAE value target and normalized total advantage for the first shuffled minibatch. Shape is `[audit_env, time]`; `audit_env_indices` maps it to the full recording. |
+| `episode_step`, `time_to_resample_tb_s` | Counter and normalized time until the next scheduled command resample, before the decision. |
+| `actor_command_tb`, `critic_command_tb` | Newest command entries actually supplied to each network, alongside the command used for the reward. |
+| `command_changed_after_step` | The environment's command changed while stepping. Exclude terminal/timeout transitions when identifying scheduled switches. |
+| `raw_air_time_physical_s`, `paid_air_time_physical_s` | Air counters before the step and credit paid by its reward. Seconds remain physical, matching the saved reward normalization. |
+| WR2 `supported_air_time_physical_s`, `pending_air_time_physical_s`, `stance_steps` | Additional state introduced by qualified air credit. TB's immediate rule has no matching pending/qualification counters. |
+
+The common KL is an **additional measurement**, not an optimizer loss or
+constraint. WR2's existing native KL averages metrics from the last epoch's
+four minibatch steps. It is not the final-policy/full-batch KL and must not be
+compared directly with the new field. Original and probe observations are the
+same; probe weights are still discarded without a physical rollout.
+
+TB's native step mutates its info dictionary. The recorder now snapshots that
+dictionary before stepping so the recorded pre-step counters remain accurate.
+It passes the original state to the unchanged native simulator.
+
+### Source-confirmed differences and limits
+
+WR2 `_paper_observation` and TB Paper `_get_obs` both omit explicit raw air-time
+counters and time until resampling. Both construct observations before assigning
+the next sampled command. This shared one-decision timing cannot by itself
+explain why WR2 develops the backward hip bias while TB walks successfully.
+
+WR2 adds supported-swing credit pending ten sampled contacts; its
+`supported_air_time`, `pending_air_time` and `stance_steps` are also absent from
+explicit observations. Ten samples delay payment by `.18` physical seconds;
+WR2's 15-frame history has an oldest sample `.28` physical seconds behind the
+newest. A whole swing plus pending delay can exceed that span. This is a possible
+information/credit-assignment difference, not a demonstrated explanation of the
+update spike.
+
+A source-driven CPU check held the physical, observation-history and command
+inputs fixed, with synthetic left-foot pending credit `.12` versus `.24` seconds
+and nine completed contact samples. The native qualification function paid
+**1.5785 versus 3.1569 scalar reward units** on the next sample, using weight
+500, dt `.02` and discount compensation `.97⁻⁹`. Both observation outputs were
+identical. This verifies dependence on unobserved counter state; it does **not**
+prove that those identical physical histories are reachable or that the critic
+cannot estimate the credit from its history. The check is retained in
+`results/wr2_walking/wr2_paper_step_20261022_143550_seed3/review_20261024/critic_input_state_check.json`.
+
+### Review order and decision
+
+1. Verify source/runtime and numerical reconstruction, then compare both robots'
+   final-probe KL, critic loss and target directions by batch and command.
+   Default warmup places a scheduled switch in zero-based batch 2 for both.
+2. On the audited minibatch, compare value-target residuals before/at/after a
+   switch and at pending-credit payments. Match entries through
+   `audit_env_indices`; do not treat unaudited environments as measured critic
+   predictions. Check network-command versus reward-command timing explicitly.
+3. Separate a shared TB transition response from a WR2-specific response. A
+   large GAE target residual alone can reflect stochastic command changes;
+   fresh-Adam probes do not reconstruct historical optimizer updates.
+4. Select one controlled 200–300M training change only if this evidence supports
+   it. Evaluate intermediate checkpoints for strides, alternating landing leads,
+   commanded tracking and falls. A recording run itself cannot improve gait.
+
+### Validation of the new recordings
+
+- **12 WR2 tests passed; 10 pinned TB-fork tests passed**, with two WR2-specific
+  driver tests skipped on the older fork. Tests verify the analytic common KL,
+  reconstruction of native value loss from saved predictions/targets, and
+  preservation of pre-step counters when the native step mutates its dictionary.
+- A native TB Paper 80M CPU simulator probe completed with its saved runtime,
+  four environments, eight warmup ticks, one 20-tick batch and all 16 Adam steps.
+  Float32 actor-gradient reconstruction error was **1.3e−7**. Its recorded
+  predictions/targets reproduced native value loss exactly, and pre-step air
+  counters and paid credit matched the native counter recurrence and reward.
+  This tiny CPU batch validates execution and measurements; its PPO update
+  magnitude is not a comparison with the full GPU protocol.
+- WR2's saved configuration and real model passed a reduced-reference-grid CPU
+  field check for commands, resampling time, pending credit and paid credit.
+  Its before/after reward states were synthetic, not a new physics rollout.
+
+The TB CPU recording is retained under
+`results/toddlerbot_walk_ppo_20261015_194347/review_20261024/ppo_transition_cpu_verified`.
+
 ## GPU command: WR2
 
 From the GPU's WR2 checkout, after pulling the committed diagnostic:
 
 ```bash
 uv run --locked --python 3.10 --extra training python -m wr2.tools.diagnose_ppo \
-  --run-dir results/wr2_walking/wr2_paper_step_20261022_143550_seed3
+  --run-dir results/wr2_walking/wr2_paper_step_20261022_143550_seed3 \
+  --output results/wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v4
 ```
 
 The output is:
 
 ```text
-results/wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic
+results/wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v4
 ```
 
 The full native reference grid is constructed before the first rollout; this
@@ -253,8 +346,8 @@ uv run --locked --python 3.10 --extra training python -m wr2.tools.diagnose_ppo 
   --output results/wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v3
 ```
 
-The mathematical check is verified on the saved GPU replay; execution of the
-complete v3 measurement is pending this command.
+The mathematical check is verified on the saved GPU replay. The complete v3
+measurement is reviewed in the [result report](wr2_ppo_learning_result_20261024.md).
 Validation passed **11 WR2 tests and 9 tests against the pinned TB Brax source**,
 including the recorded GPU mismatch regression and native first-Adam-step checks.
 
@@ -264,6 +357,8 @@ Use a checkout/worktree containing **`paper-walking-baseline`** and its clean
 native Brax submodule. The active TB development checkout is not switched or
 modified by the diagnostic. `--tb-root` must point to the existing Paper copy;
 its source/model/runtime checks reject a different training implementation.
+Verification is implemented in WR2; no additional diagnostic module or changes
+in the TB checkout are required.
 
 If an isolated Paper copy does not already exist, prepare one using only the
 local repositories. This leaves the active TB source/branch and its Brax
@@ -289,7 +384,7 @@ uv run --no-project \
   ~/projects/WildRobot2/wr2/tools/diagnose_ppo.py \
   --tb-root ~/projects/toddlerbot/.worktrees/paper-ppo \
   --run-dir ~/projects/toddlerbot/results/toddlerbot_walk_ppo_20261015_194347 \
-  --output ~/projects/WildRobot2/results/toddlerbot_walk_ppo_20261015_194347/ppo_learning_diagnostic
+  --output ~/projects/WildRobot2/results/toddlerbot_walk_ppo_20261015_194347/ppo_learning_diagnostic_v4
 ```
 
 This directly uses TB's existing runtime/source; WR2 does not vendor TB or its
@@ -301,10 +396,10 @@ From the Mac's WR2 checkout:
 
 ```bash
 ./scripts/scp_from_remote.sh --linux-pc --results \
-  wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic
+  wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v4
 
 ./scripts/scp_from_remote.sh --linux-pc --results \
-  toddlerbot_walk_ppo_20261015_194347/ppo_learning_diagnostic
+  toddlerbot_walk_ppo_20261015_194347/ppo_learning_diagnostic_v4
 ```
 
 `summary.json` and `batches.jsonl` contain checks and grouped measurements.

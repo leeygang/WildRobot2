@@ -47,7 +47,7 @@ def group_rewards(rewards):
 def _native_advantages(
     rewards, values, bootstrap, truncation, termination, *, discount, lambda_, normalize
 ):
-    total = losses.compute_gae(
+    targets, total = losses.compute_gae(
         truncation,
         termination,
         rewards,
@@ -55,11 +55,11 @@ def _native_advantages(
         bootstrap,
         lambda_=lambda_,
         discount=discount,
-    )[1]
+    )
     denominator = total.std() + 1e-8 if normalize else jp.ones((), total.dtype)
     if normalize:
         total = (total - total.mean()) / denominator
-    return total, denominator
+    return total, denominator, targets
 
 
 def _component_advantages(
@@ -115,7 +115,7 @@ def split_advantages(
     """Eager helper; native and bookkeeping stages have separate dtype scopes."""
     with jax.experimental.disable_x64():
         scalar = rewards.sum(axis=0) if native_rewards is None else native_rewards
-        total, denominator = _native_advantages(
+        total, denominator, _ = _native_advantages(
             scalar,
             values,
             bootstrap,
@@ -157,6 +157,17 @@ def tree_dot(first, second):
     )
 
 
+def gaussian_kl_old_to_new(old_mean, old_std, new_mean, new_std):
+    """Exact diagonal Gaussian KL per observation (also invariant under tanh).
+
+    Native stds are strictly positive. This common measurement has no optimizer
+    role and avoids the older TB fork's missing KL metric.
+    """
+    ratio = old_std / new_std
+    shift = (old_mean - new_mean) / new_std
+    return jp.sum(0.5 * (ratio**2 + shift**2 - 1) - jp.log(ratio), axis=-1)
+
+
 def make_actor_attribution(networks, settings, hip_indices, forward_sign):
     """Cache native-dtype model JITs and a separate deterministic float64 JIT."""
     distribution = networks.parametric_action_distribution
@@ -187,7 +198,7 @@ def make_actor_attribution(networks, settings, hip_indices, forward_sign):
         extras = data.extras["state_extras"]
         truncation = extras["truncation"]
         termination = (1 - data.discount) * (1 - truncation)
-        total, denominator = _native_advantages(
+        total, denominator, targets = _native_advantages(
             data.reward, values, bootstrap, truncation, termination, **gae_settings
         )
         policy = partial(networks.policy_network.apply, normalizer)
@@ -254,6 +265,8 @@ def make_actor_attribution(networks, settings, hip_indices, forward_sign):
         return dict(
             total=total,
             denominator=denominator,
+            values=values,
+            targets=targets,
             truncation=truncation,
             termination=termination,
             score=score,
@@ -359,6 +372,9 @@ def make_actor_attribution(networks, settings, hip_indices, forward_sign):
             "projected_forward_target_sgd": components["projections"],
             "local_forward_mu_pressure": components["pressure"],
             "native_metrics": native["metrics"],
+            "value_prediction": native["values"],
+            "value_target": native["targets"],
+            "normalized_advantage": native["total"],
         }
 
     return attribute

@@ -19,7 +19,20 @@ from wr2.locomotion.ppo_diagnostics import (
     clipped_component_losses,
     group_rewards,
     split_advantages,
+    gaussian_kl_old_to_new,
 )
+
+
+def test_common_gaussian_kl_has_analytic_values_and_no_optimizer_role():
+    mean = jp.zeros((3, 1))
+    std = jp.ones((3, 1))
+    shifted = jp.array([[0.0], [1.0], [0.0]])
+    changed_std = jp.array([[1.0], [1.0], [2.0]])
+    result = gaussian_kl_old_to_new(mean, std, shifted, changed_std)
+    np.testing.assert_allclose(result, [0.0, 0.5, np.log(2) - 0.375], atol=1e-7)
+    np.testing.assert_array_equal(
+        gaussian_kl_old_to_new(mean, std, mean, std), jp.zeros(3)
+    )
 
 
 def test_gpu_matrix_gap_uses_strict_float32_reference():
@@ -193,6 +206,13 @@ def test_full_actor_gradient_matches_native_ppo(normalize):
     assert float(result["gradient_relative_error"]) < 1e-5
     assert float(result["advantage_max_error"]) < 1e-5
     assert float(result["reward_max_error"]) < 1e-6
+    native_vloss = result["native_metrics"]["v_loss"]
+    np.testing.assert_allclose(
+        jp.mean((result["value_target"] - result["value_prediction"]) ** 2) * 0.25,
+        native_vloss,
+        rtol=1e-6,
+        atol=1e-7,
+    )
     assert all(np.isfinite(np.asarray(x)).all() for x in jax.tree.leaves(result))
 
 
@@ -333,6 +353,8 @@ def test_driver_checks_the_same_minibatch_used_by_native_adam(
 
         def step(self, state, action):
             reward = -jp.mean((action - 0.2) ** 2) * self.sys.scale
+            # Exercise the native TB step's in-place info-dict updates.
+            state.info["tick"] = state.info["tick"] + 1
             return state.replace(
                 obs={
                     name: value.at[0].set(action.mean())
@@ -340,7 +362,7 @@ def test_driver_checks_the_same_minibatch_used_by_native_adam(
                 },
                 reward=reward,
                 metrics={"leg_motor_pos": reward},
-                info={**state.info, "tick": state.info["tick"] + 1},
+                info=state.info,
             )
 
     env = EnvWithRewards()
@@ -370,6 +392,8 @@ def test_driver_checks_the_same_minibatch_used_by_native_adam(
             "landing_lead_tb_m": jp.zeros(2),
             "actual_hip_pitch_rad": jp.zeros(2),
             "reference_hip_pitch_rad": jp.zeros(2),
+            "before_tick": before.info["tick"],
+            "after_tick": after.info["tick"],
         }
 
     context = SimpleNamespace(
@@ -451,3 +475,15 @@ def test_driver_checks_the_same_minibatch_used_by_native_adam(
     ]
     assert not np.array_equal(before, after)
     assert not any("params" in path.name for path in output.iterdir())
+    with np.load(output / "80_batch0.npz") as saved_data:
+        np.testing.assert_array_equal(
+            saved_data["after_tick"] - saved_data["before_tick"], 1
+        )
+        assert saved_data["new_std"].shape == saved_data["std"].shape
+        assert saved_data["audit_value_prediction"].shape == (1, 20)
+        assert saved_data["audit_value_target"].shape == (1, 20)
+        assert np.isfinite(saved_data["probe_gaussian_kl_old_to_new"]).all()
+        np.testing.assert_allclose(
+            row["probe_gaussian_kl_old_to_new_mean"],
+            saved_data["probe_gaussian_kl_old_to_new"].mean(),
+        )

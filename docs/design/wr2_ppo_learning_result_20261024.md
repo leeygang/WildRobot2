@@ -224,7 +224,9 @@ Next priorities:
 
 1. Compare TB's target-change directions and critic/actor update response at
    its corresponding command-resampling batch. Native TB's older loss does not
-   export the same KL metric; compare available updates/losses honestly.
+   export the same KL metric; the
+   [v4 recording](wr2_ppo_learning_diagnostic_20261023.md#next-measurement-command-transitions-and-critic-state--2026-10-24)
+   adds a common final-policy/full-batch KL, separate from native last-epoch KL.
 2. Audit WR2's value-credit information around switching commands. Source
    confirms the added `supported_air_time`, `pending_air_time`, `stance_steps`
    are absent from `_paper_observation`. That adds reward memory beyond TB's

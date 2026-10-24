@@ -88,6 +88,34 @@ def load_wr2(run_dir, count):
             "foot_position_tb_m": positions / scale**2,
             "actual_hip_pitch_rad": after.pipeline_state.q[hip_joints],
             "reference_hip_pitch_rad": reference[env._active_indices[jp.asarray(hips)]],
+            "episode_step": step,
+            "actor_command_tb": before.obs["state"][2:5],
+            "critic_command_tb": before.obs["privileged_state"][2:5],
+            "command_changed_after_step": jp.any(after.info["command"] != command),
+            "time_to_resample_tb_s": (
+                cfg.environment.command_resample_steps
+                - step % cfg.environment.command_resample_steps
+            )
+            * env.dt
+            / scale,
+            "raw_air_time_physical_s": before.info["feet_air_time"],
+            "supported_air_time_physical_s": before.info["step_air_time"][
+                "supported_air_time"
+            ]
+            if "step_air_time" in before.info
+            else jp.zeros(2),
+            "pending_air_time_physical_s": before.info["step_air_time"][
+                "pending_air_time"
+            ]
+            if "step_air_time" in before.info
+            else jp.zeros(2),
+            "stance_steps": before.info["step_air_time"]["stance_steps"]
+            if "step_air_time" in before.info
+            else jp.zeros(2, dtype=jp.int32),
+            "paid_air_time_physical_s": after.metrics.get(
+                "qualified_air_time_s_per_step",
+                after.metrics["air_time_credit_s_per_step"],
+            ),
         }
 
     return SimpleNamespace(
@@ -134,6 +162,73 @@ def load_wr2(run_dir, count):
     )
 
 
+def verify_tb_source(run_dir):
+    """Verify the saved Paper source without requiring extra code in TB."""
+    import brax
+
+    root = Path.cwd().resolve()
+    paper_revision = "a4f693d7cc4544f011dad23d6c353e752a6819ab"
+    brax_revision = "14147806f6c25724ba830ba36764df3243889b0d"
+
+    def git(*args, cwd=root):
+        return subprocess.check_output(["git", *args], cwd=cwd, text=True).strip()
+
+    if sys.version_info[:2] != (3, 10):
+        raise RuntimeError("Use the saved Paper Python 3.10 environment")
+    subprocess.run(
+        ["git", "merge-base", "--is-ancestor", paper_revision, "HEAD"],
+        cwd=root,
+        check=True,
+    )
+    if git(
+        "diff", "--name-only", paper_revision, "--",
+        "toddlerbot/reference", "toddlerbot/sim", "toddlerbot/utils",
+        "toddlerbot/algorithms",
+    ):
+        raise ValueError("Reference, robot and controller must match the Paper branch")
+    provenance = json.loads((run_dir / "provenance.json").read_text())
+    for name in (
+        "mjx_env.py", "walk_env.py", "mjx_config.py", "train_mjx.py", "evaluate_xy.py"
+    ):
+        if (root / "toddlerbot/locomotion" / name).read_bytes() != (
+            run_dir / "locomotion" / name
+        ).read_bytes():
+            raise ValueError(f"Source differs from the saved Paper run: {name}")
+    for path, expected in provenance["model_reference_sha256"].items():
+        if sha(root / path) != expected:
+            raise ValueError(f"Model/reference differs from the saved Paper run: {path}")
+    native = root / "toddlerbot/brax"
+    revision = git("rev-parse", "HEAD", cwd=native)
+    if (
+        revision != brax_revision
+        or provenance["brax_revision"] != revision
+        or git("status", "--porcelain", cwd=native)
+        or not Path(brax.__file__).resolve().is_relative_to(native)
+    ):
+        raise ValueError("Import Brax from the clean pinned Paper checkout")
+    versions = {
+        name: metadata.version(name)
+        for name in (
+            "jax", "jaxlib", "mujoco", "mujoco-mjx", "brax", "numpy", "scipy",
+            "flax", "optax", "chex", "orbax-checkpoint",
+        )
+    }
+    for name, version in versions.items():
+        if version != provenance["packages"][name]:
+            raise ValueError(
+                f"{name} must match the saved run: "
+                f"{provenance['packages'][name]}, got {version}"
+            )
+    return {
+        "git_commit": git("rev-parse", "HEAD"),
+        "git_dirty": bool(git("status", "--porcelain")),
+        "training_source": provenance["source_revision"],
+        "verified_runtime_source": paper_revision,
+        "brax_revision": revision,
+        "packages": versions,
+    }
+
+
 def load_tb(run_dir, count):
     """Use the installed native Paper fork and saved configuration, read only."""
     import jax
@@ -142,7 +237,6 @@ def load_tb(run_dir, count):
     from brax.training.agents.ppo import networks
     from brax.training.agents.ppo import losses
     from orbax import checkpoint as ocp
-    from toddlerbot.locomotion.diagnose_stance import verify_source
     from toddlerbot.locomotion.mjx_config import MJXConfig
     from toddlerbot.locomotion.train_mjx import (
         domain_randomize,
@@ -152,7 +246,7 @@ def load_tb(run_dir, count):
     from toddlerbot.sim.robot import Robot
     from toddlerbot.utils.math_utils import quat_inv, rotate_vec
 
-    source = verify_source(run_dir)
+    source = verify_tb_source(run_dir)
     cfg = MJXConfig()
     for section, values in json.loads(
         (run_dir / "env_config.json").read_text()
@@ -232,6 +326,15 @@ def load_tb(run_dir, count):
             "reference_hip_pitch_rad": after.info["state_ref"][
                 env.ref_start_idx + env.action_mask[jp.asarray(hips)]
             ],
+            "episode_step": step,
+            "actor_command_tb": before.obs[2:5],
+            "critic_command_tb": before.privileged_obs[2:5],
+            "command_changed_after_step": jp.any(after.info["command"] != command),
+            "time_to_resample_tb_s": (env.resample_steps - step % env.resample_steps)
+            * env.dt,
+            "raw_air_time_physical_s": before.info["feet_air_time"],
+            "paid_air_time_physical_s": after.metrics["feet_air_time"]
+            / cfg.reward_scales.feet_air_time,
         }
 
     return SimpleNamespace(
@@ -355,6 +458,10 @@ def summarize_samples(samples, indices, signs, home):
         if "local_pressure" in selected:
             row["component_local_forward_mu_pressure"] = (
                 selected["local_pressure"].mean(axis=0).tolist()
+            )
+        if "probe_gaussian_kl_old_to_new" in selected:
+            row["probe_gaussian_kl_old_to_new_mean"] = float(
+                selected["probe_gaussian_kl_old_to_new"].mean()
             )
         output[name] = row
     return output
@@ -491,6 +598,7 @@ def run(args):
         COMPONENTS,
         REWARD_GROUPS,
         make_actor_attribution,
+        gaussian_kl_old_to_new,
         group_rewards,
     )
 
@@ -565,11 +673,14 @@ def run(args):
             )
 
         def step(self, state, action):
+            # TB's native step mutates its info dict; preserve reward counters
+            # before stepping, while leaving the simulator's state path intact.
+            before = state.replace(info=dict(state.info))
             command = context.command(state).copy()
             contact = context.contact(state).copy()
             step = context.step(state).copy()
             next_state = self.env.step(state, action)
-            trace = context.trace(state, next_state, command, contact, step)
+            trace = context.trace(before, next_state, command, contact, step)
             return next_state.replace(
                 info={
                     **next_state.info,
@@ -664,12 +775,17 @@ def run(args):
             normalizer, initial.policy, data.observation
         )
         new = networks.policy_network.apply(normalizer, params.policy, data.observation)
+        old_dist = networks.parametric_action_distribution.create_dist(old)
+        new_dist = networks.parametric_action_distribution.create_dist(new)
         return params, {
             "mode_delta": networks.parametric_action_distribution.mode(new)
             - networks.parametric_action_distribution.mode(old),
             "mu_delta": networks.parametric_action_distribution.create_dist(new).loc
             - networks.parametric_action_distribution.create_dist(old).loc,
             "new_std": networks.parametric_action_distribution.create_dist(new).scale,
+            "gaussian_kl_old_to_new": gaussian_kl_old_to_new(
+                old_dist.loc, old_dist.scale, new_dist.loc, new_dist.scale
+            ),
             "native_first_minibatch_metrics": first_metrics,
             "native_last_epoch_metrics": jax.tree.map(jp.mean, metrics),
         }
@@ -724,6 +840,8 @@ def run(args):
         "epochs": context.epochs,
         "learning_rate": context.learning_rate,
         "components": COMPONENTS,
+        "measurement_schema": 2,
+        "probe_kl_definition": "KL(original || after all 16 steps), full original observation batch; distinct from native last-epoch KL",
         "hips": ["left", "right"],
         "forward_joint_signs": context.signs,
         "protocol": "frozen_checkpoint_on_policy_batches; independent_fresh_Adam_PPO_probe_per_batch; probe_weights_discarded",
@@ -809,6 +927,7 @@ def run(args):
                     "reward_components": data.extras["state_extras"][
                         "reward_components"
                     ],
+                    "probe_gaussian_kl_old_to_new": update["gaussian_kl_old_to_new"],
                 }
             )
             audit_samples = {
@@ -853,6 +972,9 @@ def run(args):
                     name: float(value)
                     for name, value in update["native_last_epoch_metrics"].items()
                 },
+                "probe_gaussian_kl_old_to_new_mean": float(
+                    update["gaussian_kl_old_to_new"].mean()
+                ),
                 "samples": summarize_samples(
                     samples, list(context.hips), np.asarray(context.signs), context.home
                 ),
@@ -884,8 +1006,14 @@ def run(args):
                 **samples,
                 mode_delta=update["mode_delta"],
                 mu_delta=update["mu_delta"],
+                new_std=update["new_std"],
                 audit_env_indices=np.asarray(indices),
                 audit_local_mu_pressure=audit_samples["local_pressure"],
+                audit_value_prediction=np.swapaxes(audit["value_prediction"], 0, 1),
+                audit_value_target=np.swapaxes(audit["value_target"], 0, 1),
+                audit_normalized_advantage=np.swapaxes(
+                    audit["normalized_advantage"], 0, 1
+                ),
             )
             print(
                 f"  batch {batch_index + 1}/{args.batches}: Float32 verification {row['verification_gradient_relative_error']:.2g}, native output error {row['output_gradient_relative_error']:.2g}, native matrix gap {row['gradient_relative_error']:.2g}; PPO probe complete",
