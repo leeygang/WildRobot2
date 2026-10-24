@@ -191,8 +191,12 @@ The [first WR2 PPO review](docs/design/wr2_ppo_learning_result_20261024.md)
 identified an asymmetric posture and a large command-resampling update.
 The [v5 transition review](docs/design/wr2_ppo_transition_review_20261024.md)
 localizes most critic training residual to motion/zero command switches before
-the network receives the new command. Small hip-update directions vary between
-recordings; matching TB Paper probes remain the next measurement.
+the network receives the new command. The
+[completed native TB comparison](docs/design/wr2_tb_ppo_comparison_20261024.md)
+shows that TB also has those residuals and can have larger fresh-Adam probe KL.
+WR2 retains much shorter strides and little left-hip cyclic motion. The first
+proposed correction is model-based action-home selection as in TB; WR2's Paper
+branch currently replaces that origin with its deeper reference standing pose.
 The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)
 compares actual reward formulas, clocks, effective variation, resets and metrics.
 Actor/critic inputs are 975/1485 for this recipe. WR2 training is self-contained.

@@ -1,5 +1,9 @@
 # WR2 v5 PPO command-transition review — 2026-10-24
 
+Follow-up: the [completed native TB comparison](wr2_tb_ppo_comparison_20261024.md)
+shows that the command-switch residual and large restart-probe KL also occur in
+TB. Its action-home source audit supplies the next proposed correction.
+
 Result: `results/wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v5`.
 Source: clean `8e3bc6d`; protocol: [diagnostic guide](wr2_ppo_learning_diagnostic_20261023.md).
 The user confirmed that **only WR2 ran**; the matching TB Paper GPU measurement
