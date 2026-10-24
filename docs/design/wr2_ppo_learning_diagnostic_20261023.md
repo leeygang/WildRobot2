@@ -33,6 +33,13 @@ policies. It loads the saved configuration and checks runtime provenance.
 | Measured batches/checkpoint | 8 ×1024 ×20 transitions | 8 ×1024 ×20 transitions |
 | Probe on each batch | Four epochs ×four minibatches, Adam at 1e−4 | Same native recipe |
 
+The table gives defaults. The current v5 TB comparison command additionally
+includes 120M and sets **warmup 408** to place the command switch at batch tick 2,
+matching WR2. Default TB warmup 400 would put it at tick 10 and change the
+pre-switch portion of its GAE fragment. This records 491,520 TB transitions;
+WR2's two checkpoints record 327,680. See the
+[v5 alignment rationale](wr2_ppo_transition_review_20261024.md#6-next-measurement-and-decision).
+
 Every batch is collected with the **original frozen checkpoint**, rather than
 with the previous probe's weights. Each probe begins with fresh Adam state,
 updates both actor and critic through the installed native Brax PPO loss, and
@@ -422,6 +429,8 @@ uv run --no-project \
   ~/projects/WildRobot2/wr2/tools/diagnose_ppo.py \
   --tb-root ~/projects/toddlerbot/.worktrees/paper-ppo \
   --run-dir ~/projects/toddlerbot/results/toddlerbot_walk_ppo_20261015_194347 \
+  --checkpoint-steps 80035840 120053760 200089600 \
+  --warmup-steps 408 \
   --output ~/projects/WildRobot2/results/toddlerbot_walk_ppo_20261015_194347/ppo_learning_diagnostic_v5
 ```
 
