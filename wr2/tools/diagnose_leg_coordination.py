@@ -58,6 +58,7 @@ class SagittalCompensator:
         return self.data.site_xpos[self.site, 2], pitch, normal.copy()
 
     def solve(self, qpos, baseline_targets, hip_target):
+        baseline_targets = np.clip(baseline_targets, self.lower, self.upper)
         self.data.qpos[:] = qpos
         self.data.qpos[self.qpos_indices] = baseline_targets
         mujoco.mj_kinematics(self.model, self.data)
@@ -106,6 +107,68 @@ class SagittalCompensator:
                 motion[:2] @ np.asarray([-heading[1], heading[0]])
             ),
         }
+
+    def solve_full(self, qpos, baseline_targets, hip_target):
+        """Preserve height and full foot orientation.
+
+        Hip pitch and hip roll are fixed; the other four joints compensate.
+        Horizontal foot position remains free and is measured in the output.
+        """
+        baseline_targets = np.clip(baseline_targets, self.lower, self.upper)
+        self.data.qpos[:] = qpos
+        self.data.qpos[self.qpos_indices] = baseline_targets
+        mujoco.mj_kinematics(self.model, self.data)
+        position = self.data.site_xpos[self.site].copy()
+        target_quat = np.zeros(4)
+        mujoco.mju_mat2Quat(target_quat, self.data.geom_xmat[self.geom])
+        w, x, y, z = self.data.xquat[self.torso]
+        yaw = np.arctan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+        forward = np.asarray([np.cos(yaw), np.sin(yaw)])
+        lateral = np.asarray([-forward[1], forward[0]])
+        unknown = np.asarray([2, 3, 4, 5])
+        self.data.qpos[self.qpos_indices[self.hip]] = hip_target
+
+        def residual(target):
+            self.data.qpos[self.qpos_indices[unknown]] = target
+            mujoco.mj_kinematics(self.model, self.data)
+            offset = self.data.site_xpos[self.site] - position
+            quat = np.zeros(4)
+            mujoco.mju_mat2Quat(quat, self.data.geom_xmat[self.geom])
+            angular = np.zeros(3)
+            mujoco.mju_subQuat(angular, quat, target_quat)
+            return np.r_[
+                offset[2] / self.height_scale_m,
+                angular,
+            ]
+
+        result = least_squares(
+            residual,
+            np.asarray(baseline_targets)[unknown],
+            bounds=(self.lower[unknown], self.upper[unknown]),
+            ftol=1e-11,
+            xtol=1e-11,
+            gtol=1e-11,
+            max_nfev=60,
+        )
+        error = residual(result.x)
+        position_error = abs(error[0]) * self.height_scale_m
+        orientation_error = np.linalg.norm(error[1:])
+        if position_error > 1e-5 or orientation_error > 1e-5:
+            raise ValueError(
+                f"No reachable full-pose compensation: position={position_error:.6g} m, "
+                f"orientation={orientation_error:.6g} rad"
+            )
+        offset = self.data.site_xpos[self.site] - position
+        return (
+            unknown,
+            result.x,
+            {
+                "position_error_m": position_error,
+                "orientation_error_rad": orientation_error,
+                "forward_change_m": float(offset[:2] @ forward),
+                "lateral_change_m": float(offset[:2] @ lateral),
+            },
+        )
 
 
 def run(run_dir: Path, output: Path):
@@ -247,7 +310,9 @@ def run(run_dir: Path, output: Path):
     ) / action_scale
     hip_only[strength == 0, :, solver.hip] = original[strength == 0, :, solver.hip]
     coordinated = hip_only.copy()
+    full_pose = hip_only.copy()
     errors = []
+    full_errors = []
     print("SOLVE_COORDINATED_TARGETS", np.rad2deg(peaks).tolist(), flush=True)
     for i in range(len(cp)):
         for tick in range(horizon):
@@ -268,20 +333,40 @@ def run(run_dir: Path, output: Path):
                     **error,
                 }
             )
+            unknown, targets, error = solver.solve_full(
+                before_q[tick, i], requested[tick, i], hip_target
+            )
+            full_pose[tick, i, unknown] = (targets - home[unknown]) / action_scale
+            full_errors.append(
+                {
+                    "checkpoint": labels[cp[i]],
+                    "start": int(start[i]),
+                    "tick": tick,
+                    **error,
+                }
+            )
     (output / "ik_validation.json").write_text(json.dumps(errors, indent=2) + "\n")
-    assert np.abs(hip_only).max() <= 1 and np.abs(coordinated).max() <= 1
+    (output / "full_ik_validation.json").write_text(
+        json.dumps(full_errors, indent=2) + "\n"
+    )
+    assert all(np.abs(tape).max() <= 1 for tape in (hip_only, coordinated, full_pose))
     np.testing.assert_array_equal(
         hip_only[:, :, solver.hip], coordinated[:, :, solver.hip]
     )
+    np.testing.assert_array_equal(
+        hip_only[:, :, solver.hip], full_pose[:, :, solver.hip]
+    )
     other = np.setdiff1d(np.arange(env.action_size), np.r_[solver.hip, solver.ka])
     np.testing.assert_array_equal(coordinated[:, :, other], original[:, :, other])
-    modes = ["baseline", "hip_only", "coordinated", "baseline_duplicate"]
+    np.testing.assert_array_equal(full_pose[:, :, 6:], original[:, :, 6:])
+    np.testing.assert_array_equal(full_pose[:, :, 1], original[:, :, 1])
+    modes = ["baseline", "hip_only", "coordinated", "full_pose", "baseline_duplicate"]
     tapes = jp.asarray(
-        np.stack([original, hip_only, coordinated, original], axis=2).reshape(
-            horizon, -1, env.action_size
-        )
+        np.stack(
+            [original, hip_only, coordinated, full_pose, original], axis=2
+        ).reshape(horizon, -1, env.action_size)
     )
-    cp_all, start_all = np.repeat(cp, 4), np.repeat(start, 4)
+    cp_all, start_all = np.repeat(cp, len(modes)), np.repeat(start, len(modes))
     initial = jax.tree.map(lambda v: v[start_all, cp_all], base["before"])
     branch_params = jax.tree.map(lambda v: v[cp_all], stacked)
     reward_names = list(
@@ -389,7 +474,7 @@ def run(run_dir: Path, output: Path):
     traces, v0, vend, alive = jax.tree.map(np.asarray, jax.jit(rollout)())
     results = []
     for i in range(len(cp_all)):
-        mode = modes[i % 4]
+        mode = modes[i % len(modes)]
         trace = {k: v[:, i] for k, v in traces.items()}
         valid = trace["valid"]
         n = int(valid.sum())
@@ -433,24 +518,25 @@ def run(run_dir: Path, output: Path):
             ),
         }
         results.append(result)
-    for i in range(0, len(results), 4):
+    for i in range(0, len(results), len(modes)):
+        for offset in (2, 3):
+            np.testing.assert_array_equal(
+                traces["action"][:, i + 1, solver.hip],
+                traces["action"][:, i + offset, solver.hip],
+            )
+            np.testing.assert_allclose(
+                traces["delivered_rad"][:, i + 1, solver.hip],
+                traces["delivered_rad"][:, i + offset, solver.hip],
+                atol=1e-6,
+            )
         np.testing.assert_array_equal(
-            traces["action"][:, i + 1, solver.hip],
-            traces["action"][:, i + 2, solver.hip],
-        )
-        np.testing.assert_allclose(
-            traces["delivered_rad"][:, i + 1, solver.hip],
-            traces["delivered_rad"][:, i + 2, solver.hip],
-            atol=1e-6,
-        )
-        np.testing.assert_array_equal(
-            traces["contact"][:, i], traces["contact"][:, i + 3]
+            traces["contact"][:, i], traces["contact"][:, i + 4]
         )
         assert (
-            abs(results[i]["discounted_return"] - results[i + 3]["discounted_return"])
+            abs(results[i]["discounted_return"] - results[i + 4]["discounted_return"])
             < 1e-4
         )
-        for r in results[i : i + 4]:
+        for r in results[i : i + len(modes)]:
             for field in [
                 "discounted_return",
                 "bootstrapped_return",
@@ -478,7 +564,7 @@ def run(run_dir: Path, output: Path):
             },
         },
         "scope": "nominal matched states; deterministic other action tapes held fixed; no training update",
-        "compensation": "preserve original requested-pose foot site height and fore-aft sole angle; same hip target",
+        "compensation": "coordinated: preserve limit-bounded requested height/pitch with knee/ankle; full_pose: preserve height/full orientation with four remaining left joints, fixed hip roll, free horizontal position; same hip target",
         "normal_axis": solver.normal_axis,
         "normal_sign": solver.normal_sign,
         "hip_wave_peak_deg": np.rad2deg(peaks).tolist(),

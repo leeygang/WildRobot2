@@ -92,3 +92,42 @@ def test_unreachable_compensation_is_rejected(setup):
     solver.upper[solver.ka] = target[solver.ka] + 1e-8
     with pytest.raises(ValueError, match="No reachable compensation"):
         solver.solve(qpos, target, target[0] - np.deg2rad(6))
+
+
+@pytest.mark.parametrize("yaw", [0.0, 0.35])
+def test_full_compensation_preserves_height_and_orientation(setup, yaw):
+    model, qpos, target, solver = setup
+    qpos[3:7] = [np.cos(yaw / 2), 0.0, 0.0, np.sin(yaw / 2)]
+    position, _, heading = pose(model, qpos, solver)
+    solver.data.qpos[:] = qpos
+    mujoco.mj_kinematics(model, solver.data)
+    original_rotation = solver.data.geom_xmat[solver.geom].copy()
+    hip = target[0] - np.deg2rad(6)
+    unknown, result, _ = solver.solve_full(qpos, target, hip)
+    compensated = qpos.copy()
+    compensated[solver.qpos_indices[0]] = hip
+    compensated[solver.qpos_indices[unknown]] = result
+    new_position, _, _ = pose(model, compensated, solver)
+    assert abs(new_position[2] - position[2]) < 1e-6
+    data = mujoco.MjData(model)
+    data.qpos[:] = compensated
+    mujoco.mj_kinematics(model, data)
+    np.testing.assert_allclose(
+        data.geom_xmat[solver.geom], original_rotation, atol=1e-6
+    )
+    assert (new_position[:2] - position[:2]) @ heading > 0.005
+    assert np.all(result >= solver.lower[unknown])
+    assert np.all(result <= solver.upper[unknown])
+    unchanged = np.setdiff1d(
+        np.arange(model.nq), solver.qpos_indices[np.r_[solver.hip, unknown]]
+    )
+    np.testing.assert_array_equal(compensated[unchanged], qpos[unchanged])
+
+
+def test_full_reference_uses_controller_joint_limits(setup):
+    model, qpos, target, solver = setup
+    target[1] = solver.upper[1] + np.deg2rad(0.24)
+    unknown, result, _ = solver.solve_full(qpos, target, target[0])
+    expected = np.clip(target, solver.lower, solver.upper)
+    np.testing.assert_allclose(result, expected[unknown], atol=1e-8)
+    assert np.all(result <= solver.upper[unknown])
