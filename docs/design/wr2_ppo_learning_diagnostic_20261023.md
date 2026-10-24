@@ -69,16 +69,20 @@ The actor's sampled loss gradient is split into:
 8. Entropy.
 
 The implementation in [ppo_diagnostics.py](../../wr2/locomotion/ppo_diagnostics.py)
-uses the installed Brax GAE function. Reward groups use zero component values;
-the seventh component retains the native critic and bootstrap. Every component
-shares the total advantage's standard deviation and the **total surrogate's
-clipping branch**. Independently clipping or normalizing each reward would
-produce a different gradient.
+uses the installed Brax GAE function. Total advantage and normalization use the
+**original native scalar reward**, rather than a sum of regrouped terms. Reward
+groups use zero component values and float64 bookkeeping. The seventh component
+is the native-total residual, retaining the critic, bootstrap and native rounding.
+Every component shares the native total advantage's standard deviation and
+**total surrogate's clipping branch**. Independently clipping or normalizing
+each reward would produce a different gradient.
 
 Checks require reward reconstruction, advantage reconstruction and full actor
-parameter-gradient reconstruction. Native first-minibatch loss metrics must
-also match the actual first Adam step. This is an exact sampled-loss decomposition
-up to float32 arithmetic. It is not a set of learned component critics, and
+parameter-gradient reconstruction, plus an independent output-gradient check.
+Native first-minibatch loss metrics must
+also match the actual first Adam step. Large cancelling component gradients are
+combined in float64 and cast to float32 once for native network backpropagation.
+This is not a set of learned component critics, and
 component sizes alone do not establish independent causal reward effects.
 
 Two direction measurements are reported:
@@ -124,6 +128,44 @@ results/wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic
 The full native reference grid is constructed before the first rollout; this
 startup work runs on the host CPU. `--output` selects a new folder for a repeat.
 The tool refuses to overwrite an existing diagnostic directory.
+
+### Fix for the first GPU reconstruction failure — 2026-10-24
+
+The first GPU attempt stopped at 80M with parameter-gradient relative error
+`3.4111e−4`, despite reward/advantage reconstruction errors of only `9.54e−7`
+and `1.81e−5`. The original diagnostic recomputed total advantage from regrouped
+rewards and rounded each component gradient to float32 before adding them.
+That changed PPO's normalization input and lost precision through cancellation.
+
+Regression cases with an accurate constant critic and nearly steady reward
+reproduced errors `5.63e−4` and `.0526` on CPU, from scalar-reward differences
+of just `5.96e−8`. The corrected calculation uses the original scalar reward,
+native float32 score/clip/entropy derivatives, and float64 deterministic
+bookkeeping. Separate JIT stages keep JAX 0.6's dtype handling correct. Globally
+enabling x64 would change Brax's default entropy random draws and is not used.
+
+The parameter-gradient tolerance remains **5e−5**; an output-gradient check
+uses the same limit. Native loss, matrix precision and fresh-Adam probes remain
+the saved recipe. Tests verify native loss/entropy and caller x64 state.
+If another numerical reconstruction check fails, the exact input/checkpoint/key are retained in
+`failed_minibatch.pkl` under results for reproduction. No result binary is
+committed.
+
+After syncing the fix, rerun into a new folder to retain the failed attempt:
+
+```bash
+uv run --locked --python 3.10 --extra training python -m wr2.tools.diagnose_ppo \
+  --run-dir results/wr2_walking/wr2_paper_step_20261022_143550_seed3 \
+  --output results/wr2_walking/wr2_paper_step_20261022_143550_seed3/ppo_learning_diagnostic_v2
+```
+
+GPU verification of this fix is pending that rerun. The CPU reproduction
+establishes the numerical failure mechanism, not the exact failing GPU batch.
+Validation passed **10 WR2 tests and 8 tests against the pinned TB Brax source**.
+A separate check used the actual WR2 80M actor/critic, full 975/1485 observation
+dimensions and a 256×20 synthetic batch: parameter/output-gradient relative
+errors were **2.54e−7 /6.81e−8**, with advantage closure **2.22e−16**. This is a
+numerical verification, not a physical walking result.
 
 ## GPU command: native TB Paper
 

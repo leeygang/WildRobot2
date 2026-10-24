@@ -1,8 +1,9 @@
-"""Attribute the installed Brax PPO actor gradient on recorded training batches.
+"""Attribute installed Brax PPO gradients without cancelling float32 components.
 
-GAE is linear in rewards and values. PPO clipping is not linear in advantages:
-all components must share the branch selected by the *total* advantage.
-References: https://arxiv.org/abs/1506.02438 and https://arxiv.org/abs/1707.06347.
+GAE/advantage normalization use the original scalar reward. Deterministic
+component bookkeeping uses float64; native networks, entropy draws and PPO
+updates retain their original dtype and matrix precision.
+References: https://arxiv.org/abs/1506.02438, https://arxiv.org/abs/1707.06347.
 """
 
 from functools import partial
@@ -43,40 +44,98 @@ def group_rewards(rewards):
     return jp.stack(grouped, axis=-1)
 
 
-def split_advantages(
+def _native_advantages(
     rewards, values, bootstrap, truncation, termination, *, discount, lambda_, normalize
 ):
-    """Return [components,T,B] using one shared total-advantage normalization.
-
-    Reward groups use zero value estimates. The remaining term contains the native
-    critic and bootstrap. These are an exact algebraic split of the sampled loss,
-    not separately learned component critics or independent causal effects.
-    """
-    gae = partial(
-        losses.compute_gae,
-        truncation=truncation,
-        termination=termination,
+    total = losses.compute_gae(
+        truncation,
+        termination,
+        rewards,
+        values,
+        bootstrap,
         lambda_=lambda_,
         discount=discount,
-    )
-    parts = jax.vmap(
-        lambda reward: gae(
-            rewards=reward,
-            values=jp.zeros_like(values),
-            bootstrap_value=jp.zeros_like(bootstrap),
-        )[1]
-    )(rewards)
-    baseline = gae(
-        rewards=jp.zeros_like(values), values=values, bootstrap_value=bootstrap
     )[1]
-    parts = jp.concatenate([parts, baseline[None]], axis=0)
-    total = gae(
-        rewards=jp.sum(rewards, axis=0), values=values, bootstrap_value=bootstrap
-    )[1]
+    denominator = total.std() + 1e-8 if normalize else jp.ones((), total.dtype)
     if normalize:
-        denominator = total.std() + 1e-8
-        parts = (parts - parts.mean(axis=(1, 2), keepdims=True)) / denominator
         total = (total - total.mean()) / denominator
+    return total, denominator
+
+
+def _component_advantages(
+    rewards,
+    total,
+    denominator,
+    truncation,
+    termination,
+    *,
+    discount,
+    lambda_,
+    normalize,
+):
+    """Float64 reward-only GAE plus the native value/rounding residual.
+
+    Run this deterministic function in a dedicated x64 scope/JIT. JAX 0.6 cannot
+    reliably lower mixed x64 scopes inside a single native-dtype JIT.
+    """
+    zero = jp.zeros_like(total, dtype=jp.float64)
+    parts = jax.vmap(
+        lambda reward: losses.compute_gae(
+            truncation.astype(jp.float64),
+            termination.astype(jp.float64),
+            reward,
+            zero,
+            zero[-1],
+            lambda_=lambda_,
+            discount=discount,
+        )[1]
+    )(rewards.astype(jp.float64))
+    if normalize:
+        parts = (parts - parts.mean(axis=(1, 2), keepdims=True)) / denominator.astype(
+            jp.float64
+        )
+    # This residual includes the critic/bootstrap and native scalar-reward/GAE
+    # rounding. It is not a separately learned component critic.
+    baseline = total.astype(jp.float64) - parts.sum(axis=0)
+    return jp.concatenate([parts, baseline[None]], axis=0)
+
+
+def split_advantages(
+    rewards,
+    values,
+    bootstrap,
+    truncation,
+    termination,
+    *,
+    discount,
+    lambda_,
+    normalize,
+    native_rewards=None,
+):
+    """Eager helper; native and bookkeeping stages have separate dtype scopes."""
+    with jax.experimental.disable_x64():
+        scalar = rewards.sum(axis=0) if native_rewards is None else native_rewards
+        total, denominator = _native_advantages(
+            scalar,
+            values,
+            bootstrap,
+            truncation,
+            termination,
+            discount=discount,
+            lambda_=lambda_,
+            normalize=normalize,
+        )
+    with jax.experimental.enable_x64():
+        parts = _component_advantages(
+            rewards,
+            total,
+            denominator,
+            truncation,
+            termination,
+            discount=discount,
+            lambda_=lambda_,
+            normalize=normalize,
+        )
     return parts, total
 
 
@@ -98,107 +157,200 @@ def tree_dot(first, second):
     )
 
 
-def actor_attribution(
-    params, normalizer, data, rng, networks, settings, hip_indices, forward_sign
-):
-    """Verify actor backpropagation and project components onto forward targets.
-
-    The projection is the infinitesimal change per unit plain SGD learning rate,
-    on this fixed observation batch. Actual fresh-Adam changes are measured by the
-    caller; Adam updates cannot be decomposed by separately optimizing each term.
-    """
-    time_data = jax.tree.map(lambda x: jp.swapaxes(x, 0, 1), data)
-    privileged = (
-        time_data.privileged_observation
-        if hasattr(time_data, "privileged_observation")
-        else time_data.observation
-    )
-    next_privileged = (
-        time_data.next_privileged_observation
-        if hasattr(time_data, "next_privileged_observation")
-        else time_data.next_observation
-    )
-    values = networks.value_network.apply(normalizer, params.value, privileged)
-    bootstrap = networks.value_network.apply(
-        normalizer, params.value, jax.tree.map(lambda x: x[-1], next_privileged)
-    )
-    extras = time_data.extras["state_extras"]
-    truncation = extras["truncation"]
-    termination = (1 - time_data.discount) * (1 - truncation)
-    rewards = jp.moveaxis(extras["reward_components"], -1, 0)
-    parts, total = split_advantages(
-        rewards,
-        values,
-        bootstrap,
-        truncation,
-        termination,
+def make_actor_attribution(networks, settings, hip_indices, forward_sign):
+    """Cache native-dtype model JITs and a separate deterministic float64 JIT."""
+    distribution = networks.parametric_action_distribution
+    native_loss = partial(losses.compute_ppo_loss, ppo_network=networks, **settings)
+    gae_settings = dict(
         discount=settings["discounting"],
         lambda_=settings["gae_lambda"],
         normalize=settings["normalize_advantage"],
     )
-    distribution = networks.parametric_action_distribution
-    policy = partial(networks.policy_network.apply, normalizer)
-    logits, pullback = jax.vjp(
-        lambda p: policy(p, time_data.observation), params.policy
-    )
 
-    def component_loss(output):
-        log_prob = distribution.log_prob(
-            output, time_data.extras["policy_extras"]["raw_action"]
+    @jax.jit
+    def native_stage(params, normalizer, data, rng):
+        data = jax.tree.map(lambda x: jp.swapaxes(x, 0, 1), data)
+        privileged = (
+            data.privileged_observation
+            if hasattr(data, "privileged_observation")
+            else data.observation
         )
-        components = clipped_component_losses(
-            log_prob,
-            time_data.extras["policy_extras"]["log_prob"],
-            parts,
-            total,
-            settings["clipping_epsilon"],
+        next_privileged = (
+            data.next_privileged_observation
+            if hasattr(data, "next_privileged_observation")
+            else data.next_observation
         )
-        entropy = -settings["entropy_cost"] * distribution.entropy(output, rng).mean()
-        return jp.concatenate([components, entropy[None]])
+        values = networks.value_network.apply(normalizer, params.value, privileged)
+        bootstrap = networks.value_network.apply(
+            normalizer, params.value, jax.tree.map(lambda x: x[-1], next_privileged)
+        )
+        extras = data.extras["state_extras"]
+        truncation = extras["truncation"]
+        termination = (1 - data.discount) * (1 - truncation)
+        total, denominator = _native_advantages(
+            data.reward, values, bootstrap, truncation, termination, **gae_settings
+        )
+        policy = partial(networks.policy_network.apply, normalizer)
+        logits = policy(params.policy, data.observation)
 
-    output_gradients = jax.jacrev(component_loss)(logits)
-    reconstructed = pullback(output_gradients.sum(axis=0))[0]
-    native_loss = partial(losses.compute_ppo_loss, ppo_network=networks, **settings)
-    (_, metrics), native_gradient = jax.value_and_grad(native_loss, has_aux=True)(
-        params, normalizer, data, rng
-    )
-    difference = jax.tree.map(lambda a, b: a - b, reconstructed, native_gradient.policy)
-    relative_error = jp.sqrt(tree_dot(difference, difference)) / (
-        jp.sqrt(tree_dot(native_gradient.policy, native_gradient.policy)) + 1e-8
-    )
-    command = extras["trace"]["command_tb"]
-    forward = (
-        (command[..., 0] > 0.05)
-        & (jp.abs(command[..., 0]) > jp.abs(command[..., 1]))
-        & (jp.abs(command[..., 2]) < 1e-6)
-    )
-    signs = jp.asarray(forward_sign)
+        def log_prob(output):
+            return distribution.log_prob(
+                output, data.extras["policy_extras"]["raw_action"]
+            )
 
-    def mean_targets(p):
-        targets = (
-            distribution.mode(policy(p, time_data.observation))[..., hip_indices]
-            * signs
-            * 0.25
+        old_probability = data.extras["policy_extras"]["log_prob"]
+        epsilon = settings["clipping_epsilon"]
+        score = jax.grad(lambda output: log_prob(output).sum())(logits)
+        weights = jax.grad(
+            lambda probability: clipped_component_losses(
+                probability, old_probability, jp.ones_like(total)[None], total, epsilon
+            ).sum()
+        )(log_prob(logits))
+
+        def entropy_loss(output):
+            return -settings["entropy_cost"] * distribution.entropy(output, rng).mean()
+
+        def native_head_loss(output):
+            ratio = jp.exp(log_prob(output) - old_probability)
+            return -jp.mean(
+                jp.minimum(
+                    ratio * total, jp.clip(ratio, 1 - epsilon, 1 + epsilon) * total
+                )
+            ) + entropy_loss(output)
+
+        entropy_gradient = jax.grad(entropy_loss)(logits)
+        head_gradient = jax.grad(native_head_loss)(logits)
+        # Native function expects batch first; preserve its exact loss/RNG path.
+        batch_data = jax.tree.map(lambda x: jp.swapaxes(x, 0, 1), data)
+        (_, metrics), native_gradient = jax.value_and_grad(native_loss, has_aux=True)(
+            params, normalizer, batch_data, rng
         )
-        return jp.sum(targets * forward[..., None], axis=(0, 1)) / jp.maximum(
-            forward.sum(), 1
+        command = extras["trace"]["command_tb"]
+        forward = (
+            (command[..., 0] > 0.05)
+            & (jp.abs(command[..., 0]) > jp.abs(command[..., 1]))
+            & (jp.abs(command[..., 2]) < 1e-6)
+        )
+        signs = jp.asarray(forward_sign)
+
+        def mean_targets(p):
+            targets = (
+                distribution.mode(policy(p, data.observation))[..., hip_indices]
+                * signs
+                * 0.25
+            )
+            return jp.sum(targets * forward[..., None], axis=(0, 1)) / jp.maximum(
+                forward.sum(), 1
+            )
+
+        target_gradients = jax.jacrev(mean_targets)(params.policy)
+        directions = []
+        for hip in range(2):
+            direction = jax.tree.map(lambda x: -x[hip], target_gradients)
+            _, output_direction = jax.jvp(
+                lambda p: policy(p, data.observation), (params.policy,), (direction,)
+            )
+            directions.append(output_direction)
+        return dict(
+            total=total,
+            denominator=denominator,
+            truncation=truncation,
+            termination=termination,
+            score=score,
+            weights=weights,
+            entropy_gradient=entropy_gradient,
+            head_gradient=head_gradient,
+            gradient=native_gradient.policy,
+            metrics=metrics,
+            directions=jp.stack(directions),
+            reward_error=jp.max(
+                jp.abs(extras["reward_components"].sum(axis=-1) - data.reward)
+            ),
         )
 
-    target_gradients = jax.jacrev(mean_targets)(params.policy)
-    projections = []
-    for hip in range(2):
-        direction = jax.tree.map(lambda x: -x[hip], target_gradients)
-        _, output_direction = jax.jvp(
-            lambda p: policy(p, time_data.observation), (params.policy,), (direction,)
+    @jax.jit
+    def component_stage(rewards, native):
+        parts = _component_advantages(
+            rewards,
+            native["total"],
+            native["denominator"],
+            native["truncation"],
+            native["termination"],
+            **gae_settings,
         )
-        projections.append(
-            jp.sum(output_gradients * output_direction[None], axis=(1, 2, 3))
+        # Applying these advantages in jacrev would cast each large component
+        # gradient to float32 before cancellation. Use the native score/clip
+        # derivatives and retain float64 through the sum instead.
+        gradients = (
+            parts[..., None]
+            * native["weights"].astype(jp.float64)[None, ..., None]
+            * native["score"].astype(jp.float64)[None]
         )
-    return {
-        "gradient_relative_error": relative_error,
-        "advantage_max_error": jp.max(jp.abs(parts.sum(axis=0) - total)),
-        "reward_max_error": jp.max(jp.abs(rewards.sum(axis=0) - time_data.reward)),
-        "projected_forward_target_sgd": jp.stack(projections, axis=-1),
-        "local_forward_mu_pressure": -output_gradients[..., hip_indices] * signs,
-        "native_metrics": metrics,
-    }
+        gradients = jp.concatenate(
+            [gradients, native["entropy_gradient"].astype(jp.float64)[None]]
+        )
+        output = gradients.sum(axis=0)
+        head = native["head_gradient"].astype(jp.float64)
+        return dict(
+            output=output.astype(native["score"].dtype),
+            head_error=jp.linalg.norm(output - head) / (jp.linalg.norm(head) + 1e-8),
+            advantage_error=jp.max(
+                jp.abs(parts.sum(axis=0) - native["total"].astype(jp.float64))
+            ),
+            projections=jp.stack(
+                [
+                    jp.sum(
+                        gradients * direction.astype(jp.float64)[None], axis=(1, 2, 3)
+                    )
+                    for direction in native["directions"]
+                ],
+                axis=-1,
+            ),
+            pressure=-gradients[..., hip_indices]
+            * jp.asarray(forward_sign, dtype=jp.float64),
+        )
+
+    @jax.jit
+    def backprop_stage(policy_params, normalizer, observation, output, reference):
+        observation = jax.tree.map(lambda x: jp.swapaxes(x, 0, 1), observation)
+        _, pullback = jax.vjp(
+            lambda p: networks.policy_network.apply(normalizer, p, observation),
+            policy_params,
+        )
+        reconstructed = pullback(output)[0]
+        difference = jax.tree.map(lambda a, b: a - b, reconstructed, reference)
+        return jp.sqrt(tree_dot(difference, difference)) / (
+            jp.sqrt(tree_dot(reference, reference)) + 1e-8
+        )
+
+    def attribute(params, normalizer, data, rng):
+        # Separate compilations keep JAX 0.6's lowering and default entropy
+        # sample dtype correct. The x64 scope never includes native model/RNG.
+        with jax.experimental.disable_x64():
+            native = native_stage(params, normalizer, data, rng)
+        with jax.experimental.enable_x64():
+            rewards = jp.moveaxis(
+                jp.swapaxes(data.extras["state_extras"]["reward_components"], 0, 1),
+                -1,
+                0,
+            )
+            components = component_stage(rewards, native)
+        with jax.experimental.disable_x64():
+            error = backprop_stage(
+                params.policy,
+                normalizer,
+                data.observation,
+                components["output"],
+                native["gradient"],
+            )
+        return {
+            "gradient_relative_error": error,
+            "output_gradient_relative_error": components["head_error"],
+            "advantage_max_error": components["advantage_error"],
+            "reward_max_error": native["reward_error"],
+            "projected_forward_target_sgd": components["projections"],
+            "local_forward_mu_pressure": components["pressure"],
+            "native_metrics": native["metrics"],
+        }
+
+    return attribute

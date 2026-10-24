@@ -1,5 +1,6 @@
 """Check attribution against native Brax, including clipping and termination."""
 
+from dataclasses import replace
 from functools import partial
 from importlib import metadata
 import json
@@ -14,7 +15,7 @@ from brax.training.acme import running_statistics
 from brax.training.agents.ppo import losses, networks
 
 from wr2.locomotion.ppo_diagnostics import (
-    actor_attribution,
+    make_actor_attribution,
     clipped_component_losses,
     group_rewards,
     split_advantages,
@@ -146,19 +147,114 @@ def test_full_actor_gradient_matches_native_ppo(normalize):
         clipping_epsilon=0.2,
         normalize_advantage=normalize,
     )
-    result = jax.jit(
-        partial(
-            actor_attribution,
-            networks=nets,
-            settings=settings,
-            hip_indices=(0, 1),
-            forward_sign=(-1, 1),
-        )
-    )(params, normalizer, data, jax.random.PRNGKey(6))
+    result = make_actor_attribution(nets, settings, (0, 1), (-1, 1))(
+        params, normalizer, data, jax.random.PRNGKey(6)
+    )
     assert float(result["gradient_relative_error"]) < 1e-5
     assert float(result["advantage_max_error"]) < 1e-5
     assert float(result["reward_max_error"]) < 1e-6
     assert all(np.isfinite(np.asarray(x)).all() for x in jax.tree.leaves(result))
+
+
+@pytest.mark.parametrize("amplitude", [0.01, 0.0001])
+def test_small_native_advantages_do_not_lose_component_gradient_cancellation(amplitude):
+    """Accurate critic, nearly steady reward: the old FP32 split fails here.
+
+    Before the fix these cases produced relative gradient errors .00056/.053
+    on CPU despite a scalar-reward regrouping error of only 5.96e-8.
+    """
+    tb = "privileged_observation" in types.Transition._fields
+    kwargs = dict(policy_hidden_layer_sizes=(8,), value_hidden_layer_sizes=(8,))
+    if tb:
+        nets = networks.make_ppo_networks(4, 6, 2, **kwargs)
+    else:
+        nets = networks.make_ppo_networks(
+            {"state": 4, "privileged_state": 6},
+            2,
+            policy_obs_key="state",
+            value_obs_key="privileged_state",
+            distribution_type="tanh_normal",
+            **kwargs,
+        )
+
+    def constant_value(normalizer, parameter, observation):
+        array = observation if tb else observation["privileged_state"]
+        return jp.ones(array.shape[:-1], array.dtype) * parameter
+
+    nets = replace(
+        nets, value_network=replace(nets.value_network, apply=constant_value)
+    )
+    params = losses.PPONetworkParams(
+        policy=nets.policy_network.init(jax.random.PRNGKey(1)), value=jp.array(20.0)
+    )
+    batch, time = 256, 20
+    obs = jax.random.normal(jax.random.PRNGKey(2), (batch, time, 4))
+    privileged = jp.zeros((batch, time, 6))
+    observation = obs if tb else {"state": obs, "privileged_state": privileged}
+    normalizer = running_statistics.init_state(
+        jp.zeros(4) if tb else {"state": jp.zeros(4), "privileged_state": jp.zeros(6)}
+    )
+    logits = nets.policy_network.apply(normalizer, params.policy, observation)
+    distribution = nets.parametric_action_distribution
+    raw = distribution.sample_no_postprocessing(logits, jax.random.PRNGKey(3))
+    reward = 0.6 + amplitude * jax.random.normal(jax.random.PRNGKey(4), (batch, time))
+    groups = jp.stack(
+        [jp.full_like(reward, value) for value in (0.1, 0.08, 0.12, -0.04, 0.02)]
+        + [reward - 0.28],
+        axis=-1,
+    )
+    extras = {
+        "state_extras": {
+            "truncation": jp.zeros_like(reward),
+            "reward_components": groups,
+            "trace": {
+                "command_tb": jp.broadcast_to(
+                    jp.array([0.1, 0.0, 0.0]), (batch, time, 3)
+                )
+            },
+        },
+        "policy_extras": {
+            "raw_action": raw,
+            "log_prob": distribution.log_prob(logits, raw),
+            "distribution_params": logits,
+        },
+    }
+    kwargs = dict(
+        observation=observation,
+        next_observation=observation,
+        action=distribution.postprocess(raw),
+        reward=reward,
+        discount=jp.ones_like(reward),
+        extras=extras,
+    )
+    if tb:
+        kwargs.update(
+            privileged_observation=privileged, next_privileged_observation=privileged
+        )
+    data = types.Transition(**kwargs)
+    settings = dict(
+        entropy_cost=0.0005,
+        discounting=0.97,
+        gae_lambda=0.95,
+        clipping_epsilon=0.2,
+        normalize_advantage=True,
+    )
+    rng = jax.random.PRNGKey(5)
+    previous_x64 = jax.config.jax_enable_x64
+    audit = make_actor_attribution(nets, settings, (0, 1), (-1, 1))(
+        params, normalizer, data, rng
+    )
+    assert jax.config.jax_enable_x64 == previous_x64
+    assert float(audit["gradient_relative_error"]) < 1e-5
+    assert float(audit["advantage_max_error"]) < 1e-9
+    # The original native loss and entropy draw must still be float32-identical.
+    _, native = jax.jit(partial(losses.compute_ppo_loss, ppo_network=nets, **settings))(
+        params, normalizer, data, rng
+    )
+    for name in ("total_loss", "policy_loss", "v_loss", "entropy_loss"):
+        np.testing.assert_allclose(
+            audit["native_metrics"][name], native[name], rtol=1e-6, atol=1e-7
+        )
 
 
 @pytest.mark.skipif(

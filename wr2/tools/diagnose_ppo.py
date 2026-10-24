@@ -14,6 +14,7 @@ from importlib import metadata
 import json
 import os
 from pathlib import Path
+import pickle
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -389,7 +390,7 @@ def run(args):
     from wr2.locomotion.ppo_diagnostics import (
         COMPONENTS,
         REWARD_GROUPS,
-        actor_attribution,
+        make_actor_attribution,
         group_rewards,
     )
 
@@ -573,14 +574,8 @@ def run(args):
             "native_last_epoch_metrics": jax.tree.map(jp.mean, metrics),
         }
 
-    attribute = jax.jit(
-        partial(
-            actor_attribution,
-            networks=networks,
-            settings=context.settings,
-            hip_indices=context.hips,
-            forward_sign=context.signs,
-        )
+    attribute = make_actor_attribution(
+        networks, context.settings, context.hips, context.signs
     )
     output.mkdir(parents=True)
     provenance = {
@@ -632,7 +627,8 @@ def run(args):
         "hips": ["left", "right"],
         "forward_joint_signs": context.signs,
         "protocol": "frozen_checkpoint_on_policy_batches; independent_fresh_Adam_PPO_probe_per_batch; probe_weights_discarded",
-        "gradient_interpretation": "exact sampled-loss decomposition, zero component critics plus explicit native value/bootstrapping residual; projections are infinitesimal SGD, not Adam or causal reward ablations",
+        "bookkeeping_dtype": "float64; native model/loss/entropy and probes retain float32",
+        "gradient_interpretation": "native scalar-reward advantage and clip branch; float64 reward-only GAE plus native value/bootstrapping/rounding residual; projections are infinitesimal SGD, not Adam or causal reward ablations",
     }
     (output / "provenance.json").write_text(json.dumps(provenance, indent=2))
     results = []
@@ -662,11 +658,29 @@ def run(args):
                 raise RuntimeError("Nonfinite PPO audit")
             if (
                 audit["gradient_relative_error"] > 5e-5
+                or audit["output_gradient_relative_error"] > 5e-5
                 or audit["advantage_max_error"] > 5e-4
                 or audit["reward_max_error"] > 1e-5
             ):
+                # Preserve the exact failing batch for debugging without another
+                # full reference build/physics warmup. This stays in results.
+                with (output / "failed_minibatch.pkl").open("wb") as stream:
+                    pickle.dump(
+                        jax.device_get(
+                            {
+                                "checkpoint_step": step,
+                                "batch": batch_index,
+                                "saved_params": saved,
+                                "data": minibatch,
+                                "rng": audit_key,
+                                "settings": context.settings,
+                            }
+                        ),
+                        stream,
+                        protocol=5,
+                    )
                 raise RuntimeError(
-                    f"PPO reconstruction failed: {audit['gradient_relative_error']}, {audit['advantage_max_error']}, {audit['reward_max_error']}"
+                    f"PPO reconstruction failed: parameter_gradient={audit['gradient_relative_error']}, output_gradient={audit['output_gradient_relative_error']}, advantage={audit['advantage_max_error']}, reward={audit['reward_max_error']}; saved failed_minibatch.pkl"
                 )
             for name in audit["native_metrics"]:
                 np.testing.assert_allclose(
@@ -710,6 +724,9 @@ def run(args):
                 "checkpoint_step": step,
                 "batch": batch_index,
                 "gradient_relative_error": float(audit["gradient_relative_error"]),
+                "output_gradient_relative_error": float(
+                    audit["output_gradient_relative_error"]
+                ),
                 "advantage_max_error": float(audit["advantage_max_error"]),
                 "reward_max_error": float(audit["reward_max_error"]),
                 "projected_forward_target_sgd": audit[
