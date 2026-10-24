@@ -182,6 +182,11 @@ and restores air credit. Larger placements still retain a right-leading posture
 and a small yaw-driven return deficit; a new training recipe is not selected.
 The canonical config retains collision 1.0 and air-time 500; the earlier
 air-time ablation remains deferred.
+The [PPO learning-direction diagnostic](docs/design/wr2_ppo_learning_diagnostic_20261023.md)
+is prepared to measure normal stochastic learning at WR2 80M/120M and native
+TB Paper 80M/200M. It verifies reward/advantage/actor-gradient reconstruction
+and measures fresh-Adam PPO target changes. Probe weights are discarded;
+the coordinated target overrides are not a learned training improvement.
 The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)
 compares actual reward formulas, clocks, effective variation, resets and metrics.
 Actor/critic inputs are 975/1485 for this recipe. WR2 training is self-contained.
