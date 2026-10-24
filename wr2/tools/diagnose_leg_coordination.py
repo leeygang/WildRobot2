@@ -21,6 +21,15 @@ import numpy as np
 from scipy.optimize import least_squares
 
 
+def centered_reference_wave(reference, strength):
+    """Zero-mean applied waveform over this diagnostic's actual time window."""
+    reference = np.asarray(reference, dtype=float)
+    strength = np.asarray(strength, dtype=float)[:, None]
+    center = np.sum(reference * strength, axis=0) / strength.sum()
+    shaped = strength * (reference - center)
+    return shaped / np.max(np.abs(shaped), axis=0)
+
+
 class SagittalCompensator:
     """Keep commanded site height and sole pitch while fixing the hip target.
 
@@ -276,15 +285,6 @@ def run(run_dir: Path, output: Path):
             jp.asarray(times)
         )
     )
-    cycle = round(nominal.gait_cycle_s / dt)
-    cycle_ref = np.asarray(
-        jax.vmap(lambda t: env._zmp_reference.get_reference(t, command)[0])(
-            (jp.arange(cycle) + cycle) * dt
-        )
-    )[:, active[solver.hip]]
-    wave = (refs[:, :, active[solver.hip]] - cycle_ref.mean()) / np.abs(
-        cycle_ref - cycle_ref.mean()
-    ).max()
     k = np.arange(horizon)
     u = np.clip(
         np.minimum(k / ramp_steps, (treatment_steps + ramp_steps - k) / ramp_steps),
@@ -294,7 +294,7 @@ def run(run_dir: Path, output: Path):
     strength = u * u * (3 - 2 * u)
     requested = home + action_scale * original
     shifted = requested[:, :, solver.hip] - np.deg2rad(3) * strength[:, None]
-    shaped = strength[:, None] * wave
+    shaped = centered_reference_wave(refs[:, :, active[solver.hip]], strength)
     room = np.full_like(shaped, np.inf)
     positive, negative = shaped > 1e-8, shaped < -1e-8
     room[positive] = (
@@ -569,6 +569,8 @@ def run(run_dir: Path, output: Path):
         "normal_axis": solver.normal_axis,
         "normal_sign": solver.normal_sign,
         "hip_wave_peak_deg": np.rad2deg(peaks).tolist(),
+        "hip_constant_offset_forward_deg": 3.0,
+        "reference_wave_rule": "zero mean over applied treatment window, unit maximum applied deviation; excludes startup-cycle normalization",
         "horizon": horizon,
         "treatment_steps": treatment_steps,
         "ramp_steps": ramp_steps,

@@ -6,7 +6,10 @@ import mujoco
 import numpy as np
 import pytest
 
-from wr2.tools.diagnose_leg_coordination import SagittalCompensator
+from wr2.tools.diagnose_leg_coordination import (
+    SagittalCompensator,
+    centered_reference_wave,
+)
 
 
 NAMES = [
@@ -21,6 +24,29 @@ NAMES = [
         "ankle_roll",
     )
 ]
+
+
+def test_waveform_has_zero_applied_mean_despite_reference_offsets():
+    strength = np.asarray([0.0, 0.5, 1.0, 1.0, 1.0, 0.5, 0.0, 0.0])
+    reference = np.asarray(
+        [
+            [1000.0, -1000.0],
+            [10.0, 22.0],
+            [12.0, 21.0],
+            [11.0, 19.0],
+            [9.0, 20.0],
+            [8.0, 18.0],
+            [-1000.0, 1000.0],
+            [500.0, 500.0],
+        ]
+    )
+    wave = centered_reference_wave(reference, strength)
+    np.testing.assert_allclose(wave.sum(axis=0), 0, atol=1e-12)
+    np.testing.assert_allclose(np.abs(wave).max(axis=0), 1)
+    np.testing.assert_array_equal(wave[strength == 0], 0)
+    np.testing.assert_allclose(
+        centered_reference_wave(reference + [3.0, 7.0], strength), wave, atol=1e-12
+    )
 
 
 @pytest.fixture
