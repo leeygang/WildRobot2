@@ -409,7 +409,7 @@ def run(run_dir: Path, output: Path):
                     )
                     > 0,
                     "action": act,
-                    "actor_request_rad": home + action_scale * act,
+                    "current_request_rad": home + action_scale * act,
                     "actual_rad": p.q[env._joint_qpos_indices][active],
                     "delivered_rad": delivered[active],
                     "command_m_s": command,
@@ -564,6 +564,7 @@ def run(run_dir: Path, output: Path):
             },
         },
         "scope": "nominal matched states; deterministic other action tapes held fixed; no training update",
+        "request_field": "current_request_rad includes the diagnostic intervention; baseline gives the original policy request",
         "compensation": "coordinated: preserve limit-bounded requested height/pitch with knee/ankle; full_pose: preserve height/full orientation with four remaining left joints, fixed hip roll, free horizontal position; same hip target",
         "normal_axis": solver.normal_axis,
         "normal_sign": solver.normal_sign,

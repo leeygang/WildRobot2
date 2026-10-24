@@ -176,6 +176,10 @@ The [hip-pitch diagnostic](docs/design/wr2_hip_pitch_incentive_review_20261023.m
 identifies backward left-target mean drift and tanh compression. Larger isolated
 left motion can gain translation while losing reward through fore-aft/yaw
 oscillation and reduced air credit; joint phase coordination remains a priority.
+The [matched coordination test](docs/design/wr2_leg_coordination_review_20261023.md)
+confirms that compensating knee/ankle targets removes most of that instability
+and restores air credit. Larger placements still retain a right-leading posture
+and a small yaw-driven return deficit; a new training recipe is not selected.
 The canonical config retains collision 1.0 and air-time 500; the earlier
 air-time ablation remains deferred.
 The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)

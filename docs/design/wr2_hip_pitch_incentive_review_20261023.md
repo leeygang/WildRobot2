@@ -1,5 +1,10 @@
 # Hip-pitch saturation and walking incentives — 2026-10-23
 
+**Follow-up completed:** the [matched leg-coordination test](wr2_leg_coordination_review_20261023.md)
+shows that knee/ankle compensation removes most hip-only fore-aft instability
+and restores air credit. Remaining costs are mainly yaw; the coordinated controls
+still lack a consistent return advantage and retain a right-leading posture.
+
 Follow-up to the [landing analysis](wr2_step_placement_review_20261023.md).
 Completed recorded-data analysis and **90 verified matched-state comparison
 rollouts**, using retained 80M/120M/300M policies from the qualified-step run.
