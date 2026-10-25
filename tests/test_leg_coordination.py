@@ -193,7 +193,7 @@ def test_right_compensation_moves_back_and_preserves_sole_pose(setup, yaw):
     np.testing.assert_array_equal(changed[solver.qpos_indices[:6]], qpos[solver.qpos_indices[:6]])
 
 
-def test_full_leg_resolves_recorded_fixed_roll_workspace_failure(setup):
+def test_projection_preserves_lateral_pose_at_recorded_workspace_limit(setup):
     model, _, _, _ = setup
     path = Path(__file__).parent / "fixtures/bilateral_ik_limited_pose.json"
     case = json.loads(path.read_text())
@@ -204,10 +204,15 @@ def test_full_leg_resolves_recorded_fixed_roll_workspace_failure(setup):
     full = SagittalCompensator(
         model, NAMES, case["home"], .25, case["height_scale_m"], free_hip_roll=True
     )
-    unknown, angles, error = full.solve_full(qpos, targets, case["hip_target"])
+    actual_hip, unknown, angles, error = full.solve_reachable_full(
+        qpos, targets, case["hip_target"]
+    )
     assert unknown.tolist() == [1, 2, 3, 4, 5]
     assert error["position_error_m"] < 1e-5
     assert error["orientation_error_rad"] < 1e-5
+    assert abs(error["lateral_change_m"]) < 1e-5
+    assert error["projection_fraction"] < 1
+    assert case["hip_target"] < actual_hip < targets[full.hip]
     assert np.all(angles >= full.lower[unknown])
     assert np.all(angles <= full.upper[unknown])
 

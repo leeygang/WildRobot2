@@ -1,5 +1,5 @@
 {
-  "source": "WR2 80M forward trace, start180 tick30: fixed hip-roll solve hits knee action bound. Full-leg solve must preserve pose within the same actor/mechanical bounds.",
+  "source": "WR2 80M forward trace, start180 tick30: larger hip goal is outside the locally reachable pose at fixed height/lateral position and actor bounds; projection must retain those physical constraints.",
   "qpos": [
     0.23050326108932495,
     0.0038760204333812,

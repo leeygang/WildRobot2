@@ -22,12 +22,12 @@ then use WR2's centered reference timing with up to 7-degree wave peaks
 (approximately TB's learned 14-degree hip swing). Targets remain inside the
 existing fixed-home .25-rad actor bounds and mechanical limits.
 
-Each changed leg's IK preserves the original bounded requested foot height and
-full sole orientation using all five remaining joints, with horizontal position
-free. Fixing hip roll in the first preflight made some poses unreachable within
-the knee/yaw actor bounds; using the full leg removes that diagnostic restriction.
-The redundant solve uses a weak minimum-change regularizer and the previous
-solution as its starting point; strict physical pose checks are retained.
+Each changed leg's IK preserves the original bounded requested foot height,
+lateral position and full sole orientation using all five remaining joints.
+Forward position is free. Locally infeasible hip requests are projected toward
+their original bounded pose; the intended and applied hip angles are recorded.
+The desired combined hip mean is preserved before that reachability projection;
+the resulting executed means must be measured rather than assumed equal.
 These
 are temporary diagnostic commands; saved PPO weights and training physics,
 reference, reward weights and sustained-landing rule are unchanged.
@@ -64,7 +64,7 @@ On the Mac with its already validated environment:
 uv run --no-sync python -m wr2.tools.diagnose_leg_coordination \
   --bilateral \
   --run-dir results/wr2_walking/wr2_paper_step_20261022_143550_seed3 \
-  --output results/wr2_walking/wr2_paper_step_20261022_143550_seed3/review_20261024/bilateral_coordination_diagnostic
+  --output results/wr2_walking/wr2_paper_step_20261022_143550_seed3/review_20261024/bilateral_coordination_diagnostic_v2
 ```
 
 The Linux training environment can use the same module/arguments with

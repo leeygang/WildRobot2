@@ -271,8 +271,8 @@ class SagittalCompensator:
         """Preserve height and full foot orientation.
 
         Hip pitch is fixed. The legacy left-only comparison fixes hip roll;
-        bilateral coordination can use all five remaining joints. Horizontal
-        foot position remains free and is measured in the output.
+        bilateral coordination uses all five remaining joints and also preserves
+        lateral foot position. Forward foot position remains free.
         """
         baseline_targets = np.clip(baseline_targets, self.lower, self.upper)
         self.data.qpos[:] = qpos
@@ -296,15 +296,13 @@ class SagittalCompensator:
             mujoco.mju_mat2Quat(quat, self.data.geom_xmat[self.geom])
             angular = np.zeros(3)
             mujoco.mju_subQuat(angular, quat, target_quat)
-            pose_error = np.r_[
-                offset[2] / self.height_scale_m,
-                angular,
-            ]
             if len(unknown) == 5:
-                # Select a small joint change in the redundant full-leg solve.
-                # Physical pose tolerances below remain unchanged.
-                return np.r_[pose_error, 2e-4 * (target - baseline_targets[unknown])]
-            return pose_error
+                return np.r_[
+                    offset[2] / self.height_scale_m,
+                    offset[:2] @ lateral / self.height_scale_m,
+                    angular,
+                ]
+            return np.r_[offset[2] / self.height_scale_m, angular]
 
         result = least_squares(
             residual,
@@ -316,8 +314,9 @@ class SagittalCompensator:
             max_nfev=200 if len(unknown) == 5 else 60,
         )
         error = residual(result.x)
-        position_error = abs(error[0]) * self.height_scale_m
-        orientation_error = np.linalg.norm(error[1:4])
+        spatial = 2 if len(unknown) == 5 else 1
+        position_error = np.linalg.norm(error[:spatial]) * self.height_scale_m
+        orientation_error = np.linalg.norm(error[spatial:spatial + 3])
         if position_error > 1e-5 or orientation_error > 1e-5:
             raise ValueError(
                 f"No reachable full-pose compensation: position={position_error:.6g} m, "
@@ -336,6 +335,41 @@ class SagittalCompensator:
                 "lateral_change_m": float(offset[:2] @ lateral),
             },
         )
+
+
+    def solve_reachable_full(self, qpos, baseline_targets, hip_target, initial=None):
+        """Project an infeasible hip request toward its original bounded pose.
+
+        Eight bisections resolve the hip request more finely than the servo's
+        .24-degree command unit. This tests local reachability, not global IK.
+        """
+        try:
+            unknown, angles, error = self.solve_full(
+                qpos, baseline_targets, hip_target, initial
+            )
+            return hip_target, unknown, angles, {**error, "projection_fraction": 1.0}
+        except ValueError as exc:
+            rejected = str(exc)
+        origin = np.clip(baseline_targets, self.lower, self.upper)[self.hip]
+        unknown, angles, error = self.solve_full(qpos, baseline_targets, origin)
+        low, high = 0.0, 1.0
+        best = (origin, unknown, angles, error)
+        for _ in range(8):
+            fraction = (low + high) / 2
+            candidate = origin + fraction * (hip_target - origin)
+            try:
+                unknown, angles, error = self.solve_full(
+                    qpos, baseline_targets, candidate, best[2]
+                )
+            except ValueError:
+                high = fraction
+            else:
+                low = fraction
+                best = (candidate, unknown, angles, error)
+        actual, unknown, angles, error = best
+        return actual, unknown, angles, {
+            **error, "projection_fraction": low, "rejected_goal_error": rejected,
+        }
 
 
 def run(run_dir: Path, output: Path, bilateral=False):
@@ -455,6 +489,7 @@ def run(run_dir: Path, output: Path, bilateral=False):
     full_errors = []
     reference_centres = {}
     target_centres = {}
+    desired_hips = {}
     if bilateral:
         right = SagittalCompensator(
             model, names, home, action_scale,
@@ -480,13 +515,14 @@ def run(run_dir: Path, output: Path, bilateral=False):
                 np.sum(refs[:, :, active[leg.hip]] * weighted, axis=0) / weighted.sum()
             ).tolist()
             peaks[side] = np.rad2deg(peak).tolist()
+            desired_hips[side] = targets
             leg_tape = original.copy()
             for i in range(len(cp)):
                 warm_start = None
                 for tick in np.flatnonzero(strength):
                     hip_target = float(targets[tick, i])
                     try:
-                        unknown, angles, error = leg.solve_full(
+                        actual_hip, unknown, angles, error = leg.solve_reachable_full(
                             before_q[tick, i], requested[tick, i], hip_target,
                             initial=warm_start,
                         )
@@ -503,12 +539,14 @@ def run(run_dir: Path, output: Path, bilateral=False):
                         raise
                     warm_start = angles
                     leg_tape[tick, i, leg.hip] = (
-                        hip_target - home[leg.hip]
+                        actual_hip - home[leg.hip]
                     ) / action_scale
                     leg_tape[tick, i, unknown] = (angles - home[unknown]) / action_scale
                     full_errors.append({
                         "checkpoint": labels[cp[i]], "start": int(start[i]),
-                        "tick": int(tick), "side": side, **error,
+                        "tick": int(tick), "side": side,
+                        "hip_requested_rad": hip_target, "hip_applied_rad": actual_hip,
+                        **error,
                     })
             changed = np.r_[leg.hip, leg.full_unknown]
             both[:, :, changed] = leg_tape[:, :, changed]
@@ -517,8 +555,7 @@ def run(run_dir: Path, output: Path, bilateral=False):
         np.testing.assert_array_equal(left_only[:, :, :6], both[:, :, :6])
         np.testing.assert_array_equal(left_only[:, :, 6:], original[:, :, 6:])
         np.testing.assert_allclose(
-            (home[right.hip] + action_scale * both[:, :, right.hip]
-             - home[solver.hip] - action_scale * both[:, :, solver.hip]).mean(axis=0),
+            (desired_hips["right"] - desired_hips["left"]).mean(axis=0),
             (requested[:, :, right.hip] - requested[:, :, solver.hip]).mean(axis=0),
             rtol=0, atol=1e-6,
         )
@@ -774,6 +811,7 @@ def run(run_dir: Path, output: Path, bilateral=False):
                         strict=True,
                     )),
                     "target_range_deg": np.rad2deg(np.ptp(trace["delivered_rad"][steady], axis=0)).tolist(),
+                    "target_mean_deg": np.rad2deg(trace["delivered_rad"][steady].mean(axis=0)).tolist(),
                     "actual_range_deg": np.rad2deg(np.ptp(trace["actual_rad"][steady], axis=0)).tolist(),
                     "target_error_rmse_deg": np.rad2deg(np.sqrt(np.mean(trace["substep_error_rad"][steady]**2, axis=(0, 1)))).tolist(),
                     "torque_clip_fraction": trace["substep_torque_clipped"][steady].mean(axis=(0, 1)).tolist(),
@@ -842,7 +880,7 @@ def run(run_dir: Path, output: Path, bilateral=False):
         "scope": "nominal matched states; deterministic other action tapes held fixed; no training update",
         "request_field": "current_request_rad includes the diagnostic intervention; baseline gives the original policy request",
         "compensation": (
-            "left_coordinated and bilateral_coordinated: identical left targets; preserve original requested height/full sole orientation using all five remaining leg joints; reference-timed hip waves; preserve combined original forward hip mean"
+            "left_coordinated and bilateral_coordinated: identical left targets; preserve original requested height, lateral position and full sole orientation; project locally infeasible hip goals within unchanged actor/mechanical bounds; forward position free"
             if bilateral else
             "coordinated: preserve limit-bounded requested height/pitch with knee/ankle; full_pose: preserve height/full orientation with four remaining left joints, fixed hip roll, free horizontal position; same hip target"
         ),
@@ -851,7 +889,7 @@ def run(run_dir: Path, output: Path, bilateral=False):
         "hip_wave_peak_deg": peaks,
         "hip_constant_offset_forward_deg": None if bilateral else 3.0,
         "hip_reference_mean_deg": reference_centres,
-        "hip_target_mean_deg": target_centres,
+        "hip_desired_mean_deg": target_centres,
         "reference_wave_rule": "zero mean over applied treatment window, unit maximum applied deviation; excludes startup-cycle normalization",
         "horizon": horizon,
         "treatment_steps": treatment_steps,
