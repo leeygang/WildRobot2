@@ -182,9 +182,10 @@ data do not isolate the remaining yaw-force mechanism.
 
 The most specific next investigation is **bilateral propulsion/yaw balance and
 the learned posture bias**, using floor-force moments and the phase-dependent
-right-leg response. A left-only correction acts against the existing right-leg
-pattern. This is a concrete remaining hypothesis, not a proved explanation of
-the historical PPO updates.
+right-leg response. The tests changed the left targets while holding the
+right policy command sequence fixed. Increased yaw is measured, but a right-leg
+force opposing the correction has not been established. Bilateral imbalance
+is a remaining hypothesis, not a proved explanation of the historical PPO updates.
 
 The result does **not select a new training recipe**. Keep the TB reward and
 controller comparison intact while establishing a consistently better coordinated
@@ -236,6 +237,91 @@ coordination is still needed for natural alternating placements.
 [Corrected recordings and summary](../../results/wr2_walking/wr2_paper_step_20261022_143550_seed3/review_20261023/leg_coordination_centered_reference_diagnostic/summary.json)
 and [corrected comparison figure](../../results/wr2_walking/wr2_paper_step_20261022_143550_seed3/review_20261023/leg_coordination_centered_reference_diagnostic/coordination_comparison.png)
 are in a separate folder; the originally viewed recordings are retained.
+
+## 7. Physical limits versus reward hypotheses — 2026-10-24
+
+Read the saved 0.28.8 actuator manifest, current controller and robot limits,
+native nominal trace, and TB `paper-walking-baseline` controller/model/config.
+Current WR2 actuator values match the saved run. Larger placement is feasible
+in the tested nominal controls, but these tests do not certify a balanced
+bilateral gait at the commanded speed under training randomization.
+
+The selected 120M trace after 1.5 TB seconds shows:
+
+| Left hip-pitch measure | Value |
+| --- | ---: |
+| Mechanical range, WR2 joint sign | -90° to +40° |
+| Fixed-home policy target interval | -30.96° to -2.31° |
+| Actual joint interval | -4.32° to -4.01° |
+| Delivered target peak-to-peak range | 1.68° |
+| Target clipping / slew fractions | 0 / 0 |
+| Recorded peak motor torque | .459 Nm |
+| Recorded peak joint speed | .103 rad/s |
+
+The modeled motoring ceiling starts at 4 Nm and tapers to zero at 5.818 rad/s;
+braking is capped at 4 Nm. Recorded torques are last-substep forces at control
+ticks, while speeds are integrated end-of-tick values. They do not resolve
+all four substeps or prove absence of loaded saturation in every leg. The
+left hip's small requested motion is already upstream of any mechanical stop.
+Pitch/knee/ankle target clipping and slew are zero in this nominal trace;
+hip-roll limits have previously bound some 80M requests.
+
+Physical response remains relevant. Modeled WR2 joint friction is .4655 Nm,
+with Kp=24.157 Nm/rad. The isolated Coulomb-only error threshold `friction/Kp`
+is about **1.10°**, versus **.88°** for TB hip pitch (.252/16.40625). The WR2
+target wave is only about .84° amplitude. Gravity, contact, damping and solver
+behavior affect breakaway, so this calculation is a clue rather than a measured
+loaded deadband. Observed left target/actual error peaks at **1.084°**, close to
+the isolated 1.104° threshold. The same servo model executes right-hip target
+variation **10.32°** as **8.07°** actual motion. The amplitude dependence is
+consistent with friction effects, with differing leg loads still unresolved.
+Mean drift/tanh compression and small-motion attenuation can
+compound each other without a hard range or torque ceiling preventing larger
+motion.
+
+Use the corrected intervention results when deciding whether reward should change:
+at 120M, full-orientation compensation increases left same-foot advance
+**26.22 ->35.25 physical mm** and speed **.05217 ->.06486 TB m/s**. Its discounted
+XY contribution changes **+.0454**, yaw **-.1343**, air **+.0009**, and total
+**-.0714**, averaged over three starting phases. Left landing lead remains
+**-33.96 mm**. At 80M, corrected full-orientation advance is **43.74 mm**, versus
+31.86 mm in the policy, with speed .07896 TB m/s. These are diagnostic controls,
+not learned training improvements or complete normal alternating placements.
+
+The next investigation should establish **bilateral** posture/propulsion and
+yaw balance, audit per-substep loaded torque/speed and actual tracking, and
+compare the complete native reward for a feasible smoother passing gait.
+Higher native return with weak PPO acquisition points toward learning,
+exploration or action-origin conditioning; lower return for genuinely improved
+command following and stability would justify investigating the objective.
+The current one-leg interventions do not establish the latter condition.
+
+Keep the requested supported-swing/sustained-landing reward. TB's successful
+recipe has no explicit forward-passing reward; its absence alone does not select
+a new WR2 reward. Home-origin selection and delayed-credit learning remain
+candidates, with the known mean compression and bilateral coordination gap
+the most direct observed mechanisms.
+
+PPO observes actual motor positions/velocities, and rewards actual motor-reference
+error and body motion. The PD controller and friction model stay fixed; there
+is no direct policy-target tracking-error reward. PPO can learn larger or
+phase-advanced targets and coordinated other-joint changes if exploration finds
+them and the full expected return improves. It does not automatically invert
+the actuator response. The observed tracking gap and "loaded actuator response"
+are one physical-response hypothesis rather than two independent causes.
+
+No reward explicitly prefers the left foot behind the right. Air credit can be
+paid for a trailing landing, while yaw and instantaneous velocity terms can
+oppose an unbalanced correction. In the corrected 120M full-orientation test,
+leg-imitation gain is only +.0065 and XY gain +.0454, versus yaw loss -.1343.
+That explains this local comparison; it does not identify the historical reward
+pressure that selected the original asymmetric posture. A higher-return nominal
+bilateral control would motivate checking acquisition under the training
+distribution, rather than proving a learning/exploration failure by itself.
+
+The WR2 result's ignored `review_20261024/physical_feasibility_audit.json`
+retains all twelve joint intervals, clipping, sampled torque/speed maxima,
+corrected intervention comparisons, TB friction/Kp and the scope limitations.
 
 ## Artifacts and visual evaluation
 
