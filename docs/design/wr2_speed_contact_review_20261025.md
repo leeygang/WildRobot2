@@ -214,6 +214,62 @@ shows the paths and heading versus time. The neighboring `report.json` records
 definitions, timepoints and input hashes. The source live session is
 `results/visual_eval/wr2_20261025_205012_071056`.
 
+### Reward audit before selecting a heading experiment
+
+Offline rescoring of the nine existing WR2 traces tests the proposed change
+from body gyro Z to actual Euler heading rate. Both WR2 and TB Paper currently
+use the body-Z rate, with Gaussian `exp(-25 * error^2)` and coefficient 5.
+For a ZYX body pose, the heading rate is
+`(omega_y * sin(roll) + omega_z * cos(roll)) / cos(pitch)`.
+
+The saved actor history contains the exact native cached gyro and Euler pose:
+the newest frame is first, and the next row's actor observation corresponds
+to the preceding row's reward. Reconstructing the original yaw reward from
+these values gives maximum absolute error **1.27e-8 per step** across all nine
+traces. The final row is excluded because its next observation was not saved;
+otherwise the same 62-step warmup is used.
+
+At command .20, weighted return per TB second:
+
+| Checkpoint | Recorded return | Only heading-rate input corrected | Mean native orientation reward, unweighted |
+| --- | ---: | ---: | ---: |
+| 120M | 25.450 | 25.444 | .2802 |
+| 300M | 26.508 | 26.223 | .01235 |
+
+The rate correction **still gives the turning 300M trajectory higher return**;
+the 300M-over-120M ranking also remains at .10 and .15. Thus the coordinate
+correction alone does not make the recorded straighter .20 gait score higher.
+This is an objective preference check on frozen trajectories, not a prediction
+of PPO learning under changed rewards.
+
+At .20, mean corrected heading rate is **−.0143 TB rad/s at 120M versus
++.0983 at 300M**, but its instantaneous standard deviation is **.4314 versus
+.1791**. The straighter trajectory has larger within-cycle yaw motion; 300M
+has a smoother persistent turn. Complete-cycle averages remain approximately
+−.0170 versus +.0973 TB rad/s, with cycle-to-cycle standard deviation
+.0051 versus .0098. The instantaneous Gaussian gives the smoother turning
+trajectory more yaw reward even with the corrected coordinate. These
+diagnostics distinguish systematic drift from gait oscillation without
+selecting a new reward formula or attributing the entire learning outcome to
+this one term.
+
+The existing full-quaternion orientation Gaussian can supply little reward
+once orientation error grows: even a pure 30-degree heading error gives
+`exp(-20 * (pi/6)^2) = .00416`. Roll and pitch also enter that error. The actor
+already observes unwrapped Euler yaw and body gyro in both codebases. The
+checkpoint selector, however, scores body-frame XY error within a fall gate
+and has no heading criterion. These are concrete priorities for the next audit:
+separate accumulated heading drift from within-step yaw oscillation; inspect
+the orientation term as drift develops; and assess retained checkpoints using
+both translation and commanded heading before choosing a reward change or
+resume checkpoint. Existing TB reward coefficient changes should be evaluated
+before introducing a WR2-specific objective.
+
+The detailed native terms, reconstructed-rate scores and input hashes are in
+`speed_contact_audit/heading_reward_audit/report.json`. The source reference is
+[ToddlerBot Table VII](https://arxiv.org/html/2502.00893v2) and local
+`paper-walking-baseline:toddlerbot/locomotion/mjx_env.py`.
+
 ## 5. Next direction and logging
 
 1. **Record the actual GPU live evaluations at .10/.15/.20**, using the current
