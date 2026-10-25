@@ -207,6 +207,10 @@ finds that both feet pass at .15/.20 TB m/s. At .10, modeled box contacts occur
 with clear CAD foot parts; higher commands increase forward lean and heading
 drift. Live evaluation logs capture the actual session and effective parameters
 under `results/visual_eval/` for the next comparison.
+The [retained-checkpoint heading evaluation](docs/design/wr2_heading_evaluation_20261025.md)
+compares 120M/200M/300M with native TB Paper across randomized .10/.15/.20
+commands. At .20, 300M improves body speed but loses requested-direction progress;
+the report includes the prepared larger GPU confirmation command.
 The [PPO learning-direction diagnostic](docs/design/wr2_ppo_learning_diagnostic_20261023.md)
 is prepared to measure normal stochastic learning at WR2 80M/120M and native
 TB Paper 80M/200M. It verifies reward/advantage/actor-gradient reconstruction
