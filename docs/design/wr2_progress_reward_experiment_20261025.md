@@ -1,5 +1,9 @@
 # WR2 progression reward audit and experiment — 2026-10-25
 
+**Completed:** the [300M result](wr2_progress_reward_result_20261025.md) confirms
+stronger progression and lower tracking error, with remaining right-leg passing
+and foot-contact gaps. The preparation below records the experiment as run.
+
 ## Decision
 
 Prepare a **fresh 300M seed-3 run** with one training change:
