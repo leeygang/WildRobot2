@@ -62,13 +62,54 @@ collision outlines; 1–4 selects front/side/top/perspective. `--check-only` run
 This follows the frozen TB Paper evaluator's deterministic policy plus native
 `env.step` path and uses MuJoCo's passive viewer for display.
 
-Verification: fourteen tests cover checkpoint inference/native stepping, action
-delay, episode/reset handling, live frame updates, and existing WR2/TB replay.
+Verification: twenty-nine viewer/log/copy tests cover checkpoint inference/native
+stepping, action delay, physical episode resets, raw terminal-state logging,
+parameter/metric serialization, complete latest-session copying and WR2/TB replay.
 The current trained `best_params` also passes twenty direct policy/physics steps.
 The full GUI smoke check in this agent session is limited by GLFW reporting zero
 desktop monitors, also reproduced with an unmodified minimal MuJoCo viewer.
 Interactive viewing now reports that missing display before loading/compiling
 the policy; `--check-only` remains available without a desktop.
+
+### Live evaluation logs
+
+Each `--run-dir` evaluation automatically creates a timestamped directory under
+**`results/visual_eval/`**. The viewer prints the directory when recording starts.
+The regular visual command needs no extra logging flag.
+
+- **`params.json`**: exact parsed viewer arguments, command in physical/TB units,
+  resolved checkpoint and hash, saved training YAML, effective environment,
+  initial pose/velocity, action home/limits, actuator parameters, runtime,
+  source hashes and sampling conventions. It includes the selected reference
+  lookup row; .15 commands can select a neighboring native grid row.
+- **`metrics.jsonl`**: one record per actual policy/physics step, with UTC,
+  wall elapsed time, episode time and total simulated time. Records include
+  torso pose/pitch, body/world velocities, requested/delivered/actual joints,
+  torque/velocity, weighted rewards, contacts, foot placement, and signed
+  collider/CAD convex-hull gaps. Invalid numerical values are saved as null.
+- **`summary.json`**: written on exit, with event counts, durations, mean
+  velocities/pitch and clearance/contact summaries.
+
+Events include contact on/off, sustained sampled contact, foot self-contact
+on/off, target clipping, falls, resets/timeouts, pause/resume, single-step
+requests, camera/outline changes and evaluation end/errors. A sustained-contact
+event is not a claim that air credit was paid. Wall playback speed changes
+pacing; logged velocities and simulation times retain physical/TB units.
+
+Logs preserve raw physics before restarting an episode. Bare `env.step` resets
+episode counters; live viewing explicitly resets physics as the training wrapper
+does. The final record therefore retains the pre-reset pose and distinguishes
+it from the displayed reset state.
+
+Close the viewer to finalize its summary, then copy the latest session from the
+Mac checkout:
+
+```bash
+./scripts/scp_from_remote.sh --latest visual_eval
+```
+
+Use `--latest visual_eval 3` to copy the latest three sessions. The helper keeps
+the same `results/visual_eval/<session>/` paths on the Mac.
 
 ## Replay the recorded policy visually
 

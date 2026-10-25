@@ -1,6 +1,9 @@
 """Direct checkpoint execution through native policy, physics and viewer frames."""
 
 from contextlib import nullcontext
+import copy
+import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,6 +20,7 @@ from brax.training.agents.ppo import networks
 from wr2.locomotion.configs import load_training_config, training_config_to_dict
 from wr2.locomotion.ppo import make_network_factory
 from wr2.tools import view_walking
+from wr2.tools import visual_eval_log
 from wr2.tools.diagnose_walking import target_trace
 
 
@@ -79,10 +83,11 @@ def test_live_timeout_and_restart_keep_command_and_clear_support_age(live):
     np.testing.assert_array_equal(live.state.pipeline_state.q, initial)
 
 
-def test_live_viewer_updates_frames_without_trace_file(live, monkeypatch):
+def test_live_viewer_updates_frames_without_trace_file(live, monkeypatch, tmp_path):
     live.reset()
     args = view_walking.parse_args(["--run-dir", str(live.path.parent)])
     monkeypatch.setattr(view_walking, "LivePolicy", lambda *args: live)
+    monkeypatch.setattr(visual_eval_log, "RESULTS_ROOT", tmp_path / "visual_eval")
     monkeypatch.setattr(view_walking, "glfw", SimpleNamespace(init=lambda: True, get_monitors=lambda: [object()]))
     frame_count = [0]
     texts = []
@@ -102,6 +107,93 @@ def test_live_viewer_updates_frames_without_trace_file(live, monkeypatch):
     assert live.time_s == pytest.approx(.06)
     assert all("Live policy" in text[2] and "best_params" in text[3] for text in texts)
     assert viewer.user_scn.ngeom == 24
+
+
+def test_visual_log_records_complete_parameters_and_timestamped_steps(live, tmp_path, monkeypatch):
+    live.reset()
+    monkeypatch.setattr(visual_eval_log, "RESULTS_ROOT", tmp_path / "visual_eval")
+    args = view_walking.parse_args(["--run-dir", str(live.run_dir), "--playback-speed", "1"])
+    log = visual_eval_log.VisualEvaluationLog(live, args)
+    with log:
+        log.event("pause")
+        log.event("resume")
+        for _ in range(2):
+            live.advance()
+            log.step()
+    params = json.loads((log.directory / "params.json").read_text())
+    assert params["viewer_arguments"]["playback_speed"] == 1
+    assert params["checkpoint"] == str(live.path)
+    assert params["checkpoint_sha256"] == hashlib.sha256(live.path.read_bytes()).hexdigest()
+    np.testing.assert_allclose(params["command_TB"], [.1, 0., 0.], atol=1e-7)
+    assert params["reset_seed"] == 22102
+    assert params["physics_substeps"] == 4
+    assert not params["effective_environment"]["randomization"]["enabled"]
+    assert not params["observation_noise"]
+    rows = [json.loads(row) for row in (log.directory / "metrics.jsonl").read_text().splitlines()]
+    steps = [row for row in rows if row["type"] == "step"]
+    assert len(steps) == 2
+    assert all(row["time_utc"].endswith("+00:00") for row in rows)
+    assert [row["total_step"] for row in steps] == [1, 2]
+    np.testing.assert_allclose(steps[-1]["metrics"]["body_velocity_TB_m_s"], np.asarray(live.metrics["body_velocity_m_s"]) / live.env.config.normalization_scale)
+    assert steps[-1]["metrics"]["simulation_time_s"] == pytest.approx(.04)
+    assert sum(steps[-1]["metrics"]["reward_terms"].values()) == pytest.approx(steps[-1]["metrics"]["reward"], abs=1e-6)
+    summary = json.loads((log.directory / "summary.json").read_text())
+    assert summary["steps"] == summary["valid_steps"] == 2
+    assert summary["events"]["pause"] == 1
+    assert summary["events"]["evaluation_end"] == 1
+
+
+def test_logged_terminal_pose_is_raw_physics_and_dynamics_are_unchanged(live, tmp_path, monkeypatch):
+    from types import MethodType
+    from wr2.locomotion.walking_env import WR2WalkingEnv
+
+    live.reset()
+    baseline = copy.copy(live.env)
+    baseline._paper_step = MethodType(WR2WalkingEnv._paper_step, baseline)
+    before = live.state
+    action = live.expected_policy(before.obs, before.info["rng"])[0]
+    expected = jax.jit(baseline.step)(before, action)
+    live.advance()
+    np.testing.assert_allclose(live.state.pipeline_state.q, expected.pipeline_state.q, atol=1e-6)
+    live.reset()
+    monkeypatch.setattr(visual_eval_log, "RESULTS_ROOT", tmp_path / "visual_eval")
+    args = view_walking.parse_args(["--run-dir", str(live.run_dir)])
+    log = visual_eval_log.VisualEvaluationLog(live, args)
+    with log:
+        for _ in range(20):
+            live.advance()
+            log.step()
+    rows = [json.loads(row) for row in (log.directory / "metrics.jsonl").read_text().splitlines()]
+    terminal = [row for row in rows if row["type"] == "step"][-1]
+    assert terminal["metrics"]["episode_step"] == 20
+    assert terminal["metrics"]["simulation_time_s"] == pytest.approx(.4)
+    assert terminal["metrics"]["episode_reset"]
+    assert terminal["display_time_s"] == 0
+    assert not np.allclose(terminal["metrics"]["qpos"], live.trace["qpos"][0], atol=1e-6)
+    assert any(row.get("event") == "reset" and row["reason"] == "timeout" for row in rows)
+
+
+def test_nonfinite_visual_record_is_saved_as_null_with_event(live, tmp_path, monkeypatch):
+    live.reset()
+    live.advance()
+    values = copy.deepcopy(live.metrics)
+    values["nonfinite"] = 1
+    values["qpos"][0] = np.nan
+    values["body_velocity_m_s"][0] = np.nan
+    live.metrics = values
+    monkeypatch.setattr(visual_eval_log, "RESULTS_ROOT", tmp_path / "visual_eval")
+    log = visual_eval_log.VisualEvaluationLog(live, view_walking.parse_args(["--run-dir", str(live.run_dir)]))
+    with pytest.raises(RuntimeError, match="simulation failure"):
+        with log:
+            log.step()
+            raise RuntimeError("simulation failure")
+    rows = [json.loads(row) for row in (log.directory / "metrics.jsonl").read_text().splitlines()]
+    step = next(row for row in rows if row["type"] == "step")
+    assert "nonfinite" in step["events"]
+    assert step["metrics"]["qpos"][0] is None
+    assert step["metrics"]["body_velocity_TB_m_s"][0] is None
+    assert json.loads((log.directory / "summary.json").read_text())["error"] == "simulation failure"
+    live.reset()
 
 
 def test_headless_viewer_fails_before_loading_policy(monkeypatch):

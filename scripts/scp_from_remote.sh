@@ -8,6 +8,7 @@
 #   ./scripts/scp_from_remote.sh --latest servo_sysid 3
 #   ./scripts/scp_from_remote.sh --latest training 2
 #   ./scripts/scp_from_remote.sh --latest walking_agent
+#   ./scripts/scp_from_remote.sh --latest visual_eval
 #   ./scripts/scp_from_remote.sh --list servo_sysid
 #   ./scripts/scp_from_remote.sh --copy servo_sysid htd45h-unit-a
 #   ./scripts/scp_from_remote.sh --results wr2_solver_ab
@@ -44,6 +45,9 @@ Result groups live below results/ on both machines. Aliases:
   walking_agent -> wr2_walking_agent
   sysid    -> servo_sysid
 
+visual_eval selects timestamped live-viewer sessions under results/visual_eval.
+Each session directory is copied with its params, metrics/events and summary.
+
 --results copies an entire directory, including all nested runs.
 The folder is relative to results/ (for example wr2_solver_ab or
 wr2_solver_ab/newton10_seed0), and keeps the same local results/ path.
@@ -71,6 +75,7 @@ Examples:
   ./scripts/scp_from_remote.sh --latest servo_sysid 3
   ./scripts/scp_from_remote.sh --latest training 2
   ./scripts/scp_from_remote.sh --latest walking_agent
+  ./scripts/scp_from_remote.sh --latest visual_eval
   ./scripts/scp_from_remote.sh --copy servo_sysid htd45h-unit-a
   ./scripts/scp_from_remote.sh --results wr2_solver_ab
   ./scripts/scp_from_remote.sh --results wr2_solver_ab/newton10_seed0

@@ -13,7 +13,7 @@ SCRIPT = REPO_ROOT / "scripts" / "scp_from_remote.sh"
 
 
 class RemoteResultCopyTest(unittest.TestCase):
-    def _copy_custom_folder(self, arguments, *, missing=False, fallback=False):
+    def _copy_custom_folder(self, arguments, *, missing=False, fallback=False, group_name="wr2_solver_ab"):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo, remote, fake_bin = root / "repo", root / "remote", root / "bin"
@@ -21,14 +21,23 @@ class RemoteResultCopyTest(unittest.TestCase):
             script = repo / "scripts" / SCRIPT.name
             shutil.copy2(SCRIPT, script)
             fake_bin.mkdir()
-            group = remote / "results" / "wr2_solver_ab"
+            group = remote / "results" / group_name
             if not missing:
-                for arm in ("newton1_seed0", "newton10_seed0"):
-                    run = group / arm / "run_a"
-                    (run / "checkpoints").mkdir(parents=True)
-                    (run / "checkpoints" / "model.pt").write_bytes(b"checkpoint")
-                    (run / "training_config.yaml").write_text("solver_iterations: 10\n")
-            local = repo / "results" / "wr2_solver_ab"
+                if group_name == "visual_eval":
+                    for index, name in enumerate(("wr2_older", "wr2_latest")):
+                        session = group / name
+                        session.mkdir(parents=True)
+                        (session / "params.json").write_text('{"command_TB": [0.2, 0, 0]}\n')
+                        (session / "metrics.jsonl").write_text('{"type": "step", "time_utc": "2026-10-25T12:00:00Z"}\n')
+                        (session / "summary.json").write_text('{"steps": 1}\n')
+                        os.utime(session, (100 + index, 100 + index))
+                else:
+                    for arm in ("newton1_seed0", "newton10_seed0"):
+                        run = group / arm / "run_a"
+                        (run / "checkpoints").mkdir(parents=True)
+                        (run / "checkpoints" / "model.pt").write_bytes(b"checkpoint")
+                        (run / "training_config.yaml").write_text("solver_iterations: 10\n")
+            local = repo / "results" / group_name
             local.mkdir(parents=True)
             (local / "notes.local").write_text("keep me")
 
@@ -36,6 +45,12 @@ class RemoteResultCopyTest(unittest.TestCase):
                 #!/usr/bin/env python3
                 import os, re, sys
                 from pathlib import Path
+                listing = re.search(r"find '(/remote/[^']*)'", sys.argv[-1])
+                if listing:
+                    folder = Path(os.environ["TEST_REMOTE_ROOT"]) / listing[1][len("/remote/"):]
+                    for child in sorted(folder.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+                        print(f"{child.stat().st_mtime}\\td\\t{child.name}")
+                    raise SystemExit(0)
                 match = re.fullmatch(r"\[ -d '(/remote/[^']*)' \]", sys.argv[-1])
                 if not match:
                     raise SystemExit(1)
@@ -136,6 +151,16 @@ class RemoteResultCopyTest(unittest.TestCase):
 
     def test_script_has_valid_bash_syntax(self):
         subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
+
+    def test_latest_visual_eval_copies_complete_newest_session(self):
+        result, copied, transfer = self._copy_custom_folder(
+            ["--latest", "visual_eval"], group_name="visual_eval"
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(transfer["tool"], "rsync")
+        for name in ("params.json", "metrics.jsonl", "summary.json"):
+            self.assertIn(f"results/visual_eval/wr2_latest/{name}", copied)
+        self.assertFalse(any("wr2_older" in name for name in copied))
 
     def test_no_arguments_prints_usage_without_nounset_error(self):
         result = subprocess.run(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 import itertools
 import json
 import time
@@ -12,6 +13,8 @@ import glfw
 import mujoco
 import mujoco.viewer
 import numpy as np
+
+from wr2.tools.visual_eval_log import VisualEvaluationLog
 
 
 MODEL_PATH = Path(__file__).resolve().parents[1] / "descriptions/wr2/scene_mjx.xml"
@@ -172,6 +175,7 @@ class LivePolicy:
             import wr2.locomotion.walking_env as env_module
 
         self.jax = jax
+        self.run_dir = run_dir.resolve()
         config = load_training_config(run_dir / "training_config.yaml")
         if config.environment.recipe != "tb_paper":
             raise ValueError("Live viewing requires a WR2 Paper training run")
@@ -197,8 +201,75 @@ class LivePolicy:
         print(f"Loading {self.path.name}; building nominal reference...", flush=True)
         reference_class = env_module.PaperWalkReference
         env_module.PaperWalkReference = partial(reference_class, command_vectors=grid[indices])
+
+        def snapshot(env, state, pipeline, target, action, applied_action, episode_step):
+            quat, angular, linear, _ = env._kinematic_observation(pipeline)
+            forces = env._contact_forces(pipeline)
+            feet, active = env._foot_geom_ids, env._active_indices
+            pair = ((pipeline.contact.geom1 == feet[0]) & (pipeline.contact.geom2 == feet[1])) | (
+                (pipeline.contact.geom1 == feet[1]) & (pipeline.contact.geom2 == feet[0])
+            )
+            pair &= (pipeline.contact.dist < 0) & (pipeline._impl.contact.efc_address >= 0)
+            command = state.info["command"]
+            reference, reference_contact, _ = env._zmp_reference.get_reference(
+                jp.maximum(episode_step - 1, 0) * env.robot.control_period_s, command,
+            )
+            return {
+                "episode_step": episode_step,
+                "simulation_time_s": episode_step * env.robot.control_period_s,
+                "qpos": pipeline.q,
+                "root_displacement_m": pipeline.q[:3] - state.pipeline_state.q[:3],
+                "torso_quaternion": quat,
+                "torso_euler_rad": env_module.torso_euler(pipeline.q[3:7]),
+                "physics_torso_euler_rad": env_module.torso_euler(quat),
+                "body_velocity_m_s": linear,
+                "body_angular_velocity_rad_s": angular,
+                "world_root_velocity_m_s": pipeline.qd[:3],
+                "command_physical": command,
+                "actor_action": action,
+                "applied_action": applied_action,
+                "requested_rad": env._policy_target(action)[active],
+                "delivered_rad": target[active],
+                "actual_rad": pipeline.q[env._joint_qpos_indices][active],
+                "motor_velocity_rad_s": pipeline.qd[env._joint_qvel_indices][active],
+                "motor_torque_nm": pipeline.actuator_force[active],
+                "reference_rad": reference[active],
+                "reference_contact": reference_contact,
+                "foot_geom_center_m": pipeline.geom_xpos[feet],
+                "foot_geom_rotation": pipeline.geom_xmat[feet],
+                "contact": env._foot_contact(pipeline, forces),
+                "foot_vertical_force_n": env._foot_vertical_forces(pipeline, forces),
+                "foot_self_force_n": jp.max(jp.where(pair, jp.linalg.norm(forces[:, :3], axis=1), 0.)),
+            }
+
+        class ViewerEnvironment(env_module.WR2WalkingEnv):
+            """Retain compact raw physics metrics before native episode resets."""
+
+            def reset(self, rng, command=None):
+                state = super().reset(rng, command)
+                values = snapshot(self, state, state.pipeline_state, state.info["previous_target"], self.home_action, self.home_action, state.info["step_count"])
+                values.update(self.metric_snapshot(state))
+                return state.replace(info={**state.info, "visual_eval": values})
+
+            def _paper_step(self, state, action, applied_action, pipeline, target, *args):
+                after = super()._paper_step(state, action, applied_action, pipeline, target, *args)
+                values = snapshot(self, state, pipeline, target, action, applied_action, state.info["step_count"] + 1)
+                values.update(self.metric_snapshot(after))
+                return after.replace(info={**after.info, "visual_eval": values})
+
+            def metric_snapshot(self, state):
+                return {
+                    "fall": state.metrics["fall"],
+                    "nonfinite": state.metrics["nonfinite_state"],
+                    "episode_reset": state.info["step_count"] == 0,
+                    "reward": state.reward,
+                    "reward_terms": {name: state.metrics[f"paper_reward/{name}"] for name in vars(config.environment.rewards)},
+                    "target_clipping_fraction": state.metrics["target_clipping_fraction_per_step"],
+                    "target_slew_fraction": state.metrics["target_slew_limiting_fraction_per_step"],
+                }
+
         try:
-            self.env = env_module.WR2WalkingEnv(
+            self.env = ViewerEnvironment(
                 nominal, add_observation_noise=False,
                 reward_discounting=config.ppo.discounting,
             )
@@ -212,6 +283,10 @@ class LivePolicy:
             "active_joint_names": [env.robot.actuator_names[int(i)] for i in env._active_indices],
             "control_period_s": env.robot.control_period_s,
             "normalization_scale": scale,
+            "reset_seed": 22102,
+            "reference_lookup_command_physical": np.asarray(env._zmp_reference._commands[
+                jp.argmin(jp.linalg.norm(env._zmp_reference._commands - self.command, axis=1))
+            ]),
         }
         preprocess = running_statistics.normalize if config.ppo.normalize_observations else types.identity_observation_preprocessor
         network = make_network_factory(config.network)(
@@ -248,11 +323,12 @@ class LivePolicy:
                 "nonfinite": state.metrics["nonfinite_state"],
             }
 
-        self._sample = jax.jit(sample)
+        self._sample = jax.jit(lambda state: {"display": sample(state), "metrics": state.info["visual_eval"]})
         self.reset()
         print(f"Compiling policy and physics on {jax.default_backend()}...", flush=True)
         # Compile without advancing the displayed initial state.
-        self._step(self.state).pipeline_state.q.block_until_ready()
+        warm = self._step(self._step(self.state))
+        jax.block_until_ready(self._sample(warm))
 
     def reset(self):
         self.state = self._reset(self._key, self.command)
@@ -260,11 +336,19 @@ class LivePolicy:
         self._capture()
 
     def advance(self):
+        self.metrics = None
         self.state = self._step(self.state)
         self._capture(advance=True)
+        # Bare env.step resets counters; the training wrapper resets physics.
+        # Mirror that reset here while retaining the terminal physics record.
+        if self.metrics["episode_reset"]:
+            terminal_metrics = self.metrics
+            self.reset()
+            self.metrics = terminal_metrics
 
     def _capture(self, advance=False):
-        values = self.jax.device_get(self._sample(self.state))
+        samples = self.jax.device_get(self._sample(self.state))
+        values, self.metrics = samples["display"], samples["metrics"]
         if values.pop("nonfinite") or any(not np.isfinite(x).all() for x in values.values()):
             raise RuntimeError("Nonfinite live simulation state")
         self.time_s = float(values["time_s"])
@@ -302,15 +386,20 @@ def view_trace(args: argparse.Namespace) -> int:
     dt = metadata["control_period_s"]
     scale = metadata["normalization_scale"]
     hip_signs = np.asarray([-1, 1 if args.robot == "wr2" else -1])
+    log = VisualEvaluationLog(live, args) if live else None
     playback = {"time": 0.0, "paused": args.paused, "boxes": True, "view": 1, "step": False, "reset": False}
 
     def key_callback(keycode: int) -> None:
         if keycode == ord(" "):
             playback["paused"] = not playback["paused"]
+            if log:
+                log.event("pause" if playback["paused"] else "resume")
         elif keycode in (ord("["), ord("]")):
             playback["paused"] = True
             if live:
                 playback["step"] = keycode == ord("]")
+                if log and playback["step"]:
+                    log.event("single_step_requested")
                 return
             step = -1 if keycode == ord("[") else 1
             playback["time"] = (
@@ -319,10 +408,16 @@ def view_trace(args: argparse.Namespace) -> int:
         elif keycode in (ord("r"), ord("R")):
             playback["time"] = 0.0
             playback["reset"] = True
+            if log:
+                log.event("reset_requested")
         elif keycode in (ord("c"), ord("C")):
             playback["boxes"] = not playback["boxes"]
+            if log:
+                log.event("collision_outlines", enabled=playback["boxes"])
         elif keycode in (ord("1"), ord("2"), ord("3"), ord("4")):
             playback["view"] = keycode - ord("0")
+            if log:
+                log.event("camera_changed", preset=playback["view"])
 
     label = live.path.name if live else args.trace.stem
     print(f"Running live policy {live.path}" if live else (
@@ -333,11 +428,15 @@ def view_trace(args: argparse.Namespace) -> int:
     if args.check_only:
         scene = mujoco.MjvScene(model, maxgeom=100)
         if live:
-            for _ in range(20):
-                live.advance()
-                apply_trace_frame(model, data, live.trace, 0, feet)
-                scene.ngeom = 0
-                draw_foot_boxes(scene, model, live.trace, 0, feet)
+            with log:
+                for _ in range(20):
+                    try:
+                        live.advance()
+                    finally:
+                        log.step()
+                    apply_trace_frame(model, data, live.trace, 0, feet)
+                    scene.ngeom = 0
+                    draw_foot_boxes(scene, model, live.trace, 0, feet)
             print(f"Checked 20 live policy/physics steps, time={live.time_s:.2f}s.")
             return 0
         for index in (0, count // 2, count - 1):
@@ -352,7 +451,7 @@ def view_trace(args: argparse.Namespace) -> int:
     print(
         "Blue = self-contact force at most 0.1 N; red = force above 0.1 N on the pair. CAD feet use cached contact-time frames."
     )
-    with mujoco.viewer.launch_passive(model, data, key_callback=key_callback) as viewer:
+    with (log or nullcontext()), mujoco.viewer.launch_passive(model, data, key_callback=key_callback) as viewer:
         with viewer.lock():
             viewer.opt.geomgroup[3] = (
                 0  # Cached outlines replace the solid collision boxes.
@@ -368,9 +467,13 @@ def view_trace(args: argparse.Namespace) -> int:
             if live:
                 if playback["reset"]:
                     live.reset()
+                    log.reset("manual")
                     playback["reset"] = False
                 if playback["step"] or (not playback["paused"] and now >= next_tick):
-                    live.advance()
+                    try:
+                        live.advance()
+                    finally:
+                        log.step()
                     playback["step"] = False
                     next_tick = now + dt / args.playback_speed
                 trace = live.trace
