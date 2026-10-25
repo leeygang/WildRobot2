@@ -190,6 +190,12 @@ and restores air credit. Larger placements still retain a right-leading posture
 and a small yaw-driven return deficit; a new training recipe is not selected.
 The canonical config retains collision 1.0 and air-time 500; the earlier
 air-time ablation remains deferred.
+The [progression reward audit and next experiment](docs/design/wr2_progress_reward_experiment_20261025.md)
+prepares a fresh **300M seed-3** run in `ppo_walking_progress.yaml`: increase
+the existing TB XY tracking coefficient **5→15**, retaining qualified landings
+and all other training settings. Recorded full-orientation controls gain mean
+return at 80M/120M under this coefficient; unstable controls remain penalized.
+The new PPO acquisition and alternating-placement benefit remain to be tested.
 The [PPO learning-direction diagnostic](docs/design/wr2_ppo_learning_diagnostic_20261023.md)
 is prepared to measure normal stochastic learning at WR2 80M/120M and native
 TB Paper 80M/200M. It verifies reward/advantage/actor-gradient reconstruction
