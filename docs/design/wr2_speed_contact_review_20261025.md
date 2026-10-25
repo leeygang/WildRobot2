@@ -158,6 +158,62 @@ No stronger upright penalty is selected from the visual observation alone.
 Use the session's measured pitch, heading, tracking, contacts and weighted
 reward contributions to understand the tradeoff first.
 
+### Distance traveled during the heading change
+
+Inspection of the same live-viewer log resolves the distance and time window.
+The command **.20 TB m/s corresponds to .16481 physical WR2 m/s**. Distances
+below are physical WR2 metres, measured from integrated free-root `qpos` at
+20 ms intervals. Path length is the sum of horizontal displacement lengths;
+forward and left displacement use the **original episode axes**, with +X
+forward and +Y left. Vertical body bobbing is excluded.
+
+| Window | Physical duration | TB duration | Horizontal path | Original forward displacement | Original left displacement | Net heading change |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Entire episode | 16.48 s | 20.00 s | 2.730 m | +1.154 m | +1.993 m | +114.25° |
+| After initial 1.24 physical seconds | 15.24 s | 18.49 s | 2.530 m | +.958 m | +1.966 m | +103.44° |
+
+The earlier approximately 103° result **excludes startup**, rather than
+describing the whole episode. At the warmup endpoint, heading is already
++10.82°. Using the integrated pose at the exact window boundary gives 103.44°;
+the earlier summary used a slightly different first post-warmup sample.
+During this window, projected progress along the changing body heading is
+**2.507 m**, close to the commanded **2.512 m**. The root ends **2.187 m** from
+the window's starting position. These measure different aspects of the path.
+
+The turn accumulates throughout walking. At approximately 5/10/15/20 TB
+seconds from reset, heading is **31.8/60.0/87.0/114.3°**. Original forward
+displacement reaches its maximum **1.284 m at 15.75 TB seconds**, then decreases
+to 1.154 m while the robot continues moving along its curved trajectory.
+
+Matched post-warmup comparison at command (.20, 0, 0), about 18.5 TB seconds:
+
+| Policy | Body forward speed, TB m/s | Path at WR2 size | Original forward displacement | Original left displacement | Net heading change |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| WR2 120M | .1721 | 2.226 m | +2.204 m | −.085 m | −12.87° |
+| WR2 300M, live-viewer path | .1966 | 2.530 m | +.958 m | +1.966 m | +103.44° |
+| TB Paper 200M | .1749 | 2.226 m | +1.680 m | −1.299 m | −53.12° |
+
+TB distances are multiplied by the saved length ratio **.679066**; WR2 time is
+divided by **.824055**. Signed net heading change here differs from the heading
+span above: 120M's heading oscillates over 20.27° but ends 12.87° right of its
+warmup heading. The batched 300M trajectory independently gives +.885 m
+forward, +1.965 m left and +106.67° net turn, supporting the live path result.
+
+The selected 300M policy has better body-frame speed and substantially worse
+original-direction progress than 120M in this case. TB also curves, so these
+data establish a direction-tracking gap without isolating its cause. This is
+one nominal CPU seed, not a randomized GPU benchmark or evidence to select a
+different reward or checkpoint by itself. Source confirmation: WR2's
+`walking_env.py::_kinematic_observation` and TB
+`paper-walking-baseline:mjx_env.py::_reward_lin_vel_xy/_reward_ang_vel_z` rotate
+velocity into the body frame; the viewer logs raw integrated `qpos` before any
+reset. All three compared trajectories have zero falls/nonfinite events.
+
+The [trajectory plot](../../results/wr2_walking/wr2_paper_progress_20261025_085931_seed3/review_20261025/speed_contact_audit/trajectory_distance/trajectory_comparison.png)
+shows the paths and heading versus time. The neighboring `report.json` records
+definitions, timepoints and input hashes. The source live session is
+`results/visual_eval/wr2_20261025_205012_071056`.
+
 ## 5. Next direction and logging
 
 1. **Record the actual GPU live evaluations at .10/.15/.20**, using the current
