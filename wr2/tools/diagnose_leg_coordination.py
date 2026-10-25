@@ -1,4 +1,4 @@
-"""Compare an isolated left hip change with height/pitch-preserving leg IK.
+"""Compare one-leg and bilateral changes with foot-pose-preserving leg IK.
 
 Uses saved WR2 policies and the native environment. No training weights or
 physical parameters change. ToddlerBot Paper provides the coordinated-reference
@@ -30,6 +30,147 @@ def centered_reference_wave(reference, strength):
     return shaped / np.max(np.abs(shaped), axis=0)
 
 
+def reference_hip_targets(original, reference, strength, lower, upper, peak, center):
+    """Blend toward a matched hip mean with a bounded, centered reference wave."""
+    weight = np.asarray(strength)[:, None]
+    center = np.asarray(center)
+    shifted = original + weight * (center - original)
+    wave = centered_reference_wave(reference, strength)
+    room = np.full_like(wave, np.inf)
+    positive, negative = wave > 1e-8, wave < -1e-8
+    room[positive] = ((upper - shifted) / np.where(positive, wave, 1))[positive]
+    room[negative] = ((shifted - lower) / np.where(negative, -wave, 1))[negative]
+    peaks = np.minimum(peak, room.min(axis=0) * 0.999)
+    if np.any(peaks <= 0):
+        raise ValueError("Reference-centered hip target is outside the actor bounds")
+    targets = shifted + wave * peaks
+    targets[strength == 0] = original[strength == 0]
+    return targets, center, peaks
+
+
+def floor_wrenches(geom1, geom2, positions, forces, feet, floor, com):
+    """World forces and moments on each foot, about the cached subtree CoM.
+
+    MuJoCo's contact_force is the wrench on geom2; reversing the endpoint order
+    therefore reverses its sign. Contact free moments are included.
+    """
+    import jax.numpy as jp
+
+    wrenches = []
+    for foot in feet:
+        sign = (geom2 == foot) & (geom1 == floor)
+        sign = sign.astype(forces.dtype) - (
+            (geom1 == foot) & (geom2 == floor)
+        ).astype(forces.dtype)
+        force = forces[:, :3] * sign[:, None]
+        moment = jp.cross(positions - com, force) + forces[:, 3:] * sign[:, None]
+        wrenches.append(jp.concatenate([force.sum(axis=0), moment.sum(axis=0)]))
+    return jp.stack(wrenches)
+
+
+def placement_summary(trace, start, end, minimum, dt, scale):
+    """Use sustained contact onsets entirely within the settled window."""
+    healthy = trace["valid"].astype(bool) & ~trace["fall"].astype(bool)
+    contact = trace["contact"].astype(bool)
+    positions = trace["foot_geom_center_m"]
+    w, x, y, z = trace["torso_quaternion"].T
+    yaw = np.arctan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+    heading = np.stack([np.cos(yaw), np.sin(yaw)], axis=1)
+    output = {}
+    for side, name in enumerate(("left", "right")):
+        onsets = np.flatnonzero(contact[:, side] & ~trace["previous_contact"][:, side])
+        onsets = np.asarray([
+            tick for tick in onsets
+            if start <= tick and tick + minimum <= end
+            and healthy[tick:tick + minimum].all()
+            and contact[tick:tick + minimum, side].all()
+        ], dtype=int)
+        lead = np.sum(
+            (positions[onsets, side, :2] - positions[onsets, 1 - side, :2])
+            * heading[onsets], axis=1,
+        )
+        advances = np.diff(positions[onsets, side, :2], axis=0)
+        output[name] = {
+            "landings": len(onsets),
+            "lands_ahead": int((lead > 0).sum()),
+            "mean_lead_physical_mm": float(lead.mean() * 1000) if len(lead) else None,
+            "mean_world_x_stride_physical_mm": float(advances[:, 0].mean() * 1000) if len(advances) else None,
+            "mean_xy_stride_physical_mm": float(np.linalg.norm(advances, axis=1).mean() * 1000) if len(advances) else None,
+            "mean_cycle_TB_s": float(np.diff(onsets).mean() * dt / scale) if len(onsets) > 1 else None,
+        }
+    return output
+
+
+def physics_trace(env, before, action):
+    """Replay the unchanged four-substep controller and expose solver reactions."""
+    import jax
+    import jax.numpy as jp
+    from wr2.tools.diagnose_walking import target_trace
+
+    _, target, _, _, _ = target_trace(env, before, action)
+    active = env._active_indices
+    qids, vids = env._joint_qpos_indices, env._joint_qvel_indices
+    noise = before.info["actuator_noise"]
+    torso = env.sys.mj_model.body("torso").id
+
+    def step(p, _):
+        position, velocity = p.q[qids], p.qd[vids]
+        error = target - position
+        kp = env._servo_kp * noise["kp"]
+        ratio = env._servo_passive_active_ratio * noise["passive_active_ratio"]
+        kp = jp.where(p.qacc[vids] * error < 0, kp * ratio, kp)
+        raw = kp * error - env._servo_kv * noise["kv"] * velocity
+        torque = env._controller_torque(p, target, noise)
+        maximum = env._servo_max_speed_rad_s * noise["max_speed"]
+        plateau = jp.minimum(env._servo_peak_torque_speed_rad_s, maximum - 1e-6)
+        fraction = jp.clip(
+            (jp.abs(velocity) - plateau) / jp.maximum(maximum - plateau, 1e-6), 0, 1
+        )
+        stall = env._servo_torque_limit_nm * noise["torque_limit"]
+        motoring = stall + fraction * (env._servo_torque_at_max_speed_nm - stall)
+        braking = env._servo_brake_torque_limit_nm * noise["brake_torque"]
+        limit = jp.where(torque * velocity >= 0, motoring, braking)
+        after = env._pipeline.step(env.sys, p, torque, env._debug)
+        impl = after._impl
+        friction = (impl.efc_type == int(mujoco.mjtConstraint.mjCNSTR_FRICTION_DOF)) | (
+            impl.efc_type == int(mujoco.mjtConstraint.mjCNSTR_FRICTION_TENDON)
+        )
+        contact = impl.efc_type >= int(mujoco.mjtConstraint.mjCNSTR_CONTACT_FRICTIONLESS)
+        friction_torque = impl.efc_J.T @ (impl.efc_force * friction)
+        contact_torque = impl.efc_J.T @ (impl.efc_force * contact)
+        forces = env._contact_forces(after)
+        com = after.subtree_com[torso]
+        wrench = floor_wrenches(
+            after.contact.geom1, after.contact.geom2, after.contact.pos,
+            forces, env._foot_geom_ids, env._floor_geom_id, com,
+        )
+        return after, {
+            "position_rad": position[active],
+            "velocity_rad_s": velocity[active],
+            "error_rad": error[active],
+            "raw_torque_nm": raw[active],
+            "torque_nm": torque[active],
+            "torque_limit_nm": limit[active],
+            "torque_clipped": (jp.abs(raw - torque) > 1e-6)[active],
+            "friction_torque_nm": friction_torque[vids][active],
+            "contact_joint_torque_nm": contact_torque[vids][active],
+            "passive_torque_nm": after.qfrc_passive[vids][active],
+            "bias_torque_nm": after.qfrc_bias[vids][active],
+            "floor_wrench": wrench,
+            "com_world_m": com,
+            "actuator_error_nm": jp.max(jp.abs(after.actuator_force - torque)),
+            "constraint_error": jp.max(jp.abs(
+                impl.efc_J.T @ impl.efc_force - after.qfrc_constraint
+            )),
+            "constraint_scale": jp.max(jp.abs(after.qfrc_constraint)),
+            "floor_vertical_error_n": jp.max(jp.abs(
+                wrench[:, 2] - env._foot_vertical_forces(after, forces)
+            )),
+        }
+
+    return jax.lax.scan(step, before.pipeline_state, None, length=env._n_frames)
+
+
 class SagittalCompensator:
     """Keep commanded site height and sole pitch while fixing the hip target.
 
@@ -38,21 +179,30 @@ class SagittalCompensator:
     Full foot roll/yaw are measured, rather than assumed constrained by two DOFs.
     """
 
-    def __init__(self, model, names, home, action_scale, height_scale_m):
+    def __init__(self, model, names, home, action_scale, height_scale_m,
+                 side="left", free_hip_roll=False):
         self.model = model
         self.data = mujoco.MjData(model)
         joints = [model.actuator(name).trnid[0] for name in names]
         self.qpos_indices = model.jnt_qposadr[joints]
-        self.hip = names.index("left_hip_pitch")
+        self.hip = names.index(f"{side}_hip_pitch")
         self.ka = np.asarray(
-            [names.index("left_knee_pitch"), names.index("left_ankle_pitch")]
+            [names.index(f"{side}_knee_pitch"), names.index(f"{side}_ankle_pitch")]
         )
+        self.full_unknown = np.asarray([
+            names.index(f"{side}_{joint}")
+            for joint in (
+                ("hip_roll", "hip_yaw", "knee_pitch", "ankle_pitch", "ankle_roll")
+                if free_hip_roll else
+                ("hip_yaw", "knee_pitch", "ankle_pitch", "ankle_roll")
+            )
+        ])
         bounds = model.jnt_range[joints]
         self.lower = np.maximum(bounds[:, 0], np.asarray(home) - action_scale)
         self.upper = np.minimum(bounds[:, 1], np.asarray(home) + action_scale)
         self.height_scale_m = height_scale_m
-        self.site = model.site("left_foot_center").id
-        self.geom = model.geom("left_foot_collision").id
+        self.site = model.site(f"{side}_foot_center").id
+        self.geom = model.geom(f"{side}_foot_collision").id
         self.torso = model.body("torso").id
         self.data.qpos[:] = model.key("walk_home").qpos
         mujoco.mj_kinematics(model, self.data)
@@ -117,11 +267,12 @@ class SagittalCompensator:
             ),
         }
 
-    def solve_full(self, qpos, baseline_targets, hip_target):
+    def solve_full(self, qpos, baseline_targets, hip_target, initial=None):
         """Preserve height and full foot orientation.
 
-        Hip pitch and hip roll are fixed; the other four joints compensate.
-        Horizontal foot position remains free and is measured in the output.
+        Hip pitch is fixed. The legacy left-only comparison fixes hip roll;
+        bilateral coordination can use all five remaining joints. Horizontal
+        foot position remains free and is measured in the output.
         """
         baseline_targets = np.clip(baseline_targets, self.lower, self.upper)
         self.data.qpos[:] = qpos
@@ -134,7 +285,7 @@ class SagittalCompensator:
         yaw = np.arctan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
         forward = np.asarray([np.cos(yaw), np.sin(yaw)])
         lateral = np.asarray([-forward[1], forward[0]])
-        unknown = np.asarray([2, 3, 4, 5])
+        unknown = self.full_unknown
         self.data.qpos[self.qpos_indices[self.hip]] = hip_target
 
         def residual(target):
@@ -145,27 +296,33 @@ class SagittalCompensator:
             mujoco.mju_mat2Quat(quat, self.data.geom_xmat[self.geom])
             angular = np.zeros(3)
             mujoco.mju_subQuat(angular, quat, target_quat)
-            return np.r_[
+            pose_error = np.r_[
                 offset[2] / self.height_scale_m,
                 angular,
             ]
+            if len(unknown) == 5:
+                # Select a small joint change in the redundant full-leg solve.
+                # Physical pose tolerances below remain unchanged.
+                return np.r_[pose_error, 2e-4 * (target - baseline_targets[unknown])]
+            return pose_error
 
         result = least_squares(
             residual,
-            np.asarray(baseline_targets)[unknown],
+            np.asarray(baseline_targets)[unknown] if initial is None else initial,
             bounds=(self.lower[unknown], self.upper[unknown]),
             ftol=1e-11,
             xtol=1e-11,
             gtol=1e-11,
-            max_nfev=60,
+            max_nfev=200 if len(unknown) == 5 else 60,
         )
         error = residual(result.x)
         position_error = abs(error[0]) * self.height_scale_m
-        orientation_error = np.linalg.norm(error[1:])
+        orientation_error = np.linalg.norm(error[1:4])
         if position_error > 1e-5 or orientation_error > 1e-5:
             raise ValueError(
                 f"No reachable full-pose compensation: position={position_error:.6g} m, "
-                f"orientation={orientation_error:.6g} rad"
+                f"orientation={orientation_error:.6g} rad, nfev={result.nfev}, "
+                f"status={result.status}, optimality={result.optimality:.6g}"
             )
         offset = self.data.site_xpos[self.site] - position
         return (
@@ -174,13 +331,14 @@ class SagittalCompensator:
             {
                 "position_error_m": position_error,
                 "orientation_error_rad": orientation_error,
+                "solver_evaluations": int(result.nfev),
                 "forward_change_m": float(offset[:2] @ forward),
                 "lateral_change_m": float(offset[:2] @ lateral),
             },
         )
 
 
-def run(run_dir: Path, output: Path):
+def run(run_dir: Path, output: Path, bilateral=False):
     from wr2.locomotion.train import (
         _configure_backend_logging,
         _filter_optional_backend_import_messages,
@@ -232,10 +390,11 @@ def run(run_dir: Path, output: Path):
     home = np.asarray(env._home_ctrl)[active]
     action_scale = nominal.policy_action_scale_rad
     solver = SagittalCompensator(
-        model, names, home, action_scale, env.zmp_reference_diagnostics.com_height_m
+        model, names, home, action_scale, env.zmp_reference_diagnostics.com_height_m,
+        free_hip_roll=bilateral,
     )
     starts = np.asarray([180, 190, 200])
-    horizon, treatment_steps, ramp_steps = 99, 60, 6
+    horizon, treatment_steps, ramp_steps = (252, 180, 12) if bilateral else (99, 60, 6)
     best_step = json.loads((run_dir / "best_checkpoint.json").read_text())["step"]
     labels = ["80M", f"{round(best_step / 1e6)}M"]
     paths = [run_dir / "checkpoints/000080035840", run_dir / "best_params"]
@@ -293,78 +452,131 @@ def run(run_dir: Path, output: Path):
     )
     strength = u * u * (3 - 2 * u)
     requested = home + action_scale * original
-    shifted = requested[:, :, solver.hip] - np.deg2rad(3) * strength[:, None]
-    shaped = centered_reference_wave(refs[:, :, active[solver.hip]], strength)
-    room = np.full_like(shaped, np.inf)
-    positive, negative = shaped > 1e-8, shaped < -1e-8
-    room[positive] = (
-        (home[solver.hip] + action_scale - shifted) / np.where(positive, shaped, 1)
-    )[positive]
-    room[negative] = (
-        (shifted - (home[solver.hip] - action_scale)) / np.where(negative, -shaped, 1)
-    )[negative]
-    peaks = np.minimum(np.deg2rad(5), room.min(axis=0) * 0.999)
-    hip_only = original.copy()
-    hip_only[:, :, solver.hip] = (
-        shifted + shaped * peaks - home[solver.hip]
-    ) / action_scale
-    hip_only[strength == 0, :, solver.hip] = original[strength == 0, :, solver.hip]
-    coordinated = hip_only.copy()
-    full_pose = hip_only.copy()
-    errors = []
     full_errors = []
-    print("SOLVE_COORDINATED_TARGETS", np.rad2deg(peaks).tolist(), flush=True)
-    for i in range(len(cp)):
-        for tick in range(horizon):
-            if hip_only[tick, i, solver.hip] == original[tick, i, solver.hip]:
-                continue
-            hip_target = float(
-                home[solver.hip] + action_scale * hip_only[tick, i, solver.hip]
+    reference_centres = {}
+    target_centres = {}
+    if bilateral:
+        right = SagittalCompensator(
+            model, names, home, action_scale,
+            env.zmp_reference_diagnostics.com_height_m, side="right", free_hip_roll=True,
+        )
+        left_only, both = original.copy(), original.copy()
+        peaks = {}
+        weighted = strength[:, None]
+        forward_mean = np.sum(
+            (requested[:, :, right.hip] - requested[:, :, solver.hip]) * weighted,
+            axis=0,
+        ) / (2 * weighted.sum())
+        print("SOLVE_BILATERAL_TARGETS", flush=True)
+        for side, leg in (("left", solver), ("right", right)):
+            center = forward_mean * (-1 if side == "left" else 1)
+            targets, centre, peak = reference_hip_targets(
+                requested[:, :, leg.hip], refs[:, :, active[leg.hip]], strength,
+                leg.lower[leg.hip], leg.upper[leg.hip], np.deg2rad(7), center,
             )
-            targets, error = solver.solve(
-                before_q[tick, i], requested[tick, i], hip_target
-            )
-            coordinated[tick, i, solver.ka] = (targets - home[solver.ka]) / action_scale
-            errors.append(
-                {
-                    "checkpoint": labels[cp[i]],
-                    "start": int(start[i]),
-                    "tick": tick,
-                    **error,
-                }
-            )
-            unknown, targets, error = solver.solve_full(
-                before_q[tick, i], requested[tick, i], hip_target
-            )
-            full_pose[tick, i, unknown] = (targets - home[unknown]) / action_scale
-            full_errors.append(
-                {
-                    "checkpoint": labels[cp[i]],
-                    "start": int(start[i]),
-                    "tick": tick,
-                    **error,
-                }
-            )
-    (output / "ik_validation.json").write_text(json.dumps(errors, indent=2) + "\n")
-    (output / "full_ik_validation.json").write_text(
-        json.dumps(full_errors, indent=2) + "\n"
-    )
-    assert all(np.abs(tape).max() <= 1 for tape in (hip_only, coordinated, full_pose))
-    np.testing.assert_array_equal(
-        hip_only[:, :, solver.hip], coordinated[:, :, solver.hip]
-    )
-    np.testing.assert_array_equal(
-        hip_only[:, :, solver.hip], full_pose[:, :, solver.hip]
-    )
-    other = np.setdiff1d(np.arange(env.action_size), np.r_[solver.hip, solver.ka])
-    np.testing.assert_array_equal(coordinated[:, :, other], original[:, :, other])
-    np.testing.assert_array_equal(full_pose[:, :, 6:], original[:, :, 6:])
-    np.testing.assert_array_equal(full_pose[:, :, 1], original[:, :, 1])
-    modes = ["baseline", "hip_only", "coordinated", "full_pose", "baseline_duplicate"]
+            # 14-degree hip swing approximates TB's learned forward gait.
+            target_centres[side] = np.rad2deg(centre).tolist()
+            reference_centres[side] = np.rad2deg(
+                np.sum(refs[:, :, active[leg.hip]] * weighted, axis=0) / weighted.sum()
+            ).tolist()
+            peaks[side] = np.rad2deg(peak).tolist()
+            leg_tape = original.copy()
+            for i in range(len(cp)):
+                warm_start = None
+                for tick in np.flatnonzero(strength):
+                    hip_target = float(targets[tick, i])
+                    try:
+                        unknown, angles, error = leg.solve_full(
+                            before_q[tick, i], requested[tick, i], hip_target,
+                            initial=warm_start,
+                        )
+                    except ValueError as exc:
+                        (output / "failed_target.json").write_text(json.dumps({
+                            "checkpoint": labels[cp[i]], "start": int(start[i]),
+                            "tick": int(tick), "side": side, "error": str(exc),
+                            "qpos_before": before_q[tick, i].tolist(),
+                            "baseline_targets_rad": requested[tick, i].tolist(),
+                            "hip_target_rad": hip_target,
+                            "lower_rad": leg.lower.tolist(),
+                            "upper_rad": leg.upper.tolist(),
+                        }, indent=2) + "\n")
+                        raise
+                    warm_start = angles
+                    leg_tape[tick, i, leg.hip] = (
+                        hip_target - home[leg.hip]
+                    ) / action_scale
+                    leg_tape[tick, i, unknown] = (angles - home[unknown]) / action_scale
+                    full_errors.append({
+                        "checkpoint": labels[cp[i]], "start": int(start[i]),
+                        "tick": int(tick), "side": side, **error,
+                    })
+            changed = np.r_[leg.hip, leg.full_unknown]
+            both[:, :, changed] = leg_tape[:, :, changed]
+            if side == "left":
+                left_only = leg_tape
+        np.testing.assert_array_equal(left_only[:, :, :6], both[:, :, :6])
+        np.testing.assert_array_equal(left_only[:, :, 6:], original[:, :, 6:])
+        np.testing.assert_allclose(
+            (home[right.hip] + action_scale * both[:, :, right.hip]
+             - home[solver.hip] - action_scale * both[:, :, solver.hip]).mean(axis=0),
+            (requested[:, :, right.hip] - requested[:, :, solver.hip]).mean(axis=0),
+            rtol=0, atol=1e-6,
+        )
+        modes = ["baseline", "left_coordinated", "bilateral_coordinated", "baseline_duplicate"]
+        controls = [original, left_only, both, original]
+    else:
+        shifted = requested[:, :, solver.hip] - np.deg2rad(3) * strength[:, None]
+        shaped = centered_reference_wave(refs[:, :, active[solver.hip]], strength)
+        room = np.full_like(shaped, np.inf)
+        positive, negative = shaped > 1e-8, shaped < -1e-8
+        room[positive] = (
+            (home[solver.hip] + action_scale - shifted) / np.where(positive, shaped, 1)
+        )[positive]
+        room[negative] = (
+            (shifted - (home[solver.hip] - action_scale)) / np.where(negative, -shaped, 1)
+        )[negative]
+        peak = np.minimum(np.deg2rad(5), room.min(axis=0) * 0.999)
+        peaks = np.rad2deg(peak).tolist()
+        hip_only = original.copy()
+        hip_only[:, :, solver.hip] = (
+            shifted + shaped * peak - home[solver.hip]
+        ) / action_scale
+        hip_only[strength == 0, :, solver.hip] = original[strength == 0, :, solver.hip]
+        coordinated, full_pose = hip_only.copy(), hip_only.copy()
+        errors = []
+        print("SOLVE_COORDINATED_TARGETS", peaks, flush=True)
+        for i in range(len(cp)):
+            for tick in range(horizon):
+                if hip_only[tick, i, solver.hip] == original[tick, i, solver.hip]:
+                    continue
+                hip_target = float(home[solver.hip] + action_scale * hip_only[tick, i, solver.hip])
+                targets, error = solver.solve(before_q[tick, i], requested[tick, i], hip_target)
+                coordinated[tick, i, solver.ka] = (targets - home[solver.ka]) / action_scale
+                errors.append({
+                    "checkpoint": labels[cp[i]], "start": int(start[i]),
+                    "tick": tick, **error,
+                })
+                unknown, targets, error = solver.solve_full(
+                    before_q[tick, i], requested[tick, i], hip_target
+                )
+                full_pose[tick, i, unknown] = (targets - home[unknown]) / action_scale
+                full_errors.append({
+                    "checkpoint": labels[cp[i]], "start": int(start[i]),
+                    "tick": tick, **error,
+                })
+        (output / "ik_validation.json").write_text(json.dumps(errors, indent=2) + "\n")
+        np.testing.assert_array_equal(hip_only[:, :, solver.hip], coordinated[:, :, solver.hip])
+        np.testing.assert_array_equal(hip_only[:, :, solver.hip], full_pose[:, :, solver.hip])
+        other = np.setdiff1d(np.arange(env.action_size), np.r_[solver.hip, solver.ka])
+        np.testing.assert_array_equal(coordinated[:, :, other], original[:, :, other])
+        np.testing.assert_array_equal(full_pose[:, :, 6:], original[:, :, 6:])
+        np.testing.assert_array_equal(full_pose[:, :, 1], original[:, :, 1])
+        modes = ["baseline", "hip_only", "coordinated", "full_pose", "baseline_duplicate"]
+        controls = [original, hip_only, coordinated, full_pose, original]
+    (output / "full_ik_validation.json").write_text(json.dumps(full_errors, indent=2) + "\n")
+    assert all(np.abs(tape).max() <= 1 for tape in controls)
     tapes = jp.asarray(
-        np.stack(
-            [original, hip_only, coordinated, full_pose, original], axis=2
-        ).reshape(horizon, -1, env.action_size)
+        np.stack(controls, axis=2).reshape(horizon, -1, env.action_size)
     )
     cp_all, start_all = np.repeat(cp, len(modes)), np.repeat(start, len(modes))
     initial = jax.tree.map(lambda v: v[start_all, cp_all], base["before"])
@@ -389,13 +601,16 @@ def run(run_dir: Path, output: Path):
 
             def sample(b, a, act):
                 p, m = a.pipeline_state, a.metrics
+                substeps = {}
+                if bilateral:
+                    p, substeps = physics_trace(env, b, act)
                 _, delivered, low, high, slew = target_trace(env, b, act)
                 forces = env._contact_forces(p)
                 pair = ((p.contact.geom1 == feet[0]) & (p.contact.geom2 == feet[1])) | (
                     (p.contact.geom1 == feet[1]) & (p.contact.geom2 == feet[0])
                 )
                 pair &= (p.contact.dist < 0) & (p._impl.contact.efc_address >= 0)
-                return {
+                record = {
                     "qpos": p.q,
                     "qvel": p.qd,
                     "torso_quaternion": p.x.rot[env._root_link_index],
@@ -408,6 +623,7 @@ def run(run_dir: Path, output: Path):
                         ]
                     )
                     > 0,
+                    "previous_contact": b.info["previous_contact"],
                     "action": act,
                     "current_request_rad": home + action_scale * act,
                     "actual_rad": p.q[env._joint_qpos_indices][active],
@@ -426,6 +642,7 @@ def run(run_dir: Path, output: Path):
                             m["lateral_velocity_m_s_per_step"],
                         ]
                     ),
+                    "yaw_rate_rad_s": m["yaw_rate_rad_s_per_step"],
                     "path_delta_m": p.q[:2] - b.pipeline_state.q[:2],
                     "foot_self_force_n": jp.max(
                         jp.where(pair, jp.linalg.norm(forces[:, :3], axis=1), 0.0)
@@ -445,6 +662,17 @@ def run(run_dir: Path, output: Path):
                     "fall": m["fall"],
                     "nonfinite": m["nonfinite_state"],
                 }
+                if bilateral:
+                    record.update({f"substep_{k}": v for k, v in substeps.items()})
+                    record["physics_replay_error"] = jp.where(
+                        a.done == 0,
+                        jp.maximum(
+                            jp.max(jp.abs(p.q - a.pipeline_state.q)),
+                            jp.max(jp.abs(p.qd - a.pipeline_state.qd)),
+                        ),
+                        0.0,
+                    )
+                return record
 
             record = jax.vmap(sample)(before, after, action)
             finite = jp.ones(len(cp_all), bool)
@@ -483,12 +711,20 @@ def run(run_dir: Path, output: Path):
             trace["rewards"][valid].sum(axis=1), trace["total_reward"][valid], atol=1e-5
         )
         assert trace["target_reconstruction_error_rad"][valid].max() < 1e-6
+        if bilateral:
+            assert trace["physics_replay_error"][valid].max() < 1e-5
+            assert trace["substep_actuator_error_nm"][valid].max() < 1e-5
+            assert trace["substep_floor_vertical_error_n"][valid].max() < 1e-4
+            assert np.all(
+                trace["substep_constraint_error"][valid]
+                <= 2e-5 * (1 + trace["substep_constraint_scale"][valid])
+            )
         name = f"{labels[cp_all[i]]}_start{start_all[i]}_{mode}"
         np.savez_compressed(output / (name + ".npz"), **trace)
         discount = cfg.ppo.discounting ** np.arange(n)
         g = float(trace["total_reward"][valid].astype(float) @ discount)
         components = trace["rewards"][valid].astype(float).T @ discount
-        during = valid & (np.arange(horizon) < 66)
+        during = valid & (np.arange(horizon) < treatment_steps + ramp_steps)
         result = {
             "name": name,
             "checkpoint": labels[cp_all[i]],
@@ -517,23 +753,63 @@ def run(run_dir: Path, output: Path):
                 trace["velocity_m_s"][during, 1].std() / scale
             ),
         }
+        if bilateral:
+            steady_start = ramp_steps + 2 * round(nominal.gait_cycle_s / dt)
+            steady = valid & (np.arange(horizon) >= steady_start) & (
+                np.arange(horizon) < treatment_steps
+            )
+            result["steady"] = None
+            if steady.any():
+                result["steady"] = {
+                    "samples": int(steady.sum()),
+                    "complete_window": bool(steady.sum() == treatment_steps - steady_start and not trace["fall_event"][steady].any()),
+                    "net_forward_TB_m_s": float(trace["path_delta_m"][steady, 0].mean() / dt / scale),
+                    "forward_velocity_std_TB_m_s": float(trace["velocity_m_s"][steady, 0].std() / scale),
+                    "lateral_velocity_std_TB_m_s": float(trace["velocity_m_s"][steady, 1].std() / scale),
+                    "yaw_rate_rms_TB_rad_s": float(np.sqrt(np.mean(trace["yaw_rate_rad_s"][steady]**2)) * scale),
+                    "reward_rate_per_TB_s": float(trace["total_reward"][steady].mean() * scale / dt),
+                    "reward_rates_per_TB_s": dict(zip(
+                        reward_names,
+                        (trace["rewards"][steady].mean(axis=0) * scale / dt).tolist(),
+                        strict=True,
+                    )),
+                    "target_range_deg": np.rad2deg(np.ptp(trace["delivered_rad"][steady], axis=0)).tolist(),
+                    "actual_range_deg": np.rad2deg(np.ptp(trace["actual_rad"][steady], axis=0)).tolist(),
+                    "target_error_rmse_deg": np.rad2deg(np.sqrt(np.mean(trace["substep_error_rad"][steady]**2, axis=(0, 1)))).tolist(),
+                    "torque_clip_fraction": trace["substep_torque_clipped"][steady].mean(axis=(0, 1)).tolist(),
+                    "peak_torque_nm": np.abs(trace["substep_torque_nm"][steady]).max(axis=(0, 1)).tolist(),
+                    "mean_floor_yaw_moment_nm": trace["substep_floor_wrench"][steady, :, :, 5].mean(axis=(0, 1)).tolist(),
+                    "placements": placement_summary(
+                        trace, steady_start, treatment_steps,
+                        env._air_time_min_stance_steps, dt, scale,
+                    ),
+                    "double_support_fraction": float(trace["contact"][steady].all(axis=1).mean()),
+                    "flight_fraction": float((~trace["contact"][steady].any(axis=1)).mean()),
+                    "foot_self_force_peak_n": float(trace["foot_self_force_n"][steady].max()),
+                }
         results.append(result)
     for i in range(0, len(results), len(modes)):
-        for offset in (2, 3):
-            np.testing.assert_array_equal(
-                traces["action"][:, i + 1, solver.hip],
-                traces["action"][:, i + offset, solver.hip],
-            )
-            np.testing.assert_allclose(
-                traces["delivered_rad"][:, i + 1, solver.hip],
-                traces["delivered_rad"][:, i + offset, solver.hip],
-                atol=1e-6,
-            )
+        if bilateral:
+            common = traces["valid"][:, i + 1] & traces["valid"][:, i + 2]
+            np.testing.assert_array_equal(traces["action"][:, i + 1, :6], traces["action"][:, i + 2, :6])
+            np.testing.assert_allclose(traces["delivered_rad"][common, i + 1, :6], traces["delivered_rad"][common, i + 2, :6], atol=1e-6)
+        else:
+            for offset in (2, 3):
+                np.testing.assert_array_equal(
+                    traces["action"][:, i + 1, solver.hip],
+                    traces["action"][:, i + offset, solver.hip],
+                )
+                np.testing.assert_allclose(
+                    traces["delivered_rad"][:, i + 1, solver.hip],
+                    traces["delivered_rad"][:, i + offset, solver.hip],
+                    atol=1e-6,
+                )
+        duplicate = i + len(modes) - 1
         np.testing.assert_array_equal(
-            traces["contact"][:, i], traces["contact"][:, i + 4]
+            traces["contact"][:, i], traces["contact"][:, duplicate]
         )
         assert (
-            abs(results[i]["discounted_return"] - results[i + 4]["discounted_return"])
+            abs(results[i]["discounted_return"] - results[duplicate]["discounted_return"])
             < 1e-4
         )
         for r in results[i : i + len(modes)]:
@@ -565,11 +841,17 @@ def run(run_dir: Path, output: Path):
         },
         "scope": "nominal matched states; deterministic other action tapes held fixed; no training update",
         "request_field": "current_request_rad includes the diagnostic intervention; baseline gives the original policy request",
-        "compensation": "coordinated: preserve limit-bounded requested height/pitch with knee/ankle; full_pose: preserve height/full orientation with four remaining left joints, fixed hip roll, free horizontal position; same hip target",
+        "compensation": (
+            "left_coordinated and bilateral_coordinated: identical left targets; preserve original requested height/full sole orientation using all five remaining leg joints; reference-timed hip waves; preserve combined original forward hip mean"
+            if bilateral else
+            "coordinated: preserve limit-bounded requested height/pitch with knee/ankle; full_pose: preserve height/full orientation with four remaining left joints, fixed hip roll, free horizontal position; same hip target"
+        ),
         "normal_axis": solver.normal_axis,
         "normal_sign": solver.normal_sign,
-        "hip_wave_peak_deg": np.rad2deg(peaks).tolist(),
-        "hip_constant_offset_forward_deg": 3.0,
+        "hip_wave_peak_deg": peaks,
+        "hip_constant_offset_forward_deg": None if bilateral else 3.0,
+        "hip_reference_mean_deg": reference_centres,
+        "hip_target_mean_deg": target_centres,
         "reference_wave_rule": "zero mean over applied treatment window, unit maximum applied deviation; excludes startup-cycle normalization",
         "horizon": horizon,
         "treatment_steps": treatment_steps,
@@ -578,6 +860,10 @@ def run(run_dir: Path, output: Path):
         "reference_lookup_command": grid[nearest].tolist(),
         "results": results,
     }
+    if bilateral:
+        report["physics_substep_s"] = env.robot.simulation_timestep_s
+        report["steady_window_ticks"] = [steady_start, treatment_steps]
+        report["substep_scope"] = "native controller replay from identical state; raw terminal physics retained; solver contact frames and subtree CoM remain cached consistently; friction projected from friction constraint rows"
     (output / "summary.json").write_text(
         json.dumps(report, indent=2, allow_nan=False) + "\n"
     )
@@ -594,8 +880,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--bilateral", action="store_true", help="Compare identical left-only and bilateral reference-centered controls with substep force/torque recording")
     args = parser.parse_args()
-    run(args.run_dir, args.output)
+    run(args.run_dir, args.output, args.bilateral)
 
 
 if __name__ == "__main__":
