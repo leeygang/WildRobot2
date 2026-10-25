@@ -170,8 +170,12 @@ rapid taps, but selected **120M** tracking is **11.0% /9.9% worse** than the
 control and **2.07× TB Paper**. Forward/rightward response improves; short
 strides, lateral velocity variation and standing remain gaps. See the
 [experiment setup](docs/design/wr2_step_reward_experiment_20261022.md) for the
-supported-swing/sustained-landing treatment. Its candidate config is
-`ppo_walking_step.yaml`; the control remains `ppo_walking_paper.yaml`.
+supported-swing/sustained-landing treatment, which remains enabled in
+`ppo_walking_step.yaml` at the user's request; `ppo_walking_paper.yaml` is its
+original-air control. The
+[reward and speed audit](docs/design/wr2_tb_reward_audit_20261024.md)
+explains both landing-credit definitions and distinguishes physical speed,
+normalized speed and foot advance.
 The [hip-pitch diagnostic](docs/design/wr2_hip_pitch_incentive_review_20261023.md)
 identifies backward left-target mean drift and tanh compression. Larger isolated
 left motion can gain translation while losing reward through fore-aft/yaw
