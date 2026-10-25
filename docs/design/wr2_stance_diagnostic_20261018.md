@@ -33,6 +33,43 @@ traces. The reference audit covers **227 commands ×1,000 poses**, rather than
 only the commands used in the policy controls. Run artifacts remain in the
 ignored results directory.
 
+## Run a trained WR2 policy directly
+
+`view_walking` can load a WR2 Paper run and execute its PPO policy live. On a
+Linux desktop:
+
+```bash
+uv run --locked --python 3.10 --extra training python -m wr2.tools.view_walking \
+  --run-dir results/wr2_walking/wr2_paper_progress_20261025_085931_seed3
+```
+
+On the Mac, use `uv run --no-sync mjpython` in place of the Linux Python prefix.
+The viewer loads the run's `training_config.yaml` and **`best_params`** by default.
+`--checkpoint <file-or-Orbax-directory>` selects another retained policy.
+`--command VX VY YAW` specifies TB-equivalent m/s, m/s and rad/s, default
+**`.10 0 0`**. `--playback-speed` defaults to .25 and controls wall-clock pacing;
+physics retains its native control period and substeps.
+
+This runs deterministic PPO actions through the same MJX environment/controller
+as training, with nominal physics and observation noise/randomization disabled.
+Only the needed native reference lookup rows are built. Policy/physics compilation
+occurs at startup; every subsequent step is computed live. No NPZ generation is
+required. Falls and episode timeouts follow the native reset behavior.
+
+Space pauses/resumes; `]` advances one live tick while paused; R resets; C toggles
+collision outlines; 1–4 selects front/side/top/perspective. `--check-only` runs
+20 policy/physics steps and checks rendering geometry without opening a window.
+This follows the frozen TB Paper evaluator's deterministic policy plus native
+`env.step` path and uses MuJoCo's passive viewer for display.
+
+Verification: fourteen tests cover checkpoint inference/native stepping, action
+delay, episode/reset handling, live frame updates, and existing WR2/TB replay.
+The current trained `best_params` also passes twenty direct policy/physics steps.
+The full GUI smoke check in this agent session is limited by GLFW reporting zero
+desktop monitors, also reproduced with an unmodified minimal MuJoCo viewer.
+Interactive viewing now reports that missing display before loading/compiling
+the policy; `--check-only` remains available without a desktop.
+
 ## Replay the recorded policy visually
 
 Replay the current collision-weight **300M** policy's nominal GPU recording

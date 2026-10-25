@@ -282,17 +282,19 @@ It contains `analyze.py`, `analysis.json`, `analysis.log`,
 `progress_comparison.png`, and thirteen original-policy recordings under
 `nominal_cpu`. The viewer loader validates the selected 824-frame recording.
 
-On the Mac:
+Run the selected trained policy directly on the Mac:
 
 ```bash
 uv run --no-sync mjpython -m wr2.tools.view_walking \
-  --trace results/wr2_walking/wr2_paper_progress_20261025_085931_seed3/review_20261025/nominal_cpu/selected_forward_010_learned.npz \
+  --run-dir results/wr2_walking/wr2_paper_progress_20261025_085931_seed3 \
   --playback-speed 0.25
 ```
 
-Use `40M_forward_010_learned.npz` or `120M_forward_010_learned.npz` in the same
-folder to inspect the earlier passing pattern. All actions are from their
-saved PPO policies.
+For an earlier policy, add `--checkpoint` with its directory, for example
+`results/wr2_walking/wr2_paper_progress_20261025_085931_seed3/checkpoints/000040017920`.
+On Linux use the [direct viewer command](wr2_stance_diagnostic_20261018.md#run-a-trained-wr2-policy-directly).
+The archived NPZ files remain available through `--trace` for exact recorded
+frame inspection. All actions are from their saved PPO policies.
 
 [Comparison figure](../../results/wr2_walking/wr2_paper_progress_20261025_085931_seed3/review_20261025/progress_comparison.png)
 and [audited report](../../results/wr2_walking/wr2_paper_progress_20261025_085931_seed3/review_20261025/analysis.json).

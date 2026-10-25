@@ -57,6 +57,8 @@ uv run python -m wr2.locomotion.train --smoke
 For MuJoCo's macOS viewer with uv's standalone Python, complete the
 [one-time library setup](docs/design/wr2_stance_diagnostic_20261018.md#one-time-macos-library-setup-for-uvs-standalone-python).
 The viewer then uses the regular `uv run --no-sync mjpython` command.
+Use `wr2.tools.view_walking --run-dir <training-run>` to execute a trained WR2
+Paper policy directly; see the [Linux/Mac commands and live controls](docs/design/wr2_stance_diagnostic_20261018.md#run-a-trained-wr2-policy-directly).
 
 ### View the ZMP reference walks
 
