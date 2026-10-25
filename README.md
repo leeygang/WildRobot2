@@ -194,9 +194,10 @@ localizes most critic training residual to motion/zero command switches before
 the network receives the new command. The
 [completed native TB comparison](docs/design/wr2_tb_ppo_comparison_20261024.md)
 shows that TB also has those residuals and can have larger fresh-Adam probe KL.
-WR2 retains much shorter strides and little left-hip cyclic motion. The first
-proposed correction is model-based action-home selection as in TB; WR2's Paper
-branch currently replaces that origin with its deeper reference standing pose.
+WR2 retains much shorter strides: its left-hip mean moves toward the tanh limit,
+compressing a raw cyclic signal that remains present. Both robots use fixed-home
+leg targets. WR2's deeper reference-derived action home is a verified difference;
+its causal role remains unproven, so the next analysis examines the mean drift.
 The [WR2/TB Paper setup audit](docs/design/wr2_tb_paper_setup_audit_20261018.md)
 compares actual reward formulas, clocks, effective variation, resets and metrics.
 Actor/critic inputs are 975/1485 for this recipe. WR2 training is self-contained.

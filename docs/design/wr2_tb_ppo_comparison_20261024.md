@@ -20,18 +20,25 @@ target**: phase-conditioned swing is **1.65°**, versus **10–12°** in TB. WR2
 normalized same-foot stride is approximately half TB's, and its left foot stays
 behind the right at sustained landings.
 
-The most actionable source difference found in this review is **action-home
-selection**. TB uses its model's `home` keyframe. WR2 initially reads its
+One verified source difference is **action-home selection**. TB uses its model's
+`home` keyframe. WR2 initially reads its
 configured model home, then its Paper branch overwrites that home using the
 ZMP reference's standing pose. That moves the hip action origin from **6.88° to
 16.63°** and shifts the permitted target interval. Both homes passed a preliminary
-nominal MuJoCo hold check. Restoring model-based home selection is the first
-TB-aligned correction to investigate before choosing reward or optimizer changes.
+nominal MuJoCo hold check. This makes model-home selection a candidate comparison,
+but does not establish that the current origin causes the short steps.
 
 **The home-origin difference is verified; its causal effect on long-run gait
 learning is not.** A controlled fresh training run is needed to test that effect.
 The confirmed proximate mechanism remains mean bias plus tanh saturation reducing
 cyclic target motion. These data do not prove why the biased solution was learned.
+
+**A fixed-home action baseline is shared by TB and WR2.** The earlier WR2
+walking-reward mismatch was penalizing departure from home; the current Paper
+recipe instead rewards imitation of the moving leg reference. Changing controlled
+leg targets to `q_ref(t) + residual` would be a new action design. TB Paper starts
+full motor targets from the reference, then overwrites the twelve controlled leg
+entries with its fixed-home policy targets.
 
 ## 1. Integrity and fair comparison
 
@@ -122,6 +129,21 @@ single nominal video's full range. The right hip retains substantial cyclic
 motion; the collapse is strongly asymmetric. WR2 still explores around its biased target;
 the measured physical request variance has not vanished. Increasing raw noise
 is not selected by this comparison.
+
+The raw cyclic policy signal remains present. Re-reading all eight batches per
+checkpoint with the same forward-command mask and twenty phase bins gives:
+
+| Left-hip measure | WR2 80M | WR2 120M | TB 200M |
+| --- | ---: | ---: | ---: |
+| Mean raw Gaussian `mu` | .938 | **1.476** | -.014 |
+| Phase-bin range of raw `mu` | .273 | **.564** | .776 |
+| Phase-bin range of bounded target | 1.88° | **1.65°** | 10.20° |
+
+WR2's raw phase variation grows while its bounded angle variation shrinks. The
+increasing mean pushes that signal into tanh's compressed region. This confirms
+the immediate loss of useful target motion; it does not identify which training
+tradeoff selected the biased mean. The fixed home adds an offset to the bounded
+target and does not itself remove the raw cyclic signal.
 
 ### Stride and landing placement
 
@@ -236,30 +258,30 @@ The candidate reaches a larger root rotation during this check. It is not a
 randomized MJX walking test, a new PPO result, or proof that the change will cure
 the learned bias.
 
-## 6. Next change to prepare
+## 6. Next analysis before a training change
 
-PPO would learn the time-varying joint targets around a fixed model home.
+The immediate question is why learning selects the biased left-hip mean despite
+a surviving cyclic signal. The model-home difference alone is insufficient to
+prioritize a long training run as a demonstrated fix.
 
-The first correction should follow TB's **model-based action and observation
-home**, with reference-based reset pose kept separate:
+Use the existing WR2/TB diagnostics to distinguish phase-averaged mean changes
+from changes in the cyclic output. Compare the native full Adam probe and its
+reward/value contributions, keeping the fresh-optimizer and fixed-observation
+limitations explicit. The prior
+[hip-pitch incentive review](wr2_hip_pitch_incentive_review_20261023.md) shows
+that larger uncoordinated hip motion can incur tracking and stability costs;
+the coordinated target intervention is evidence about feasible joint motion,
+not a learned PPO improvement.
 
-1. Preserve WR2's configured model walk-home as the target origin and motor-home
-   observation/standing-penalty baseline. Document the robot-specific pose.
-2. Make legacy reference-home behavior explicit when loading old saved configs;
-   their checkpoints/evaluation must reproduce the old home exactly.
-3. Verify the resulting native MJX reset/control path and a short training run,
-   particularly the startup transient and new target bounds.
-4. Run one **fresh 200–300M** comparison with retained intermediate checkpoints
-   and the existing seed/control recipe. Assess phase-conditioned target motion,
-   boundary occupancy, normalized strides, commanded tracking and the fall gate.
-
-This is a proposed TB contract correction. It does not presume that home choice
-alone explains why PPO learned the asymmetric solution. The controlled training
-comparison must establish whether it prevents the left target from becoming
-nearly constant near its action endpoint.
+Model-home selection remains a candidate TB-aligned comparison. If selected,
+verify the native MJX startup and new target bounds, preserve old checkpoint
+origins, and use a fresh 200–300M run with retained intermediate checkpoints.
+Its causal benefit must be measured rather than assumed from the source difference.
 
 ## Sources and retained artifacts
 
+- `review_20261024/raw_phase_signal_comparison.json` in the WR2 v5 diagnostic
+  retains the forward sample counts and all twenty raw/bounded phase-bin means.
 - TB source: local `paper-walking-baseline`, `a4f693d`;
   `mjx_env.py:236–270, 677–723, 1173–1192`,
   `walk_env.py::_sample_command/_reward_feet_air_time`,
