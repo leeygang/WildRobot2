@@ -193,7 +193,7 @@ def test_right_compensation_moves_back_and_preserves_sole_pose(setup, yaw):
     np.testing.assert_array_equal(changed[solver.qpos_indices[:6]], qpos[solver.qpos_indices[:6]])
 
 
-def test_projection_preserves_lateral_pose_at_recorded_workspace_limit(setup):
+def test_full_leg_preserves_lateral_pose_at_recorded_fixed_roll_failure(setup):
     model, _, _, _ = setup
     path = Path(__file__).parent / "fixtures/bilateral_ik_limited_pose.json"
     case = json.loads(path.read_text())
@@ -211,10 +211,30 @@ def test_projection_preserves_lateral_pose_at_recorded_workspace_limit(setup):
     assert error["position_error_m"] < 1e-5
     assert error["orientation_error_rad"] < 1e-5
     assert abs(error["lateral_change_m"]) < 1e-5
-    assert error["projection_fraction"] < 1
-    assert case["hip_target"] < actual_hip < targets[full.hip]
+    assert error["projection_fraction"] == 1
+    assert actual_hip == case["hip_target"]
     assert np.all(angles >= full.lower[unknown])
     assert np.all(angles <= full.upper[unknown])
+
+
+def test_projection_returns_original_pose_when_other_joint_travel_is_exhausted(setup):
+    model, _, _, _ = setup
+    case = json.loads((Path(__file__).parent / "fixtures/bilateral_ik_limited_pose.json").read_text())
+    solver = SagittalCompensator(
+        model, NAMES, case["home"], .25, case["height_scale_m"], free_hip_roll=True
+    )
+    targets = np.asarray(case["targets"])
+    original = np.clip(targets, solver.lower, solver.upper)
+    unknown = solver.full_unknown
+    solver.lower[unknown] = np.maximum(solver.lower[unknown], original[unknown] - 1e-6)
+    solver.upper[unknown] = np.minimum(solver.upper[unknown], original[unknown] + 1e-6)
+    hip, _, angles, error = solver.solve_reachable_full(np.asarray(case["qpos"]), targets, case["hip_target"])
+    assert error["projection_fraction"] < 1
+    assert hip == original[solver.hip]
+    assert error["position_error_m"] < 1e-5
+    assert error["orientation_error_rad"] < 1e-5
+    assert np.all(angles >= solver.lower[unknown])
+    assert np.all(angles <= solver.upper[unknown])
 
 
 def test_reference_targets_stay_bounded_and_preserve_inactive_tape():

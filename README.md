@@ -180,6 +180,10 @@ The [hip-pitch diagnostic](docs/design/wr2_hip_pitch_incentive_review_20261023.m
 identifies backward left-target mean drift and tanh compression. Larger isolated
 left motion can gain translation while losing reward through fore-aft/yaw
 oscillation and reduced air credit; joint phase coordination remains a priority.
+The [completed bilateral diagnostic](docs/design/wr2_bilateral_diagnostic_20261024.md)
+shows that larger left strides execute within the existing limits. Its tested
+bilateral pattern lets feet exchange the lead but increases fore-aft rocking;
+executed timing and weight transfer remain the next priority.
 The [matched coordination test](docs/design/wr2_leg_coordination_review_20261023.md)
 confirms that compensating knee/ankle targets removes most of that instability
 and restores air credit. Larger placements still retain a right-leading posture

@@ -1,5 +1,9 @@
 # Matched leg-coordination result — 2026-10-23
 
+**2026-10-24 follow-up:** the [completed bilateral diagnostic](wr2_bilateral_diagnostic_20261024.md)
+confirms larger executed steps, but its bilateral reference-wave control rocks
+fore and aft. Use its corrected v2 result with lateral-position preservation.
+
 Follow-up to the [hip-pitch incentive analysis](wr2_hip_pitch_incentive_review_20261023.md).
 Completed the requested hip/knee/ankle comparison at **80M and selected 120M**,
 then checked full foot orientation to investigate the remaining yaw cost.

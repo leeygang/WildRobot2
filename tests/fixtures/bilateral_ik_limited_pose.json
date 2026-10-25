@@ -1,5 +1,5 @@
 {
-  "source": "WR2 80M forward trace, start180 tick30: larger hip goal is outside the locally reachable pose at fixed height/lateral position and actor bounds; projection must retain those physical constraints.",
+  "source": "WR2 80M forward trace, start180 tick30: fixed hip roll prevents this recorded goal; the full leg must preserve height, lateral position and sole orientation within the same actor/mechanical bounds.",
   "qpos": [
     0.23050326108932495,
     0.0038760204333812,
