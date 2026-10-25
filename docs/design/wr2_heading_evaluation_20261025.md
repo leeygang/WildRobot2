@@ -1,5 +1,10 @@
 # WR2 retained-checkpoint heading evaluation — 2026-10-25
 
+The larger GPU confirmation is complete. See the
+[GPU review](wr2_heading_gpu_review_20261025.md) for 256 episodes per command,
+the confirmed direction loss, and why 200M is not a clear winner over 120M.
+The measurements below remain the original smaller Mac evaluation.
+
 ## Evaluation contract
 
 Original deterministic PPO policies at **120,053,760**, **200,089,600** and
