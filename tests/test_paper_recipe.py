@@ -440,6 +440,63 @@ def test_paper_home_observation_layout_and_actor_reference_independence(paper_en
     )
 
 
+def test_paper_heading_feedback_preserves_old_inputs_and_uses_noisy_yaw(paper_env):
+    from unittest.mock import patch
+    from wr2.locomotion.walking_env import heading_features
+
+    with patch("wr2.locomotion.walking_env.PaperWalkReference", return_value=paper_env._zmp_reference):
+        env = WR2WalkingEnv(replace(paper_env.config, heading_observation=True),
+                            add_observation_noise=True)
+        control = WR2WalkingEnv(paper_env.config, add_observation_noise=True)
+    pipeline = home_pipeline(env)
+    quat = jp.asarray([jp.cos(.2), 0., 0., jp.sin(.2)])
+    pipeline.x = pipeline.x.replace(rot=pipeline.x.rot.at[env._root_link_index].set(quat))
+    imu = {name: jp.zeros(3) for name in ("gyro_colored", "gyro_bias", "gravity_colored", "gravity_bias")}
+    args = (pipeline, jp.zeros(12), jp.asarray([.1 * env.config.normalization_scale, 0., 0.]),
+            jp.asarray(.3), jax.random.PRNGKey(5), imu, jp.zeros(21),
+            jp.ones(2, bool), jp.ones(2, bool))
+    observed, _ = env._observation(*args, reference_heading=.3)
+    original, _ = control._observation(*args, reference_heading=.3)
+    assert env.observation_size == {"state": (1005,), "privileged_state": (1515,)}
+    np.testing.assert_array_equal(observed["state"][:65], original["state"])
+    np.testing.assert_array_equal(observed["privileged_state"][:99], original["privileged_state"])
+    noisy_error = observed["state"][64] - .3
+    np.testing.assert_allclose(observed["state"][-2:], [jp.sin(noisy_error), jp.cos(noisy_error)], atol=1e-7)
+    np.testing.assert_allclose(observed["privileged_state"][-2:], heading_features(quat, .3), atol=1e-7)
+    assert not np.allclose(observed["state"][-2:], observed["privileged_state"][-2:])
+    changed, _ = env._observation(*args, reference_heading=.6)
+    np.testing.assert_array_equal(changed["state"][:65], observed["state"][:65])
+    assert not np.allclose(changed["state"][-2:], observed["state"][-2:])
+    periodic, _ = env._observation(*args, reference_heading=.3 + 2*np.pi)
+    np.testing.assert_allclose(periodic["state"], observed["state"], atol=1e-6)
+
+
+def test_paper_step_heading_feedback_uses_updated_goal_and_preserves_rewards(paper_env):
+    from unittest.mock import patch
+    from wr2.locomotion.walking_env import heading_features
+
+    with patch("wr2.locomotion.walking_env.PaperWalkReference", return_value=paper_env._zmp_reference):
+        env = WR2WalkingEnv(replace(paper_env.config, heading_observation=True),
+                            add_observation_noise=False)
+    command = jp.asarray([0., 0., .5/env.config.normalization_scale])
+    key = jax.random.PRNGKey(12)
+    before = jax.jit(env.reset)(key, command)
+    control = jax.jit(paper_env.reset)(key, command)
+    action = jp.zeros(12)
+    after = jax.jit(env.step)(before, action)
+    original_after = jax.jit(paper_env.step)(control, action)
+    np.testing.assert_allclose(after.pipeline_state.q, original_after.pipeline_state.q, atol=1e-6)
+    for name in after.metrics:
+        if name.startswith("paper_reward/"):
+            np.testing.assert_allclose(after.metrics[name], original_after.metrics[name], atol=1e-6)
+    np.testing.assert_allclose(after.reward, original_after.reward, atol=1e-6)
+    expected_goal = before.info["reference_heading"] + command[2] * env.robot.control_period_s
+    expected = heading_features(after.pipeline_state.x.rot[env._root_link_index], expected_goal)
+    np.testing.assert_allclose(after.obs["state"][:67][-2:], expected, atol=1e-6)
+    np.testing.assert_allclose(after.obs["privileged_state"][:101][-2:], expected, atol=1e-6)
+    np.testing.assert_allclose(after.obs["state"][67:134], before.obs["state"][:67], atol=1e-7)
+
+
 def test_delayed_actions_and_native_auto_reset_preserve_paper_timing(paper_env):
     from brax.envs import training
 
@@ -766,3 +823,22 @@ def test_selection_requires_complete_finite_surviving_suite():
     conditions[0]["fall_count"] = 20
     assert not selection_summary(report)["eligible"]
     assert not selection_summary({**report, "conditions": conditions[:2]})["eligible"]
+
+
+def test_heading_experiment_selects_direction_error_without_changing_body_metric():
+    conditions = [
+        {"episodes": 1, "fall_count": 0, "nonfinite_count": 0,
+         "transitions": transition, "per_episode": {"walking": {
+             "xy_error_m_s": [.02], "reference_xy_error_m_s": [.08],
+             "heading_error_abs_rad": [.5],
+         }}} for _, _, transition in CONDITIONS
+    ]
+    report = {"conditions": conditions, "normalization_scale": .8, "froude_velocity_m_s": 1.4}
+    original = selection_summary(report)
+    feedback = selection_summary(report, "paper_reference_xy_error")
+    assert original["selection_error_m_s"] == pytest.approx(.02)
+    assert feedback["selection_error_m_s"] == pytest.approx(.08)
+    assert feedback["walking_xy_error_m_s"] == pytest.approx(.02)
+    assert feedback["walking_reference_xy_error_TB_equivalent_m_s"] == pytest.approx(.1)
+    assert feedback["walking_heading_error_abs_rad"] == pytest.approx(.5)
+    assert feedback["eligible"]

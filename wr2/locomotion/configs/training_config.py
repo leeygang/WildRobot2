@@ -714,12 +714,13 @@ def load_training_config(
             )
         ),
     )
-    if checkpoints.selection_metric not in {"acquisition", "walking_score", "paper_xy_error"}:
+    paper_metrics = {"paper_xy_error", "paper_reference_xy_error"}
+    if checkpoints.selection_metric not in {"acquisition", "walking_score", *paper_metrics}:
         raise ValueError(
-            "checkpoints.selection_metric must be acquisition, walking_score or paper_xy_error"
+            "checkpoints.selection_metric must be acquisition, walking_score, paper_xy_error or paper_reference_xy_error"
         )
-    if (recipe == "tb_paper") != (checkpoints.selection_metric == "paper_xy_error"):
-        raise ValueError("paper_xy_error selection must be paired with the paper recipe")
+    if (recipe == "tb_paper") != (checkpoints.selection_metric in paper_metrics):
+        raise ValueError("Paper selection metrics must be paired with the paper recipe")
     if checkpoints.qualification_goal is not None and (
         ppo.backend != "rsl_rl" or environment.episode_length != 1000
         or not ppo.evaluation_randomization or not environment.randomization.enabled

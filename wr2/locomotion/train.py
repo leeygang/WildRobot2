@@ -273,10 +273,12 @@ def _format_zmp_preflight(results) -> str:
     )
 
 
-def smoke_test(steps: int, training_config: TrainingConfig | None = None) -> None:
+def smoke_test(steps: int, training_config: TrainingConfig | None = None,
+               restore_checkpoint: Path | None = None) -> None:
     _configure_backend_logging()
     with _filter_optional_backend_import_messages():
         import jax
+        import numpy as np
 
         from wr2.locomotion.walking_env import WR2WalkingEnv
 
@@ -291,9 +293,38 @@ def smoke_test(steps: int, training_config: TrainingConfig | None = None) -> Non
     step = jax.jit(environment.step)
     state = reset(jax.random.PRNGKey(0))
     jax.block_until_ready(state.obs)
+    policy = None
+    if restore_checkpoint is not None and training_config.ppo.backend == "brax":
+        from brax.training import types
+        from brax.training.acme import running_statistics
+        from brax.training.agents.ppo import checkpoint, networks
+        from wr2.locomotion.ppo import make_network_factory, prepare_heading_restore
+
+        if training_config.environment.recipe == "tb_paper" and training_config.environment.heading_observation:
+            params, conversion = prepare_heading_restore(
+                restore_checkpoint, environment, training_config.network,
+                training_config.ppo.normalize_observations,
+            )
+            print(f"Heading checkpoint restore verified: {json.dumps(conversion)}")
+        else:
+            params = checkpoint.load(str(restore_checkpoint.resolve()))
+        preprocess = running_statistics.normalize if training_config.ppo.normalize_observations else types.identity_observation_preprocessor
+        net = make_network_factory(training_config.network)(
+            environment.observation_size, environment.action_size,
+            preprocess_observations_fn=preprocess,
+        )
+        policy = jax.jit(networks.make_inference_fn(net)(params[:2], deterministic=True))
     started = time.monotonic()
     for _ in range(steps):
-        state = step(state, environment.home_action)
+        action = environment.home_action if policy is None else policy(state.obs, jax.random.PRNGKey(0))[0]
+        state = step(state, action)
+        if any(not np.isfinite(np.asarray(value)).all() for value in (
+            state.pipeline_state.q, state.pipeline_state.qd, state.reward,
+            *state.obs.values(),
+        )):
+            raise RuntimeError("MJX smoke encountered a nonfinite transition")
+        if policy is not None and bool(state.done):
+            raise RuntimeError("Restored policy fell during the MJX smoke")
     jax.block_until_ready(state.obs)
     elapsed = time.monotonic() - started
     print(
@@ -599,6 +630,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     paper_policy_factory = None
     best_paper_error = math.inf
     initial_paper_error = None
+    initial_paper_body_error = None
 
     def save_best_checkpoint(params, candidate: dict[str, object]) -> None:
         nonlocal best_selection_score
@@ -624,7 +656,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         )
 
     def receive_policy_params(step: int, _make_policy, params) -> None:
-        nonlocal paper_evaluators, paper_policy_factory, best_paper_error, initial_paper_error
+        nonlocal paper_evaluators, paper_policy_factory, best_paper_error, initial_paper_error, initial_paper_body_error
         step = int(step)
         latest_params["step"] = step
         latest_params["value"] = params
@@ -649,7 +681,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
             for name, evaluator in paper_evaluators.items():
                 print(f"{name} comparison at {step:,} steps: 15 conditions, seed 12102...", flush=True)
                 report = evaluator.evaluate(params)
-                summary = selection_summary(report)
+                summary = selection_summary(report, training_config.checkpoints.selection_metric)
                 record = {"step": step, "summary": summary, **report}
                 evaluation_dir = output / f"{name}_evaluations"
                 evaluation_dir.mkdir(exist_ok=True)
@@ -665,7 +697,9 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                     f"falls={summary['fall_count']}/{summary['episodes']} "
                     f"nonfinite={summary['nonfinite_count']} "
                     f"fixed walking XY MAE={summary['walking_xy_error_m_s']}m/s "
-                    f"TB-equivalent={summary['walking_xy_error_TB_equivalent_m_s']}m/s",
+                    f"TB-equivalent={summary['walking_xy_error_TB_equivalent_m_s']}m/s "
+                    f"reference XY MAE={summary['walking_reference_xy_error_m_s']}m/s "
+                    f"mean heading error={summary['walking_heading_error_abs_rad']}rad",
                     flush=True,
                 )
                 if summary["nonfinite_count"]:
@@ -675,15 +709,17 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                     continue
                 if step == 0:
                     model.save_params(output / "initial_params", params)
-                    initial_paper_error = summary["walking_xy_error_m_s"]
-                elif training_config.checkpoints.keep_best and summary["eligible"] and summary["walking_xy_error_m_s"] < best_paper_error:
-                    best_paper_error = summary["walking_xy_error_m_s"]
+                    initial_paper_error = summary["selection_error_m_s"]
+                    initial_paper_body_error = summary["walking_xy_error_m_s"]
+                elif training_config.checkpoints.keep_best and summary["eligible"] and summary["selection_error_m_s"] < best_paper_error:
+                    best_paper_error = summary["selection_error_m_s"]
                     model.save_params(output / "best_params", params)
                     candidate = {
-                        "step": step, "selection_metric": "fixed_walking_xy_error_with_survival_gate",
+                        "step": step, "selection_metric": training_config.checkpoints.selection_metric,
                         "selection_seed": 12102, "summary": summary,
-                        "initial_walking_xy_error_m_s": initial_paper_error,
-                        "beats_initial_tracking": summary["walking_xy_error_m_s"] < initial_paper_error,
+                        "initial_walking_xy_error_m_s": initial_paper_body_error,
+                        "initial_selection_error_m_s": initial_paper_error,
+                        "beats_initial_tracking": summary["selection_error_m_s"] < initial_paper_error,
                         "physical_pushes_enabled": report["physical_pushes_enabled"],
                         "confirmation_seed": 22102, "held_out_confirmation_required": True,
                         "evaluation_report": str(evaluation_dir / f"{step:012d}.json"),
@@ -1231,6 +1267,18 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         return
 
     network_factory = make_network_factory(training_config.network)
+    restore_params = None
+    if args.restore_checkpoint is not None and paper_recipe and environment.config.heading_observation:
+        from wr2.locomotion.ppo import prepare_heading_restore
+
+        restore_params, conversion = prepare_heading_restore(
+            args.restore_checkpoint, environment, training_config.network,
+            ppo_config.normalize_observations,
+        )
+        run_config["restore_input_expansion"] = conversion
+        (output / "run_config.json").write_text(json.dumps(run_config, indent=2, sort_keys=True) + "\n")
+        (output / "restore_report.json").write_text(json.dumps(conversion, indent=2) + "\n")
+        print(f"Heading checkpoint restore verified: {json.dumps(conversion)}", flush=True)
     from brax.training.agents.ppo.optimizer import LRSchedule
 
     learning_rate_schedule = {
@@ -1277,9 +1325,10 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         save_checkpoint_path=checkpoint_path,
         restore_checkpoint_path=(
             str(args.restore_checkpoint.resolve())
-            if args.restore_checkpoint is not None
+            if args.restore_checkpoint is not None and restore_params is None
             else None
         ),
+        restore_params=restore_params,
         deterministic_eval=True,
         log_training_metrics=True,
         training_metrics_steps=ppo_config.training_metrics_steps,
@@ -1308,7 +1357,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
                 (output / f"{name}_{prefix}confirmation_22102.json").write_text(
                     json.dumps({"step": step, "checkpoint": checkpoint_name,
                                 "checkpoint_sha256": hashlib.sha256(checkpoint_path.read_bytes()).hexdigest(),
-                                "summary": selection_summary(confirmation), **confirmation}, allow_nan=False) + "\n"
+                                "summary": selection_summary(confirmation, training_config.checkpoints.selection_metric), **confirmation}, allow_nan=False) + "\n"
                 )
 
 
@@ -1435,7 +1484,7 @@ def main() -> int:
         f"envs={training_config.ppo.num_envs}"
     )
     if args.smoke:
-        smoke_test(args.smoke_steps, training_config)
+        smoke_test(args.smoke_steps, training_config, args.restore_checkpoint)
     else:
         train(args, training_config)
     return 0

@@ -12,7 +12,7 @@ import jax.numpy as jp
 import numpy as np
 from brax.envs.wrappers.training import DomainRandomizationVmapWrapper
 
-from wr2.locomotion.walking_env import _inverse_rotate_vector
+from wr2.locomotion.walking_env import _inverse_rotate_vector, torso_heading
 
 
 CONDITIONS = (
@@ -58,6 +58,10 @@ MEASUREMENTS = (
     "foot_self_contact_fraction",
     "air_time_credit_s",
     "contact_phase_match_fraction",
+    "reference_velocity_x_m_s",
+    "reference_velocity_y_m_s",
+    "reference_xy_error_m_s",
+    "heading_error_abs_rad",
 )
 
 
@@ -220,6 +224,12 @@ class PaperEvaluator:
         state = self.env.reset(
             self.reset_keys, jp.broadcast_to(initial, (self.num_envs, 3))
         )
+        # Every condition has zero yaw command, including transitions.
+        reference_heading = jax.vmap(torso_heading)(state.pipeline_state.x.rot[:, self.root])
+        reference_quat = jp.stack([
+            jp.cos(reference_heading / 2), jp.zeros(self.num_envs),
+            jp.zeros(self.num_envs), jp.sin(reference_heading / 2),
+        ], axis=1)
         alive = jp.ones(self.num_envs, dtype=jp.bool_)
         lengths = jp.zeros(self.num_envs, dtype=jp.int32)
         falls, nonfinite = jp.zeros_like(alive), jp.zeros_like(alive)
@@ -239,6 +249,10 @@ class PaperEvaluator:
             velocity = jax.vmap(_inverse_rotate_vector)(
                 p.x.rot[:, self.root], p.xd.vel[:, self.root]
             )
+            reference_velocity = jax.vmap(_inverse_rotate_vector)(
+                reference_quat, p.xd.vel[:, self.root],
+            )
+            heading_error = jax.vmap(torso_heading)(p.x.rot[:, self.root]) - reference_heading
             values = jp.stack(
                 [
                     velocity[:, 0],
@@ -265,6 +279,10 @@ class PaperEvaluator:
                     m["foot_self_contact_per_step"],
                     m["air_time_credit_s_per_step"],
                     m["contact_phase_match_per_step"],
+                    reference_velocity[:, 0],
+                    reference_velocity[:, 1],
+                    jp.linalg.norm(reference_velocity[:, :2] - commands[:, :2], axis=1),
+                    jp.abs(jp.arctan2(jp.sin(heading_error), jp.cos(heading_error))),
                 ],
                 axis=1,
             )
@@ -328,7 +346,7 @@ class PaperEvaluator:
                 }
             )
         return {
-            "schema_version": 3,
+            "schema_version": 4,
             "seed": self.seed,
             "normalization_scale": self.scale,
             "com_height_m": self.com_height,
@@ -336,6 +354,8 @@ class PaperEvaluator:
             "episode_length": self.episode_length,
             "control_period_s": 0.02,
             "measurement_sampling": "end_of_control_step",
+            "reference_velocity_frame": "initial desired heading; all conditions command zero yaw; native cached torso velocity",
+            "heading_error_rule": "mean absolute wrapped cached torso yaw minus initial desired heading, radians",
             "support_contact_rule": "summed upward floor/foot force",
             "support_contact_force_threshold_n": self.env.config.contact_force_threshold_n,
             "reference_double_support_match_rule": "per-episode matched/reference double-support ticks; null without reference double support",
@@ -365,7 +385,7 @@ class PaperEvaluator:
         }
 
 
-def selection_summary(report):
+def selection_summary(report, metric="paper_xy_error"):
     """Finite, <=1% falls; minimize per-episode walking error within that gate.
 
     This selects a candidate for held-out confirmation, not a claim of TB parity.
@@ -374,17 +394,20 @@ def selection_summary(report):
     episodes = sum(c["episodes"] for c in conditions)
     falls = sum(c["fall_count"] for c in conditions)
     nonfinite = sum(c["nonfinite_count"] for c in conditions)
-    errors = [
-        v
-        for c in conditions
-        if not c["transitions"]
-        for v in c["per_episode"]["walking"]["xy_error_m_s"]
-        if v is not None
-    ]
-    error = float(np.mean(errors)) if errors else None
+    if metric not in {"paper_xy_error", "paper_reference_xy_error"}:
+        raise ValueError(f"Unknown Paper selection metric: {metric}")
+
+    def average(name):
+        values = [v for c in conditions if not c["transitions"]
+                  for v in c["per_episode"]["walking"].get(name, []) if v is not None]
+        return float(np.mean(values)) if values else None
+
+    error = average("xy_error_m_s")
+    reference_error = average("reference_xy_error_m_s")
+    selected_error = reference_error if metric == "paper_reference_xy_error" else error
     complete = len(conditions) == len(CONDITIONS)
     eligible = (
-        complete and nonfinite == 0 and falls / episodes <= 0.01 and error is not None
+        complete and nonfinite == 0 and falls / episodes <= 0.01 and selected_error is not None
     )
     return {
         "episodes": episodes,
@@ -398,6 +421,12 @@ def selection_summary(report):
         "walking_xy_error_dimensionless": None
         if error is None
         else error / report["froude_velocity_m_s"],
+        "walking_reference_xy_error_m_s": reference_error,
+        "walking_reference_xy_error_TB_equivalent_m_s": None
+        if reference_error is None else reference_error / report["normalization_scale"],
+        "walking_heading_error_abs_rad": average("heading_error_abs_rad"),
+        "selection_metric": metric,
+        "selection_error_m_s": selected_error,
         "tracking_scope": "ten_fixed_nonzero_conditions_per_episode",
         "eligible": eligible,
     }

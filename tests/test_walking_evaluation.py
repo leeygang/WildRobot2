@@ -103,7 +103,8 @@ class WalkingEvaluationTest(unittest.TestCase):
         environments, evaluator_keys, randomization_keys = [], [], []
 
         class FakeEnvironment:
-            def __init__(self, config, *, add_observation_noise):
+            def __init__(self, config, *, add_observation_noise, reward_discounting):
+                assert reward_discounting == load_training_config(TRIAL).ppo.discounting
                 self.config = config
                 environments.append((config, add_observation_noise))
 

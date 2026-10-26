@@ -1,5 +1,10 @@
 # WR2 heading GPU evaluation — progress run 0.29.0
 
+Preparation update: the user selected a
+[heading-error feedback-only experiment](wr2_heading_feedback_experiment_20261025.md)
+first. It adds goal feedback while retaining the body-frame XY training reward.
+The reference-frame reward below remains a separate follow-up candidate.
+
 Run: `wr2_paper_progress_20261025_085931_seed3`.
 Evaluation: `heading_evaluation_gpu`, source `d421547`.
 

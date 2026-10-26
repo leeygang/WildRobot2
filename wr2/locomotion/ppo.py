@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import partial
+import copy
 
 from wr2.locomotion.configs import NetworkConfig
 
@@ -29,3 +30,111 @@ def make_network_factory(config: NetworkConfig):
         # This is its existing default for Normal, and ignored by NormalTanh.
         mean_kernel_init_fn=jax.nn.initializers.lecun_uniform,
     )
+
+
+def expand_heading_params(params, observation_size, history_frames):
+    """Append zero-weight sine/cosine inputs to every Paper history frame."""
+    import jax.numpy as jp
+    import numpy as np
+
+    # Brax environments report flat vectors as either sizes or one-element shapes.
+    observation_size = {key: int(np.prod(size)) for key, size in observation_size.items()}
+
+    original_sizes = {
+        key: params[index]["params"]["hidden_0"]["kernel"].shape[0]
+        for key, index in (("state", 1), ("privileged_state", 2))
+    }
+    if original_sizes == observation_size:
+        return params, None
+    if any(observation_size[key] - size != 2 * history_frames
+           for key, size in original_sizes.items()):
+        raise ValueError("Only two appended heading features per history frame can be restored")
+
+    def extend(value, key, fill=0):
+        size = original_sizes[key]
+        if value.shape[0] != size or size % history_frames:
+            raise ValueError(f"Invalid saved {key} input shape: {value.shape}")
+        blocks = jp.asarray(value).reshape((history_frames, size // history_frames, *value.shape[1:]))
+        extra = jp.full((history_frames, 2, *value.shape[1:]), fill, dtype=value.dtype)
+        return jp.concatenate([blocks, extra], axis=1).reshape((observation_size[key], *value.shape[1:]))
+
+    normalizer = params[0].replace(
+        mean={key: extend(value, key) for key, value in params[0].mean.items()},
+        summed_variance={key: extend(value, key) for key, value in params[0].summed_variance.items()},
+        std={key: extend(value, key, 1) for key, value in params[0].std.items()},
+    )
+    policy, value = copy.deepcopy(params[1:])
+    for network, key in ((policy, "state"), (value, "privileged_state")):
+        network["params"]["hidden_0"]["kernel"] = extend(
+            network["params"]["hidden_0"]["kernel"], key,
+        )
+    report = {
+        "kind": "zero_extended_heading_error_inputs",
+        "history_frames": history_frames,
+        "original_input_sizes": original_sizes,
+        "restored_input_sizes": dict(observation_size),
+        "new_input_weights": "zeros", "new_normalizer_std": 1,
+    }
+    return (normalizer, policy, value), report
+
+
+def prepare_heading_restore(path, environment, network_config, normalize_observations):
+    """Load/expand a Paper checkpoint and verify unchanged initial predictions."""
+    import hashlib
+    import jax
+    import jax.numpy as jp
+    import numpy as np
+    from brax.training import types
+    from brax.training.acme import running_statistics
+    from brax.training.agents.ppo import checkpoint
+
+    original = checkpoint.load(str(path.resolve()))
+    if any(not np.isfinite(np.asarray(value)).all() for value in jax.tree.leaves(original)):
+        raise ValueError("Restore checkpoint contains nonfinite parameters")
+    restored, report = expand_heading_params(
+        original, environment.observation_size, environment._observation_history_frames,
+    )
+    if report is None:
+        return restored, None
+    factory = make_network_factory(network_config)
+    preprocess = running_statistics.normalize if normalize_observations else types.identity_observation_preprocessor
+    old = factory(report["original_input_sizes"], environment.action_size,
+                  preprocess_observations_fn=preprocess)
+    new = factory(report["restored_input_sizes"], environment.action_size,
+                  preprocess_observations_fn=preprocess)
+    rng = np.random.default_rng(0)
+    before, after = {}, {}
+    frames = environment._observation_history_frames
+    for key, size in report["original_input_sizes"].items():
+        before[key] = jp.asarray(rng.normal(0, .1, (16, size)), dtype=jp.float32)
+        angle = jp.asarray(rng.uniform(-np.pi, np.pi, (16, frames)), dtype=jp.float32)
+        feedback = jp.stack([jp.sin(angle), jp.cos(angle)], axis=-1)
+        after[key] = jp.concatenate([
+            before[key].reshape(16, frames, size // frames), feedback,
+        ], axis=2).reshape(16, report["restored_input_sizes"][key])
+    # Compare the coordinate mapping at explicit precision; GPU autotuning of
+    # different input widths must not be mistaken for a changed policy.
+    with jax.default_matmul_precision("high"):
+        old_logits = old.policy_network.apply(*original[:2], before)
+        new_logits = new.policy_network.apply(*restored[:2], after)
+        old_values = old.value_network.apply(original[0], original[2], before)
+        new_values = new.value_network.apply(restored[0], restored[2], after)
+    comparisons = {
+        "policy_logits": (old_logits, new_logits),
+        "policy_actions": (old.parametric_action_distribution.mode(old_logits),
+                           new.parametric_action_distribution.mode(new_logits)),
+        "critic_values": (old_values, new_values),
+    }
+    report["verification_matmul_precision"] = "high"
+    for name, (expected, actual) in comparisons.items():
+        np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-6)
+        report[f"maximum_{name}_error"] = float(np.max(np.abs(np.asarray(actual) - np.asarray(expected))))
+    digest = hashlib.sha256()
+    for leaf in jax.tree.leaves(original):
+        array = np.asarray(leaf)
+        digest.update(str(array.shape).encode())
+        digest.update(str(array.dtype).encode())
+        digest.update(array.tobytes())
+    report["source_parameter_sha256"] = digest.hexdigest()
+    report["source_checkpoint"] = str(path.resolve())
+    return restored, report

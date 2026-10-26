@@ -615,6 +615,7 @@ class WR2WalkingEnv(PipelineEnv):
             return self._paper_observation(
                 pipeline_state, previous_action, command, gait_phase, rng, imu_state,
                 foot_contact, reference_time_s, last_euler, push_linear, push_angular,
+                reference_heading,
             )
         joint_position = pipeline_state.q[self._joint_qpos_indices]
         joint_velocity = pipeline_state.qd[self._joint_qvel_indices]
@@ -785,7 +786,8 @@ class WR2WalkingEnv(PipelineEnv):
         return {"state": actor, "privileged_state": privileged}, next_imu_state
 
     def _paper_observation(self, pipeline, last_action, command, phase, rng, imu,
-                           contact, time_s, last_euler, push_linear, push_angular):
+                           contact, time_s, last_euler, push_linear, push_angular,
+                           reference_heading):
         motor = pipeline.q[self._joint_qpos_indices]
         velocity = pipeline.qd[self._joint_qvel_indices]
         quat, angular, linear, _ = self._kinematic_observation(pipeline)
@@ -823,6 +825,14 @@ class WR2WalkingEnv(PipelineEnv):
             jp.zeros(3) if push_linear is None else push_linear / scale,
             jp.zeros(3) if push_angular is None else push_angular * scale,
         ])
+        if self.config.heading_observation:
+            # Derive the actor's feedback from the same noisy yaw measurement
+            # it already observes; apply noise before adding the two features.
+            error = actor[-1] - reference_heading
+            actor = jp.concatenate([actor, jp.stack([jp.sin(error), jp.cos(error)])])
+            privileged = jp.concatenate([
+                privileged, heading_features(quat, reference_heading),
+            ])
         return {"state": actor, "privileged_state": privileged}, imu
 
     def _contact_forces(self, pipeline_state) -> jax.Array:
@@ -1725,6 +1735,7 @@ class WR2WalkingEnv(PipelineEnv):
         frames, imu = self._observation(
             pipeline, state.info["last_applied_action"], command, phase, observation_rng,
             state.info["imu_state"], state.info["backlash"], contact, reference_contact,
+            reference_heading=heading,
             reference_time_s=time_s, last_euler=state.info["last_euler"],
             push_linear=push_linear, push_angular=push_angular,
         )

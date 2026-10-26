@@ -493,7 +493,7 @@ def evaluate_paper_checkpoint(args):
         report = PaperEvaluator(env, make_policy, args.num_envs, randomize, seed=seed,
                                engineering_horizon=args.engineering_horizon,
                                pushes=getattr(args, "pushes", None)).evaluate(params)
-        reports.append({"summary": selection_summary(report), **report})
+        reports.append({"summary": selection_summary(report, config.checkpoints.selection_metric), **report})
     return {
         "checkpoint": str(checkpoint_path), "config": str(args.config.resolve()),
         "training_config_version": config.version,

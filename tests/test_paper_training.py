@@ -12,7 +12,7 @@ from brax.envs.base import Env, State
 
 from wr2.locomotion.configs import load_training_config
 from wr2.locomotion.paper_evaluation import PaperEvaluator
-from wr2.locomotion.ppo import make_network_factory
+from wr2.locomotion.ppo import expand_heading_params, make_network_factory, prepare_heading_restore
 
 CONFIG = (
     Path(__file__).resolve().parents[1]
@@ -138,6 +138,78 @@ def test_native_ppo_update_and_parameter_only_restore(tmp_path):
         jax.tree.leaves(restored), jax.tree.leaves(received[0][1]), strict=True
     ):
         np.testing.assert_array_equal(original, loaded)
+
+
+def test_heading_expansion_preserves_each_history_frame_and_normalizer():
+    from brax.training.acme import running_statistics
+
+    history = 3
+    sizes = {"state": 15, "privileged_state": 21}
+    normalizer = running_statistics.init_state({key: jp.zeros(size) for key, size in sizes.items()})
+    normalizer = normalizer.replace(
+        mean={key: jp.arange(size, dtype=jp.float32) for key, size in sizes.items()},
+        std={key: jp.arange(size, dtype=jp.float32) + 1 for key, size in sizes.items()},
+    )
+    networks = [{"params": {"hidden_0": {
+        "kernel": jp.arange(size*2, dtype=jp.float32).reshape(size, 2),
+        "bias": jp.ones(2),
+    }}} for size in sizes.values()]
+    original = (normalizer, *networks)
+    expanded, report = expand_heading_params(original, {"state": 21, "privileged_state": 27}, history)
+    assert report["new_input_weights"] == "zeros"
+    for index, (key, size) in enumerate(sizes.items(), start=1):
+        kernel = expanded[index]["params"]["hidden_0"]["kernel"].reshape(history, size//history+2, 2)
+        np.testing.assert_array_equal(kernel[:, :size//history], original[index]["params"]["hidden_0"]["kernel"].reshape(history, size//history, 2))
+        np.testing.assert_array_equal(kernel[:, -2:], 0)
+        np.testing.assert_array_equal(expanded[0].mean[key].reshape(history, -1)[:, :-2], normalizer.mean[key].reshape(history, -1))
+        np.testing.assert_array_equal(expanded[0].std[key].reshape(history, -1)[:, -2:], 1)
+        assert original[index]["params"]["hidden_0"]["kernel"].shape == (size, 2)
+    unchanged, report = expand_heading_params(expanded, {"state": 21, "privileged_state": 27}, history)
+    assert unchanged is expanded and report is None
+
+
+def test_native_heading_checkpoint_restore_and_ppo_update(tmp_path):
+    from brax.training.acme import running_statistics
+    from brax.training.agents.ppo import checkpoint, train
+    from brax.training.agents.ppo.optimizer import LRSchedule
+
+    class HeadingEnv(TinyTrainingEnv):
+        _observation_history_frames = 15
+
+        @property
+        def observation_size(self):
+            return {"state": (1005,), "privileged_state": (1515,)}
+
+    config = load_training_config(CONFIG)
+    factory = make_network_factory(config.network)
+    old_env = TinyTrainingEnv()
+    nets = factory(old_env.observation_size, old_env.action_size)
+    original = (running_statistics.init_state(old_env.reset(jax.random.PRNGKey(0)).obs),
+                nets.policy_network.init(jax.random.PRNGKey(1)),
+                nets.value_network.init(jax.random.PRNGKey(2)))
+    checkpoint.save(tmp_path, 1, original, checkpoint.network_config(
+        old_env.observation_size, old_env.action_size, False, factory,
+    ))
+    env = HeadingEnv()
+    restored, report = prepare_heading_restore(tmp_path / "000000000001", env,
+                                               config.network, False)
+    assert report["maximum_policy_actions_error"] < 1e-6
+    assert report["original_input_sizes"] == old_env.observation_size
+    received = []
+    _, params, metrics = train.train(
+        environment=env, num_timesteps=80, num_envs=4, episode_length=20,
+        num_evals=2, num_eval_envs=1, unroll_length=20, batch_size=1,
+        num_minibatches=4, num_updates_per_batch=4, normalize_observations=False,
+        learning_rate=1e-4, learning_rate_schedule=LRSchedule.NONE,
+        network_factory=factory, restore_params=restored, seed=0,
+        policy_params_fn=lambda step, fn, pp: received.append((int(step), pp)),
+    )
+    assert received[0][0] == 0 and received[-1][0] == 80
+    for before, after in zip(jax.tree.leaves(restored), jax.tree.leaves(received[0][1]), strict=True):
+        np.testing.assert_array_equal(before, after)
+    assert all(np.isfinite(np.asarray(x)).all() for x in jax.tree.leaves(params))
+    assert all(np.isfinite(np.asarray(x)).all() for x in metrics.values())
+    assert any(not np.array_equal(a, b) for a, b in zip(jax.tree.leaves(restored[1]), jax.tree.leaves(params[1]), strict=True))
 
 
 def test_paper_evaluation_loads_relative_brax_checkpoint(tmp_path, monkeypatch):
