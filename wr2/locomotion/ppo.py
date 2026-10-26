@@ -112,23 +112,43 @@ def prepare_heading_restore(path, environment, network_config, normalize_observa
         after[key] = jp.concatenate([
             before[key].reshape(16, frames, size // frames), feedback,
         ], axis=2).reshape(16, report["restored_input_sizes"][key])
-    # Compare the coordinate mapping at explicit precision; GPU autotuning of
-    # different input widths must not be mistaken for a changed policy.
-    with jax.default_matmul_precision("high"):
-        old_logits = old.policy_network.apply(*original[:2], before)
-        new_logits = new.policy_network.apply(*restored[:2], after)
-        old_values = old.value_network.apply(original[0], original[2], before)
-        new_values = new.value_network.apply(restored[0], restored[2], after)
-    comparisons = {
-        "policy_logits": (old_logits, new_logits),
-        "policy_actions": (old.parametric_action_distribution.mode(old_logits),
-                           new.parametric_action_distribution.mode(new_logits)),
-        "critic_values": (old_values, new_values),
-    }
-    report["verification_matmul_precision"] = "high"
-    for name, (expected, actual) in comparisons.items():
-        np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-6)
+    def predictions(networks, params, observations):
+        logits = networks.policy_network.apply(*params[:2], observations)
+        return {
+            "policy_logits": np.asarray(logits),
+            "policy_actions": np.asarray(networks.parametric_action_distribution.mode(logits)),
+            "critic_values": np.asarray(networks.value_network.apply(params[0], params[2], observations)),
+        }
+
+    # Record native arithmetic, but prove the mapping on CPU in float64.
+    # Adding zero-weight columns changes GPU GEMM shapes/rounding, even at
+    # "high" precision. This eager verification scope does not affect PPO.
+    native_before = predictions(old, original, before)
+    native_after = predictions(new, restored, after)
+    report["native_backend"] = jax.default_backend()
+    report["native_matmul_precision"] = jax.config.jax_default_matmul_precision
+    cpu = jax.devices("cpu")[0]
+    with jax.default_device(cpu), jax.experimental.enable_x64(), jax.default_matmul_precision("highest"):
+        cpu_original, cpu_restored, cpu_before, cpu_after = jax.device_put(
+            (original, restored, before, after), cpu,
+        )
+        cpu_before = jax.tree.map(lambda value: jp.asarray(value, dtype=jp.float64), cpu_before)
+        cpu_after = jax.tree.map(lambda value: jp.asarray(value, dtype=jp.float64), cpu_after)
+        verified_before = predictions(old, cpu_original, cpu_before)
+        verified_after = predictions(new, cpu_restored, cpu_after)
+    report["verification_backend"] = "cpu"
+    report["verification_dtype"] = "float64"
+    report["verification_matmul_precision"] = "highest"
+    for name, expected in verified_before.items():
+        actual = verified_after[name]
+        if expected.dtype != np.float64 or actual.dtype != np.float64:
+            raise ValueError(f"Heading restore verification requires float64 {name}")
+        np.testing.assert_allclose(actual, expected, rtol=1e-10, atol=1e-12,
+                                   err_msg=f"Heading restore changed {name}")
         report[f"maximum_{name}_error"] = float(np.max(np.abs(np.asarray(actual) - np.asarray(expected))))
+        if not np.isfinite(native_before[name]).all() or not np.isfinite(native_after[name]).all():
+            raise ValueError(f"Heading restore produced nonfinite native {name}")
+        report[f"native_maximum_{name}_error"] = float(np.max(np.abs(native_after[name] - native_before[name])))
     digest = hashlib.sha256()
     for leaf in jax.tree.leaves(original):
         array = np.asarray(leaf)

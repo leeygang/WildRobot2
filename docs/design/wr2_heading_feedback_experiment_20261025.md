@@ -49,8 +49,10 @@ inserting **zero weights** at the two new columns in every frame. Existing
 weights/biases, actor distribution and critic are retained. Normalizer history
 is mapped identically, with mean/variance0 and standard deviation1 for the new
 fields. Logits, deterministic actions and critic outputs are checked before
-training at explicit high matrix precision; this verification setting does not
-change the training precision. The conversion is saved in `restore_report.json` and run provenance.
+training in an isolated CPU float64 scope, using the same native Brax networks.
+Native float32 differences are logged separately. The verification scope
+preserves the training backend, precision and checkpoint parameter dtypes.
+The conversion is saved in `restore_report.json` and run provenance.
 Native Brax restores parameters with new Adam state and a new step counter.
 
 ## Evaluation and checkpoints
@@ -112,3 +114,26 @@ preflight and **20 restored-policy physics steps**, with actor1005/critic1515,
 finite state/reward and no fall. A native Brax PPO update also passed with the
 expanded restored parameters. Legacy evaluation regression checks include the
 existing discount parameter in their test fixture.
+
+### GPU startup verification fix
+
+The first GPU launch stopped before PPO started: the expanded network's
+float32 policy logits differed by up to **9.82e-5**, exceeding the original
+float32 comparison tolerance. Changing the input width changes GPU matrix
+arithmetic even when every added weight is zero. The earlier saved GPU
+`ppo_learning_diagnostic_v2/replay/report.json` independently showed that
+`"high"` precision did not eliminate reconstruction differences; JAX's
+[matrix precision setting](https://docs.jax.dev/en/latest/_autosummary/jax.default_matmul_precision.html)
+controls arithmetic accuracy, rather than guaranteeing identical results for
+different matrix shapes.
+
+The corrected startup check verifies the conversion on CPU in float64 with
+`rtol=1e-10, atol=1e-12`, while retaining native float32 differences in the
+restore report. On the actual 300M checkpoint, maximum float64 differences
+are **8.9e-16 for logits, 2.2e-16 for actions and 4.4e-15 for critic values**.
+Regression checks accept a simulated 1e-4 native float32 discrepancy, reject a
+nonzero 1e-5 weight in an added heading column, and cover both observation
+normalization settings. The native restore/PPO update also passes. This fix
+changes only startup verification; the heading experiment and training
+precision retain their intended settings. GPU execution of the corrected
+startup check still needs confirmation on the GPU host.

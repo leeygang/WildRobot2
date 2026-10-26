@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import jax
 import jax.numpy as jp
 import numpy as np
+import pytest
 from brax import base
 from brax.envs.base import Env, State
 
@@ -210,6 +211,73 @@ def test_native_heading_checkpoint_restore_and_ppo_update(tmp_path):
     assert all(np.isfinite(np.asarray(x)).all() for x in jax.tree.leaves(params))
     assert all(np.isfinite(np.asarray(x)).all() for x in metrics.values())
     assert any(not np.array_equal(a, b) for a, b in zip(jax.tree.leaves(restored[1]), jax.tree.leaves(params[1]), strict=True))
+
+
+@pytest.mark.parametrize("normalize", [False, True])
+@pytest.mark.parametrize("corrupt_mapping", [False, True])
+def test_heading_restore_distinguishes_native_roundoff_from_changed_mapping(
+    tmp_path, monkeypatch, normalize, corrupt_mapping,
+):
+    from brax.training.acme import running_statistics
+    from brax.training.agents.ppo import checkpoint
+    from wr2.locomotion import ppo
+
+    config = load_training_config(CONFIG)
+    old_env = TinyTrainingEnv()
+    factory = make_network_factory(config.network)
+    nets = factory(old_env.observation_size, old_env.action_size)
+    normalizer = running_statistics.init_state(old_env.reset(jax.random.PRNGKey(0)).obs)
+    normalizer = normalizer.replace(
+        mean={key: jp.arange(size, dtype=jp.float32) / 1000 for key, size in old_env.observation_size.items()},
+        std={key: 0.5 + jp.arange(size, dtype=jp.float32) / 1000 for key, size in old_env.observation_size.items()},
+    )
+    original = (normalizer, nets.policy_network.init(jax.random.PRNGKey(1)),
+                nets.value_network.init(jax.random.PRNGKey(2)))
+    checkpoint.save(tmp_path, 1, original, checkpoint.network_config(
+        old_env.observation_size, old_env.action_size, normalize, factory,
+    ))
+    env = SimpleNamespace(observation_size={"state": (1005,), "privileged_state": (1515,)},
+                          action_size=12, _observation_history_frames=15)
+
+    def rounded_factory(*args, **kwargs):
+        networks = factory(*args, **kwargs)
+        if args[0]["state"] == 1005:
+            apply = networks.policy_network.apply
+
+            def rounded_apply(*inputs):
+                result = apply(*inputs)
+                # Reproduce the GPU's width-dependent float32 difference on CPU.
+                return result + 1e-4 if result.dtype == jp.float32 else result
+
+            networks = networks.replace(policy_network=replace(
+                networks.policy_network, apply=rounded_apply,
+            ))
+        return networks
+
+    monkeypatch.setattr(ppo, "make_network_factory", lambda config: rounded_factory)
+    if corrupt_mapping:
+        def corrupted_expansion(*args):
+            expanded, report = expand_heading_params(*args)
+            kernel = expanded[1]["params"]["hidden_0"]["kernel"]
+            expanded[1]["params"]["hidden_0"]["kernel"] = kernel.at[65, 0].set(1e-5)
+            return expanded, report
+
+        monkeypatch.setattr(ppo, "expand_heading_params", corrupted_expansion)
+    settings = (jax.config.jax_enable_x64, jax.config.jax_default_matmul_precision,
+                jax.config.jax_default_device)
+    if corrupt_mapping:
+        with pytest.raises(AssertionError, match="Heading restore changed policy_logits"):
+            prepare_heading_restore(tmp_path / "000000000001", env, config.network, normalize)
+    else:
+        restored, report = prepare_heading_restore(tmp_path / "000000000001", env, config.network, normalize)
+        assert report["verification_backend"] == "cpu"
+        assert report["verification_dtype"] == "float64"
+        assert report["maximum_policy_logits_error"] < 1e-10
+        assert 9e-5 < report["native_maximum_policy_logits_error"] < 2e-4
+        assert all(np.asarray(after).dtype == np.asarray(before).dtype
+                   for before, after in zip(jax.tree.leaves(original), jax.tree.leaves(restored), strict=True))
+    assert settings == (jax.config.jax_enable_x64, jax.config.jax_default_matmul_precision,
+                        jax.config.jax_default_device)
 
 
 def test_paper_evaluation_loads_relative_brax_checkpoint(tmp_path, monkeypatch):
