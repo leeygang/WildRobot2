@@ -214,10 +214,14 @@ the report includes the prepared larger GPU confirmation command.
 The [completed GPU review](docs/design/wr2_heading_gpu_review_20261025.md)
 confirms that direction loss over 256 episodes per command. At .20, 120M/200M
 achieve similar requested-direction progress; 200M has two sampled falls.
-The [heading-feedback experiment](docs/design/wr2_heading_feedback_experiment_20261025.md)
-prepares a 200M continuation from 300M with added actor/critic heading-error
-inputs. Checkpoint expansion is automatic in the standard trainer; training
-reward formulas and weights retain the current setup.
+The [heading-feedback continuation completed](docs/design/wr2_heading_feedback_result_20261026.md)
+at +200M from 300M. Selected +173M cuts held-out mean heading error
+11.8°→5.8°, with zero primary falls. A small Mac .20 comparison improves
+requested-direction speed .099→.162 TB m/s; +120M is straighter than the
+selected/final candidates. Foot self-contact increases. The report includes
+the next GPU comparison and visual-evaluation commands; the
+[experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
+the previous training reward formulas and weights.
 The [PPO learning-direction diagnostic](docs/design/wr2_ppo_learning_diagnostic_20261023.md)
 is prepared to measure normal stochastic learning at WR2 80M/120M and native
 TB Paper 80M/200M. It verifies reward/advantage/actor-gradient reconstruction

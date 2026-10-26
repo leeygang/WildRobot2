@@ -1,5 +1,8 @@
 # Heading-error feedback experiment — 0.30.0
 
+The 200M continuation completed. See the
+[result and retained-checkpoint comparison](wr2_heading_feedback_result_20261026.md).
+
 ## Question and scope
 
 Does giving actor and critic the desired-heading error let PPO use the existing
