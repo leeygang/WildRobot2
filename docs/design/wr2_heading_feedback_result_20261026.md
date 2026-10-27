@@ -1,5 +1,8 @@
 # Heading-feedback continuation result — 2026-10-26
 
+The subsequent [GPU comparison is complete](wr2_heading_feedback_gpu_review_20261026.md).
+It confirms the improvement and resolves the +120M/+173M speed-versus-turn tradeoff.
+
 ## Result
 
 Run: `results/wr2_walking/wr2_paper_heading_feedback_20261025_201358_seed3`.

@@ -216,10 +216,12 @@ confirms that direction loss over 256 episodes per command. At .20, 120M/200M
 achieve similar requested-direction progress; 200M has two sampled falls.
 The [heading-feedback continuation completed](docs/design/wr2_heading_feedback_result_20261026.md)
 at +200M from 300M. Selected +173M cuts held-out mean heading error
-11.8°→5.8°, with zero primary falls. A small Mac .20 comparison improves
-requested-direction speed .099→.162 TB m/s; +120M is straighter than the
-selected/final candidates. Foot self-contact increases. The report includes
-the next GPU comparison and visual-evaluation commands; the
+11.8°→5.8°, with zero primary falls. The
+[completed GPU comparison](docs/design/wr2_heading_feedback_gpu_review_20261026.md)
+confirms .20 requested-direction speed .103→.162 TB m/s and net turn
+80°→28°, with zero falls across2,304 randomized attempts. +120M is straighter
+(13.5°) but slower(.154 TB m/s), with better sampled contact-phase agreement.
+The review prepares its full held-out confirmation before choosing the next baseline; the
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.
 The [PPO learning-direction diagnostic](docs/design/wr2_ppo_learning_diagnostic_20261023.md)
