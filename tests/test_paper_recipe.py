@@ -497,6 +497,80 @@ def test_paper_step_heading_feedback_uses_updated_goal_and_preserves_rewards(pap
     np.testing.assert_allclose(after.obs["state"][67:134], before.obs["state"][:67], atol=1e-7)
 
 
+def test_goal_xy_config_changes_only_reward_frame_and_run_identity():
+    baseline = load_training_config(CONFIG.with_name("ppo_walking_heading_feedback.yaml"))
+    goal = load_training_config(CONFIG.with_name("ppo_walking_goal_xy.yaml"))
+    assert baseline.environment.reference_frame_xy_tracking is False
+    assert goal.environment.reference_frame_xy_tracking is True
+    assert goal.ppo.num_timesteps == 200_000_000
+    assert goal.environment.heading_observation
+    assert replace(goal, version=baseline.version, version_name=baseline.version_name,
+                   environment=replace(goal.environment, reference_frame_xy_tracking=False),
+                   output=baseline.output) == baseline
+
+
+@pytest.mark.parametrize("heading, frame", [(False, True), (True, "true")])
+def test_goal_xy_config_requires_heading_feedback_and_boolean_flag(tmp_path, heading, frame):
+    import yaml
+
+    raw = yaml.safe_load(CONFIG.with_name("ppo_walking_goal_xy.yaml").read_text())
+    raw["environment"].update(heading_observation=heading, reference_frame_xy_tracking=frame)
+    path = tmp_path / "invalid_goal.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match="heading observations|must be true or false"):
+        load_training_config(path)
+
+
+@pytest.mark.parametrize("heading, yaw_error, pitch, world_error", [
+    (0.0, 0.0, 0.0, 0.0), (1.2, 0.0, 0.0, 0.0),
+    (0.0, np.pi/3, 0.0, 0.0), (1.2, np.pi/3, 0.0, 0.0),
+    (1.2, np.pi/3, .2, 0.0), (1.2, np.pi/3, 0.0, np.pi/3),
+])
+def test_goal_xy_reward_uses_desired_frame_without_changing_other_terms(
+    paper_env, monkeypatch, heading, yaw_error, pitch, world_error,
+):
+    from unittest.mock import patch
+
+    config = replace(paper_env.config, heading_observation=True,
+                     rewards=replace(paper_env.config.rewards, lin_vel_xy=15.0))
+    with patch("wr2.locomotion.walking_env.PaperWalkReference", return_value=paper_env._zmp_reference):
+        body = WR2WalkingEnv(config, add_observation_noise=False)
+        goal = WR2WalkingEnv(replace(config, reference_frame_xy_tracking=True),
+                            add_observation_noise=False)
+    command = jp.asarray([.1*config.normalization_scale, 0., 0.])
+    before = jax.jit(body.reset)(jax.random.PRNGKey(0), command)
+    before = before.replace(info={**before.info, "reference_heading": jp.asarray(heading)})
+    yaw = heading+yaw_error
+    quat = jp.asarray([np.cos(yaw/2)*np.cos(pitch/2), -np.sin(yaw/2)*np.sin(pitch/2),
+                       np.cos(yaw/2)*np.sin(pitch/2), np.sin(yaw/2)*np.cos(pitch/2)])
+    world = jp.asarray([.1*config.normalization_scale*np.cos(heading+world_error),
+                        .1*config.normalization_scale*np.sin(heading+world_error), .02])
+    pipeline = before.pipeline_state.replace(
+        x=before.pipeline_state.x.replace(rot=before.pipeline_state.x.rot.at[body._root_link_index].set(quat)),
+        xd=before.pipeline_state.xd.replace(vel=before.pipeline_state.xd.vel.at[body._root_link_index].set(world)),
+    )
+    # Analytic cached samples distinguish commanded-world translation from
+    # walking along a turned body's forward axis; include torso pitch and Z.
+    for env in (body, goal):
+        monkeypatch.setattr(env, "_pipeline_step_target", lambda *args, **kwargs: pipeline)
+    original = body.step(before, jp.zeros(12))
+    actual = goal.step(before, jp.zeros(12))
+    dt = body.robot.control_period_s
+    body_x = .1*np.cos(world_error-yaw_error)*np.cos(pitch) - .02/config.normalization_scale*np.sin(pitch)
+    body_y = .1*np.sin(world_error-yaw_error)
+    body_xy = np.exp(-100*((body_x-.1)**2+body_y**2))
+    goal_xy = np.exp(-2*(1-np.cos(world_error)))
+    assert float(original.metrics["paper_reward/lin_vel_xy"]) == pytest.approx(15*dt*body_xy, abs=1e-6)
+    assert float(actual.metrics["paper_reward/lin_vel_xy"]) == pytest.approx(15*dt*goal_xy, abs=1e-6)
+    assert float(actual.reward-original.reward) == pytest.approx(15*dt*(goal_xy-body_xy), abs=2e-6)
+    for name in original.metrics:
+        if name != "paper_reward/lin_vel_xy" and name not in {"reward", "reward_per_step", "velocity_xy", "velocity_tracking_per_step"}:
+            np.testing.assert_array_equal(actual.metrics[name], original.metrics[name])
+    for name in original.obs:
+        np.testing.assert_array_equal(actual.obs[name], original.obs[name])
+    np.testing.assert_array_equal(actual.pipeline_state.q, original.pipeline_state.q)
+
+
 def test_delayed_actions_and_native_auto_reset_preserve_paper_timing(paper_env):
     from brax.envs import training
 

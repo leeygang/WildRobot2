@@ -156,4 +156,5 @@ Sources: local TB Paper `mjx_env.py` and `evaluate_xy.py`;
 Validated summaries, per-condition comparisons, paired intervals, checkpoint/
 source hashes and the failure record are in
 `results/wr2_walking/wr2_paper_heading_feedback_20261025_201358_seed3/review_120_confirmation_20261026/analysis.json`.
-The next training experiment is a proposal following this qualification.
+The [goal-frame XY continuation](wr2_goal_frame_xy_experiment_20261026.md)
+is implemented and ready with the standard trainer.

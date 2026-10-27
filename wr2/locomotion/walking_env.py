@@ -1718,6 +1718,14 @@ class WR2WalkingEnv(PipelineEnv):
             scale=self.config.normalization_scale,
             deadzone=self.config.command_active_threshold_m_s / self.config.normalization_scale,
         )
+        if self.config.reference_frame_xy_tracking:
+            # Use the updated goal heading shared with orientation/observations.
+            reference_linear = _inverse_rotate_vector(
+                reference_quat, pipeline.xd.vel[self._root_link_index],
+            ) / self.config.normalization_scale
+            terms["lin_vel_xy"] = jp.exp(-100 * jp.sum(
+                (reference_linear[:2] - command[:2] / self.config.normalization_scale) ** 2
+            ))
         if self._air_time_min_stance_steps:
             scale = self.config.normalization_scale
             active = jp.linalg.norm(command * jp.asarray([1 / scale, 1 / scale, scale])) > (

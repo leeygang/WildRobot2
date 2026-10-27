@@ -532,6 +532,9 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         f"{training_config.environment.gait_cycle_s:.2f}s cycle, "
         f"{training_config.environment.swing_height_m:.3f}m swing"
     )
+    if paper_recipe:
+        frame = "reference heading" if environment.config.reference_frame_xy_tracking else "body"
+        print(f"  XY reward:    {frame} frame; weight={environment.config.rewards.lin_vel_xy:g}")
     zmp = environment.zmp_reference_diagnostics
     print(
         "  ZMP lookup:   "

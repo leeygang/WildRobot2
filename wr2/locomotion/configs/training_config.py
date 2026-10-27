@@ -168,6 +168,7 @@ class WalkingEnvConfig:
     push_angular_velocity_rad_s: float = 0.0
     max_feet_lateral_distance_m: float = 0.13
     air_time_min_stance_s: float = 0.0
+    reference_frame_xy_tracking: bool = False
 
 
 @dataclass(frozen=True)
@@ -388,7 +389,7 @@ def load_training_config(
     integer_fields = {
         "episode_length", "solver_iterations", "action_delay_steps", "command_resample_steps"
     }
-    boolean_fields = {"randomize_gait_phase_on_reset", "heading_observation"}
+    boolean_fields = {"randomize_gait_phase_on_reset", "heading_observation", "reference_frame_xy_tracking"}
     vector_fields = {"pose_weights"}
     float_fields = (
         env_fields
@@ -432,6 +433,9 @@ def load_training_config(
         heading_observation=_bool(
             env_raw["heading_observation"], "environment.heading_observation"
         ),
+        reference_frame_xy_tracking=_bool(
+            env_raw["reference_frame_xy_tracking"], "environment.reference_frame_xy_tracking"
+        ),
         episode_length=_positive_int(
             env_raw["episode_length"], "environment.episode_length"
         ),
@@ -466,6 +470,8 @@ def load_training_config(
         raise ValueError("environment.air_time_min_stance_s must be non-negative")
     if environment.air_time_min_stance_s > 0 and recipe != "tb_paper":
         raise ValueError("qualified air time requires the paper recipe")
+    if environment.reference_frame_xy_tracking and (recipe != "tb_paper" or not environment.heading_observation):
+        raise ValueError("reference-frame XY tracking requires the paper recipe and heading observations")
     if not 0 <= environment.turn_command_probability <= 1 - environment.zero_command_probability:
         raise ValueError("standing and turning probabilities must sum to at most one")
     if environment.push_interval_steps < 0 or min(environment.push_linear_velocity_m_s, environment.push_angular_velocity_rad_s) < 0:
