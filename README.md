@@ -221,7 +221,11 @@ at +200M from 300M. Selected +173M cuts held-out mean heading error
 confirms .20 requested-direction speed .103→.162 TB m/s and net turn
 80°→28°, with zero falls across2,304 randomized attempts. +120M is straighter
 (13.5°) but slower(.154 TB m/s), with better sampled contact-phase agreement.
-The review prepares its full held-out confirmation before choosing the next baseline; the
+The [full +120M confirmation](docs/design/wr2_heading_feedback_120_confirmation_20261026.md)
+passes both seeds with1/3,840 falls(held-out0/1,920). Lower foot self-contact
+and better phase agreement support it as the next forward-walking baseline;
+aggregate tracking/standing still favor+173M. The next proposed experiment
+changes only the XY reward frame. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.
 The [PPO learning-direction diagnostic](docs/design/wr2_ppo_learning_diagnostic_20261023.md)

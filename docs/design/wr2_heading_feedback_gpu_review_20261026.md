@@ -1,5 +1,8 @@
 # Heading-feedback GPU comparison — 2026-10-26
 
+The subsequent [full +120M confirmation completed](wr2_heading_feedback_120_confirmation_20261026.md).
+It passes the qualification gate and supports+120M as the next forward-walking baseline.
+
 ## Conclusion
 
 The larger GPU evaluation confirms the continuation's improvement. All
