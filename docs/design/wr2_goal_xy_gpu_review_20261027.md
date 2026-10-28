@@ -1,5 +1,10 @@
 # Goal-frame XY GPU comparison and shoulder rocking — 2026-10-27
 
+**Update:** the [completed final standard confirmation](wr2_goal_xy_final_confirmation_20261027.md)
+passes both seeds with 0/3,840 terminations. Final +200M qualifies for the forward
+priority; commanded turning is outside this zero-yaw suite. This closes the
+pending confirmation step below.
+
 ## Conclusion
 
 The GPU comparison confirms **goal+200M as the stronger .15/.20 forward
