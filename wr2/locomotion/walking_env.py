@@ -411,9 +411,9 @@ class WR2WalkingEnv(PipelineEnv):
                 normalization_scale=self.config.normalization_scale,
             )
             self._default_qpos = jp.asarray(self._zmp_reference.standing_qpos)
-            # TB's action origin and standing initialization share a fixed
-            # crouched home. This is constant for the entire paper run; the
-            # time-varying walking reference is used only for imitation/critic.
+            # WR2 uses the grounded reference pose as its fixed action and
+            # observation origin. TB uses model default joints; these choices
+            # can have different hip-pitch coverage. Walking imitation is moving.
             self._home_ctrl = self._default_qpos[self._joint_qpos_indices]
             self._joint_velocity_observation_scale *= self.config.normalization_scale
             self._privileged_linear_velocity_scale /= self.config.normalization_scale

@@ -1,5 +1,7 @@
 # Goal-frame XY continuation — 0.31.0
 
+The run completed. See the [result and next action-space audit](wr2_goal_xy_result_20261027.md).
+
 ## Purpose and evidence
 
 Continue the qualified+120M heading-feedback policy for200M additional PPO

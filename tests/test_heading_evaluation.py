@@ -122,7 +122,7 @@ def test_rollout_counts_one_fall_and_one_invalid_transition_without_reset():
                                  info={**state.info, "step": tick})
 
     def policy(obs, key):
-        return jp.zeros((2, 1)), {}
+        return jp.asarray([[-.999], [.25]]), {}
 
     def rewards(before, after):
         return jp.zeros((2, 3)), after.metrics["fall"] > 0, before.info["command"]
@@ -130,6 +130,7 @@ def test_rollout_counts_one_fall_and_one_invalid_transition_without_reset():
     raw = heading_rollout(Episodes(), policy, jax.random.split(jax.random.PRNGKey(0), 2),
                           jp.tile(jp.asarray([.1, 0, 0]), (2, 1)), 6, 0, rewards)
     trace = jax.device_get(raw)
+    np.testing.assert_allclose(trace["actor_action"], np.tile([[[-.999], [.25]]], (6, 1, 1)), atol=1e-7)
     np.testing.assert_array_equal(trace["valid"].sum(0), [2, 2])
     np.testing.assert_array_equal(trace["fall"].sum(0), [1, 0])
     np.testing.assert_array_equal(trace["nonfinite"].sum(0), [0, 1])

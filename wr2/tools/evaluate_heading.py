@@ -97,6 +97,12 @@ def load_wr2(run_dir):
         "load": lambda step: checkpoint.load(str((run_dir / "checkpoints" / f"{step:012d}").resolve())),
         "evaluator": evaluator, "command": lambda v, n: jp.tile(jp.asarray([v*scale, 0, 0]), (n, 1)),
         "configuration": asdict(cfg), "training_provenance": source["provenance"],
+        "active_joint_names": [env.robot.actuator_names[int(i)] for i in env._active_indices],
+        "policy_action_home_rad": np.asarray(env._home_ctrl[env._active_indices]).tolist(),
+        "model_home_rad": np.asarray(env.robot.home_position_rad)[np.asarray(env._active_indices)].tolist(),
+        "joint_limits_rad": np.stack([np.asarray(env._ctrl_lower), np.asarray(env._ctrl_upper)], axis=1)[np.asarray(env._active_indices)].tolist(),
+        "policy_action_scale_rad": cfg.environment.policy_action_scale_rad,
+        "command_resolution_rad": env._command_resolution_rad,
         "reference_lookup_commands_physical": grid[indices].tolist(),
         "physics_substeps": env._n_frames, "physics_timestep_s": float(env.sys.opt.timestep),
     }
@@ -214,7 +220,7 @@ def run(args):
     output.mkdir(parents=True, exist_ok=True)
     root = Path(__file__).resolve().parents[2]
     report = {
-        "schema_version": 1, "complete": False, "robot": "toddlerbot" if args.tb_root else "wr2",
+        "schema_version": 2, "complete": False, "robot": "toddlerbot" if args.tb_root else "wr2",
         "run_dir": str(run_dir), "arguments": vars(args) | {"run_dir": str(run_dir), "output": str(output), "tb_root": str(args.tb_root) if args.tb_root else None},
         "commands_TB": list(COMMANDS), "episode_steps": steps,
         "normalization_scale": context["scale"], "control_period_s": context["dt"],

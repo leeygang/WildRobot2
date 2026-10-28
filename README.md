@@ -226,8 +226,13 @@ passes both seeds with1/3,840 falls(held-out0/1,920). Lower foot self-contact
 and better phase agreement support it as the next forward-walking baseline;
 aggregate tracking/standing still favor+173M. The
 [goal-frame XY continuation](docs/design/wr2_goal_frame_xy_experiment_20261026.md)
-is ready for200M from+120M using `ppo_walking_goal_xy.yaml`; only the XY
-reward frame changes. The
+completed200M from+120M. The
+[result and action-space audit](docs/design/wr2_goal_xy_result_20261027.md)
+finds a1.9% held-out reference-error gain and better heading/self-contact,
+with worse push recovery. A small Mac screen favors final+200M for .20 forward
+walking over the standard selector's+173M. Actual steps alternate, but landing
+placement remains uneven and the right hip command stays near its action bound;
+the report prepares the GPU comparison with per-joint action logging. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.
 The [PPO learning-direction diagnostic](docs/design/wr2_ppo_learning_diagnostic_20261023.md)

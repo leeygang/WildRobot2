@@ -43,6 +43,7 @@ def heading_rollout(env, policy, keys, command, steps, root, sample_rewards):
             "body_angular_velocity_rad_s": body_angular,
             "root_delta_m": p.q[:, :2] - before.pipeline_state.q[:, :2],
             "command_physical": actual_command, "reward_terms": rewards,
+            "actor_action": action,
             "total_reward": after.reward, "valid": valid,
             "fall": valid & fall, "nonfinite": alive & ~finite,
         }
