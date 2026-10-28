@@ -50,16 +50,16 @@ class HipActionValidationTest(unittest.TestCase):
 
     def test_summary_keeps_terminal_sample_and_excludes_padding(self):
         length = 100
-        valid = np.arange(length)[:, None] < 70
+        valid = np.arange(length)[:, None] < 80
         pose = np.tile([0., 0., .3, 1., 0., 0., 0.], (length, 1, 1))
         pose[:, 0, 0] = np.arange(1, length+1)*.002
-        pose[70:] = 999.
+        pose[80:] = 999.
         trace = {
-            'valid': valid, 'fall': np.arange(length)[:, None] == 69,
+            'valid': valid, 'fall': np.arange(length)[:, None] == 79,
             'nonfinite': np.zeros((length, 1), bool),
             'initial_qpos': np.array([[0., 0., .3, 1., 0., 0., 0.]]),
             'qpos': pose, 'root_delta_m': np.tile([.002, 0.], (length, 1, 1)),
-            'command_m_s': np.tile([.08, 0., 0.], (length, 1, 1)),
+            'command_m_s': np.tile([.10, 0., 0.], (length, 1, 1)),
             'contact': np.ones((length, 1, 2), bool),
             'self_contact': np.zeros((length, 1)),
             'floor_force_n': np.tile([10., 11.], (length, 1, 1)),
@@ -69,17 +69,17 @@ class HipActionValidationTest(unittest.TestCase):
             'target_error_rad': np.zeros((length, 1)),
             'joint_violation_rad': np.zeros((length, 1)),
         }
-        trace['torque_nm'][69] = .6
-        trace['torque_nm'][70:] = 999.
-        row = summarize(trace, .02, .8)[0]
-        self.assertEqual(row['valid_steps'], 70)
+        trace['torque_nm'][79] = .6
+        trace['torque_nm'][80:] = 999.
+        row = summarize(trace, .02, 1.)[0]
+        self.assertEqual(row['valid_steps'], 80)
         self.assertTrue(row['fell'])
         self.assertFalse(row['completed'])
-        self.assertAlmostEqual(row['forward_speed_TB_m_s'], .125)
+        self.assertAlmostEqual(row['forward_speed_TB_m_s'], .10)
         self.assertEqual(row['maximum_final_substep_torque_nm'], .6)
         self.assertEqual(row['root_z90_span_TB_m'], 0.)
-        self.assertEqual(row['walking_steps'], 10)
-        self.assertAlmostEqual(row['walking_forward_speed_TB_m_s'], .125)
+        self.assertEqual(row['walking_steps'], 5)
+        self.assertAlmostEqual(row['walking_forward_speed_TB_m_s'], .10)
 
 
 if __name__ == '__main__':
