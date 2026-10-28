@@ -1,5 +1,10 @@
 # Goal+200M full XY confirmation — 2026-10-27
 
+**Update:** the [Mac hip action-origin validation](wr2_hip_action_validation_20261027.md)
+confirms physical feasibility and improved reference coverage, with changed
+neutral posture and frozen-policy speed. It prepares the randomized GPU check
+of those startup/feedback effects.
+
 ## Decision
 
 **Final +200,294,400 passes the existing two-seed standard XY qualification.**

@@ -239,7 +239,11 @@ roll; normalized body-height variation remains larger than TB. The
 [final-policy confirmation](docs/design/wr2_goal_xy_final_confirmation_20261027.md)
 passes both seeds with 0/3,840 falls, qualifying +200M for the forward priority;
 +173M retains better aggregate XY/contact metrics. The hip action/posture audit
-is the next priority. This standard suite commands zero yaw throughout. The
+has [completed on the Mac](docs/design/wr2_hip_action_validation_20261027.md):
+posterior stance coverage improves with model-home hip centers, but zero-action
+stance leans backward and frozen-policy speed falls17–24%. Supported reset is
+preservable; the report prepares a paired randomized GPU startup check.
+This standard suite commands zero yaw throughout. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.
 The [PPO learning-direction diagnostic](docs/design/wr2_ppo_learning_diagnostic_20261023.md)
