@@ -1,5 +1,9 @@
 # Hip action-origin validation — 2026-10-27
 
+The [randomized GPU review](wr2_hip_action_gpu_review_20261028.md) is now complete:
+3,584 attempts validate supported initialization and reference coverage, while
+the frozen candidate remains slower, backward-leaning and uneven in placement.
+
 ## Result
 
 The Mac completed the full reference-coverage audit and fourteen native MJX
