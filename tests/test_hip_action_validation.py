@@ -59,6 +59,7 @@ class HipActionValidationTest(unittest.TestCase):
             'nonfinite': np.zeros((length, 1), bool),
             'initial_qpos': np.array([[0., 0., .3, 1., 0., 0., 0.]]),
             'qpos': pose, 'root_delta_m': np.tile([.002, 0.], (length, 1, 1)),
+            'command_m_s': np.tile([.08, 0., 0.], (length, 1, 1)),
             'contact': np.ones((length, 1, 2), bool),
             'self_contact': np.zeros((length, 1)),
             'floor_force_n': np.tile([10., 11.], (length, 1, 1)),
@@ -77,6 +78,8 @@ class HipActionValidationTest(unittest.TestCase):
         self.assertAlmostEqual(row['forward_speed_TB_m_s'], .125)
         self.assertEqual(row['maximum_final_substep_torque_nm'], .6)
         self.assertEqual(row['root_z90_span_TB_m'], 0.)
+        self.assertEqual(row['walking_steps'], 10)
+        self.assertAlmostEqual(row['walking_forward_speed_TB_m_s'], .125)
 
 
 if __name__ == '__main__':

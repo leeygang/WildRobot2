@@ -86,6 +86,13 @@ def summarize(trace, dt, scale):
                 'delivered_max_rad': trace['target_rad'][mask, i].max(axis=0).tolist(),
                 'joint_tracking_RMS_rad': np.sqrt(np.mean((trace['target_rad'][mask, i]-trace['motor_rad'][mask, i])**2, axis=0)).tolist(),
             })
+            moving = mask & (np.linalg.norm(trace['command_m_s'][:, i, :2], axis=-1) > 1e-6)
+            row['walking_steps'] = int(moving.sum())
+            if moving.any():
+                delta = trace['root_delta_m'][moving, i]
+                forward = delta[:, 0]*np.cos(yaw0)+delta[:, 1]*np.sin(yaw0)
+                row['walking_forward_speed_TB_m_s'] = float(forward.sum()/(moving.sum()*dt)/scale)
+                row['walking_mean_pitch_deg'] = float(np.rad2deg(quaternion_euler(trace['qpos'][moving, i, 3:7]))[:, 1].mean())
         if full.any():
             row.update({
                 'maximum_final_substep_torque_nm': float(np.max(abs(trace['torque_nm'][full, i]))),
@@ -100,8 +107,10 @@ def rollout(env, wrapped, policy, keys, command, mode, length):
     import jax
     import jax.numpy as jp
     from wr2.tools.diagnose_walking import target_trace
+    from wr2.locomotion.paper_evaluation import command_and_groups, set_command
 
-    state = wrapped.reset(keys, jp.tile(command, (len(keys), 1)))
+    initial_command = jp.where(mode == 3, jp.zeros_like(command), command)
+    state = wrapped.reset(keys, jp.tile(initial_command, (len(keys), 1)))
     initial = state.pipeline_state.q
     initial_obs = state.obs
     hold = (env._home_ctrl[env._active_indices]-env.action_center[env._active_indices])/env._policy_action_scale_rad
@@ -120,19 +129,27 @@ def rollout(env, wrapped, policy, keys, command, mode, length):
         violation = jp.maximum(env._ctrl_lower-motor, motor-env._ctrl_upper)
         return {
             'qpos': p.q, 'root_delta_m': p.q[:2]-before.pipeline_state.q[:2],
+            'command_m_s': before.info['command'],
             'actor_action': action, 'target_rad': target, 'motor_rad': motor,
             'torque_nm': p.actuator_force,
             'contact': jp.asarray([m['left_foot_contact_per_step'], m['right_foot_contact_per_step']]) > 0,
             'floor_force_n': jp.asarray([m['left_foot_vertical_force_n_per_step'], m['right_foot_vertical_force_n_per_step']]),
             'self_contact': m['foot_self_contact_per_step'],
+            'contact_phase_match': m['contact_phase_match_per_step'],
+            'foot_geom_center_m': p.geom_xpos[env._foot_geom_ids],
+            'foot_geom_rotation': p.geom_xmat[env._foot_geom_ids],
             'joint_violation_rad': jp.maximum(0., jp.max(violation)),
             'target_error_rad': jp.where(after.done == 0, jp.max(abs(target-after.info['previous_target'])), 0.),
         }
 
-    def step(carry, _):
+    def step(carry, index):
         before, alive = carry
+        scheduled, _ = command_and_groups(index, command[:2], True, env.config.normalization_scale)
+        before = jax.lax.cond(mode == 3,
+            lambda s: set_command(s, jp.tile(scheduled, (len(keys), 1)), env.config.normalization_scale),
+            lambda s: s, before)
         actor, _ = policy(before.obs, keys[0])
-        action = jp.where(mode == 0, actor, jp.tile(jp.where(mode == 2, hold, jp.zeros_like(hold)), (len(keys), 1)))
+        action = jp.where((mode == 0) | (mode == 3), actor, jp.tile(jp.where(mode == 2, hold, jp.zeros_like(hold)), (len(keys), 1)))
         after = wrapped.step(before, action)
         values = jax.vmap(sample)(before, after, action)
         finite = jp.isfinite(after.reward)
@@ -145,7 +162,7 @@ def rollout(env, wrapped, policy, keys, command, mode, length):
             following_alive.reshape((len(keys),)+(1,)*(new.ndim-1)), new, old), before, after)
         return (following, following_alive), values
 
-    _, trace = jax.lax.scan(step, (state, alive), None, length=length)
+    _, trace = jax.lax.scan(step, (state, alive), jp.arange(length))
     return {'initial_qpos': initial, 'initial_obs': initial_obs, **trace}
 
 
@@ -208,6 +225,12 @@ def run(args):
               'observation_home_rad': np.asarray(current._home_ctrl),
               'action_centers_rad': {name: np.asarray(env.action_center) for name, env in [('current', current), ('model_hip', candidate)]},
               'active_joint_names': [current.robot.actuator_names[int(i)] for i in current._active_indices],
+              'motor_names': list(current.robot.actuator_names),
+              'motor_limits_rad': np.stack([np.asarray(current._ctrl_lower), np.asarray(current._ctrl_upper)], axis=1),
+              'control_period_s': current.robot.control_period_s,
+              'physics_timestep_s': current.robot.simulation_timestep_s,
+              'foot_half_sizes_m': np.asarray(current.sys.mj_model.geom_size)[np.asarray(current._foot_geom_ids)],
+              'geometry_sampling': 'cached last-substep geometry/contact; one physics timestep before integrated qpos',
               'holding_action': hold[np.asarray(candidate._active_indices)],
               'scope': 'Diagnostic changes only hip-pitch action centers. Grounded reset, position-observation/reward home and references are preserved. Constant probes do not use the actor. Frozen-policy probes retain raw policy weights/actions and original reset observations; they are not converted or retrained policies.',
               'torque_sampling': 'last physics substep, not per-control-step peak', 'results': []}
@@ -221,7 +244,7 @@ def run(args):
     policy = networks.make_inference_fn(net)(params[:2], deterministic=True)
     initial_by_case = {}
     hold_traces = {}
-    cases = [('zero', 1, 0.), ('hold', 2, 0.)] + [('policy', 0, v) for v in (.10, .15, .20)]
+    cases = [('zero', 1, 0.), ('hold', 2, 0.)] + [('policy', 0, v) for v in (0., .10, .15, .20)] + [('transition', 3, .20)]
     for name, env in [('current', current), ('model_hip', candidate)]:
         randomize = None if args.nominal else make_domain_randomizer(cfg.environment.randomization)
         for seed in args.seeds:
