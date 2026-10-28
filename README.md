@@ -232,7 +232,11 @@ finds a1.9% held-out reference-error gain and better heading/self-contact,
 with worse push recovery. A small Mac screen favors final+200M for .20 forward
 walking over the standard selector's+173M. Actual steps alternate, but landing
 placement remains uneven and the right hip command stays near its action bound;
-the report prepares the GPU comparison with per-joint action logging. The
+the [completed GPU comparison and shoulder review](docs/design/wr2_goal_xy_gpu_review_20261027.md)
+confirm final .20 speed .169 TB m/s, net turn6.2° and2/256 falls. Right-hip
+commands stay near their bound92.5% of the time. Shoulder rocking follows torso
+roll; normalized body-height variation remains larger than TB. Full final-policy
+confirmation and the hip action/posture audit are the next priorities. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.
 The [PPO learning-direction diagnostic](docs/design/wr2_ppo_learning_diagnostic_20261023.md)

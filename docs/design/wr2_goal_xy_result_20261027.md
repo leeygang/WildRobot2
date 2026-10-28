@@ -2,6 +2,11 @@
 
 ## Result and next priority
 
+**Update:** the [completed GPU comparison and shoulder-motion review](wr2_goal_xy_gpu_review_20261027.md)
+confirms final+200M's higher-command forward gain and right-hip saturation;
+it supersedes the pending-GPU step below. Full final standard confirmation
+remains pending.
+
 Run: `results/wr2_walking/wr2_paper_goal_xy_20261026_193545_seed3`.
 The 200M continuation completed correctly from the qualified heading+120M
 checkpoint, with200,294,400 additional steps. The selected checkpoint is
