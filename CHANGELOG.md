@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-29
+
+- Prepared v0.33.0 reward comparison: matched 200M continuations from the
+  model-home hip policy's +173,588,480 checkpoint with leg-reference imitation
+  weights 5 and 15. XY weight 15 retains its measured progression benefit;
+  treatment restores TB's 1:1 XY/imitation coefficient ratio. Reference,
+  physics, observations, initialization, qualified landing and PPO settings
+  are shared across arms. Selection requires actual right swing/placement
+  improvement alongside progression and stability. See the
+  [experiment and direct GPU commands](docs/design/wr2_leg_imitation_experiment_20261029.md).
+- Verification: complete config isolation/round trips, three focused regression
+  checks and a five-step saved-policy native comparison. Physics/observations
+  match exactly, other rewards match, and leg reward scales by three with
+  total-reward difference error below 4.20e-8. No full training was launched.
+
 ## 2026-10-28
 
 - Reviewed the randomized GPU hip action-center test: 3,584 attempts, all finite,

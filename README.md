@@ -251,6 +251,10 @@ The [completed training review](docs/design/wr2_hip_action_training_review_20261
 finds better low-command progression/tracking at candidate +173M, but nominal
 right-hip suppression and uneven placement persist; the final candidate regresses.
 The paired GPU higher-command comparison is ready before policy promotion.
+The [next training-setup test](docs/design/wr2_leg_imitation_experiment_20261029.md)
+compares leg-reference weights 5 and 15 from the same +173M policy, preserving
+XY15 and the sustained-landing rule. It tests actual right swing/placement
+over 200M per arm with reference, physics and PPO settings held fixed.
 This standard suite commands zero yaw throughout. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.
