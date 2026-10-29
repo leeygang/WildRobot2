@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-10-28
+
+- Reviewed the randomized GPU hip action-center test: 3,584 attempts, all finite,
+  with 3/256 current and 1/256 candidate falls at .20 TB m/s. Supported reset
+  remains representable; posterior right-hip stance reference outside the target
+  window falls 29.17%→1.65%. The frozen candidate loses 16–28% forward speed,
+  leans backward and retains short right-foot placement. The small fall-count
+  difference does not establish a stability gain. See the
+  [raw-trace review and TB source comparison](docs/design/wr2_hip_action_gpu_review_20261028.md).
+- Prepared v0.32.0: two matched 200M continuations from the qualified goal-XY
+  `000200294400` checkpoint. One retains grounded hip centers; the other changes
+  only the two hip-pitch target centers to model home, following TB's fixed
+  model-home action design. Grounded reset, observation/reward home, physics,
+  rewards, command distribution, PPO settings and intermediate checkpoint
+  retention are preserved. Run metadata and diagnostic reconstruction now
+  distinguish the actual action center from observation/reset home. See the
+  [direct GPU commands and selection criteria](docs/design/wr2_hip_action_training_20261028.md).
+- Verification: 58 focused regression tests pass; both complete configs match
+  the saved parent recipe and round-trip correctly. The qualified checkpoint
+  restores without input conversion. Four nominal Mac startup cases total 80
+  finite native transitions with zero falls and exact target reconstruction.
+
 ## 2026-10-13
 
 ### Corrected-physics 200M review and published TB baseline

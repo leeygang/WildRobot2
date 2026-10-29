@@ -46,6 +46,11 @@ def load_wr2(run_dir, count):
     np.testing.assert_allclose(
         env._home_ctrl, recorded["policy_home_motor_position_rad"], atol=1e-6
     )
+    np.testing.assert_allclose(
+        env._action_center,
+        recorded.get("policy_action_center_motor_position_rad", recorded["policy_home_motor_position_rad"]),
+        atol=1e-6,
+    )
     if (
         cfg.environment.policy_action_scale_rad != 0.25
         or cfg.ppo.max_grad_norm is not None
@@ -123,7 +128,7 @@ def load_wr2(run_dir, count):
         hips=hips,
         signs=(-1, 1),
         scale=cfg.environment.normalization_scale,
-        home=np.asarray(env._home_ctrl)[np.asarray(env._active_indices)][list(hips)],
+        home=np.asarray(env._action_center)[np.asarray(env._active_indices)][list(hips)],
         factory=make_network_factory(cfg.network),
         trace=trace,
         randomizer=make_domain_randomizer(cfg.environment.randomization)

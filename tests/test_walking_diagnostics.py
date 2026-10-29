@@ -80,6 +80,7 @@ class WalkingDiagnosticsTest(unittest.TestCase):
             _home_ctrl=jp.asarray([2.0, 0.1, 3.0, -0.2]),
             config=SimpleNamespace(policy_action_scale_rad=0.25),
         )
+        env._policy_target = lambda action: env._home_ctrl.at[env._active_indices].add(.25 * action)
         original = jp.asarray([-0.4, 0.7])
         reference = jp.asarray([9.0, 0.5, 9.0, -0.3])
         hip_only = reference_action(env, original, reference, jp.asarray([True, False]))

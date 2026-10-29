@@ -411,9 +411,8 @@ class WR2WalkingEnv(PipelineEnv):
                 normalization_scale=self.config.normalization_scale,
             )
             self._default_qpos = jp.asarray(self._zmp_reference.standing_qpos)
-            # WR2 uses the grounded reference pose as its fixed action and
-            # observation origin. TB uses model default joints; these choices
-            # can have different hip-pitch coverage. Walking imitation is moving.
+            # Grounded reference joints remain the observation/reward home.
+            # The action-center experiment below changes only the two hips.
             self._home_ctrl = self._default_qpos[self._joint_qpos_indices]
             self._joint_velocity_observation_scale *= self.config.normalization_scale
             self._privileged_linear_velocity_scale /= self.config.normalization_scale
@@ -443,6 +442,16 @@ class WR2WalkingEnv(PipelineEnv):
                 ik_max_iterations=zmp_config.ik_max_iterations,
                 max_position_residual_m=zmp_config.max_position_residual_m,
                 max_orientation_residual_rad=(zmp_config.max_orientation_residual_rad),
+            )
+
+        self._action_center = self._home_ctrl
+        if self.config.model_home_hip_pitch_action_center:
+            hips = jp.asarray([
+                self.robot.actuator_names.index(f"{side}_hip_pitch")
+                for side in ("left", "right")
+            ])
+            self._action_center = self._action_center.at[hips].set(
+                jp.asarray(self.robot.home_position_rad)[hips]
             )
 
         active_mask = np.asarray(
@@ -525,13 +534,13 @@ class WR2WalkingEnv(PipelineEnv):
 
     @property
     def home_action(self) -> jax.Array:
-        """Zero residual, which reproduces the configured fixed home pose."""
+        """Zero residual around the configured action center."""
         return self._home_action
 
     def _policy_target(self, action: jax.Array) -> jax.Array:
-        """Expand the policy action around the fixed home origin."""
+        """Expand the policy action around the fixed target center."""
         active_target = (
-            self._home_ctrl[self._active_indices]
+            self._action_center[self._active_indices]
             + self._policy_action_scale_rad * action
         )
         return self._home_ctrl.at[self._active_indices].set(active_target)

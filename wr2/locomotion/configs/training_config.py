@@ -169,6 +169,7 @@ class WalkingEnvConfig:
     max_feet_lateral_distance_m: float = 0.13
     air_time_min_stance_s: float = 0.0
     reference_frame_xy_tracking: bool = False
+    model_home_hip_pitch_action_center: bool = False
 
 
 @dataclass(frozen=True)
@@ -389,7 +390,8 @@ def load_training_config(
     integer_fields = {
         "episode_length", "solver_iterations", "action_delay_steps", "command_resample_steps"
     }
-    boolean_fields = {"randomize_gait_phase_on_reset", "heading_observation", "reference_frame_xy_tracking"}
+    boolean_fields = {"randomize_gait_phase_on_reset", "heading_observation", "reference_frame_xy_tracking",
+                      "model_home_hip_pitch_action_center"}
     vector_fields = {"pose_weights"}
     float_fields = (
         env_fields
@@ -436,6 +438,9 @@ def load_training_config(
         reference_frame_xy_tracking=_bool(
             env_raw["reference_frame_xy_tracking"], "environment.reference_frame_xy_tracking"
         ),
+        model_home_hip_pitch_action_center=_bool(
+            env_raw["model_home_hip_pitch_action_center"], "environment.model_home_hip_pitch_action_center"
+        ),
         episode_length=_positive_int(
             env_raw["episode_length"], "environment.episode_length"
         ),
@@ -472,6 +477,8 @@ def load_training_config(
         raise ValueError("qualified air time requires the paper recipe")
     if environment.reference_frame_xy_tracking and (recipe != "tb_paper" or not environment.heading_observation):
         raise ValueError("reference-frame XY tracking requires the paper recipe and heading observations")
+    if environment.model_home_hip_pitch_action_center and recipe != "tb_paper":
+        raise ValueError("model-home hip action centers require the paper recipe")
     if not 0 <= environment.turn_command_probability <= 1 - environment.zero_command_probability:
         raise ValueError("standing and turning probabilities must sum to at most one")
     if environment.push_interval_steps < 0 or min(environment.push_linear_velocity_m_s, environment.push_angular_velocity_rad_s) < 0:

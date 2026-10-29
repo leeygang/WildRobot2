@@ -498,9 +498,14 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
     )
     print(f"  Actions:      {environment.action_size} (leg joints active)")
     print(
-        "  Action map:   fixed q_home + "
+        "  Action map:   fixed action center + "
         f"{training_config.environment.policy_action_scale_rad:.3f}rad * residual; "
         f"initial residual std={training_config.network.init_noise_std:.3f}"
+    )
+    print(
+        "  Hip center:   "
+        + ("model home (grounded reset/observation home retained)"
+           if training_config.environment.model_home_hip_pitch_action_center else "configured home")
     )
     print(f"  Environments: {training_config.ppo.num_envs:,}")
     print(f"  Target steps: {training_config.ppo.num_timesteps:,}")
@@ -590,6 +595,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         "actuator_model": environment.robot.config["actuators"]["htd45hServo"],
         "policy_home_action": np.asarray(environment.home_action).tolist(),
         "policy_home_motor_position_rad": np.asarray(environment._home_ctrl).tolist(),
+        "policy_action_center_motor_position_rad": np.asarray(environment._action_center).tolist(),
         "policy_action_scale_rad": (
             training_config.environment.policy_action_scale_rad
         ),

@@ -481,7 +481,7 @@ def reference_action(env, action, reference, mask):
 
     active = env._active_indices
     requested = (
-        reference[active] - env._home_ctrl[active]
+        reference[active] - env._policy_target(jp.zeros_like(action))[active]
     ) / env.config.policy_action_scale_rad
     return jp.where(mask, jp.clip(requested, -1.0, 1.0), action)
 
@@ -722,7 +722,7 @@ def reference_geometry_audit(env, model):
             )
         gaps, spacing = np.asarray(gaps), np.asarray(spacing)
         outside = (
-            np.abs(motors - np.asarray(env._home_ctrl)[active])
+            np.abs(motors - np.asarray(env._policy_target(env.home_action))[active])
             > env.config.policy_action_scale_rad + 1e-7
         )
         entries.append(
@@ -921,7 +921,7 @@ def run_paper_stance_diagnostics(
             "target_clip": (lower | upper)[active],
             "target_slew": slew[active],
             "reference_outside_action_range": jp.abs(
-                reference[active] - env._home_ctrl[active]
+                reference[active] - env._policy_target(env.home_action)[active]
             )
             > env.config.policy_action_scale_rad + 1e-7,
             "target_reconstruction_error_rad": jp.where(
@@ -1083,6 +1083,7 @@ def run_paper_stance_diagnostics(
         "termination": "finite terminal tick included; nonfinite tick excluded; no autoreset samples",
         "active_joint_names": names,
         "home_position_rad": np.asarray(env._home_ctrl)[active].tolist(),
+        "action_center_rad": np.asarray(env._policy_target(env.home_action))[active].tolist(),
         "joint_limits_rad": np.stack(
             [np.asarray(env._ctrl_lower)[active], np.asarray(env._ctrl_upper)[active]],
             axis=1,

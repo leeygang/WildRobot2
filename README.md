@@ -245,8 +245,8 @@ stance leans backward and frozen-policy speed falls17–24%. Supported reset is
 preservable. The [randomized GPU check](docs/design/wr2_hip_action_gpu_review_20261028.md)
 covers 3,584 attempts and confirms coverage/initialization, but the frozen
 candidate loses 16–28% forward speed and retains short right-foot placement.
-The next proposed comparison is two 200M continuations with current
-versus model-home hip action centers.
+The [next comparison is prepared](docs/design/wr2_hip_action_training_20261028.md):
+two 200M continuations with current versus model-home hip action centers.
 This standard suite commands zero yaw throughout. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.

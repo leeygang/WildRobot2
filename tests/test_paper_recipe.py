@@ -373,6 +373,8 @@ def test_reference_geometry_audit_uses_actual_time_zero_home(paper_env):
         _foot_geom_ids=env._foot_geom_ids,
         _active_indices=env._active_indices,
         _home_ctrl=env._home_ctrl,
+        _policy_target=env._policy_target,
+        home_action=env.home_action,
         _ctrl_lower=env._ctrl_lower,
         _ctrl_upper=env._ctrl_upper,
         _zmp_reference=SimpleNamespace(
@@ -507,6 +509,82 @@ def test_goal_xy_config_changes_only_reward_frame_and_run_identity():
     assert replace(goal, version=baseline.version, version_name=baseline.version_name,
                    environment=replace(goal.environment, reference_frame_xy_tracking=False),
                    output=baseline.output) == baseline
+
+
+def test_hip_center_configs_preserve_the_qualified_training_recipe():
+    baseline = load_training_config(CONFIG.with_name("ppo_walking_goal_xy.yaml"))
+    control = load_training_config(CONFIG.with_name("ppo_walking_hip_control.yaml"))
+    candidate = load_training_config(CONFIG.with_name("ppo_walking_hip_model_home.yaml"))
+    assert not baseline.environment.model_home_hip_pitch_action_center
+    assert not control.environment.model_home_hip_pitch_action_center
+    assert candidate.environment.model_home_hip_pitch_action_center
+    assert control.ppo.num_timesteps == candidate.ppo.num_timesteps == 200_000_000
+    assert control.checkpoints.save_every_evaluation
+    assert replace(control, version=baseline.version, version_name=baseline.version_name,
+                   output=baseline.output) == baseline
+    assert replace(candidate, version_name=control.version_name, output=control.output,
+                   environment=replace(candidate.environment, model_home_hip_pitch_action_center=False)) == control
+
+
+@pytest.mark.parametrize("config_name, value", [
+    ("ppo_walking_hip_model_home.yaml", "true"),
+    ("ppo_walking.yaml", True),
+])
+def test_hip_center_flag_requires_boolean_and_paper_recipe(tmp_path, config_name, value):
+    import yaml
+
+    raw = yaml.safe_load(CONFIG.with_name(config_name).read_text())
+    raw["environment"]["model_home_hip_pitch_action_center"] = value
+    path = tmp_path / "invalid_hip.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match="must be true or false|require the paper recipe"):
+        load_training_config(path)
+
+
+def test_model_hip_centers_preserve_reset_inputs_and_can_hold_grounded_pose(paper_env):
+    from unittest.mock import patch
+    from wr2.tools.diagnose_walking import reference_action, target_trace
+    from wr2.tools.validate_hip_action import hip_center
+
+    env = paper_env
+    # Reuse the same native table to isolate construction of the action map.
+    with patch("wr2.locomotion.walking_env.PaperWalkReference", return_value=env._zmp_reference):
+        candidate = WR2WalkingEnv(
+            replace(env.config, model_home_hip_pitch_action_center=True),
+            add_observation_noise=False,
+        )
+    expected, hips = hip_center(env, True)
+    np.testing.assert_array_equal(candidate._action_center, expected)
+    np.testing.assert_array_equal(candidate._home_ctrl, env._home_ctrl)
+    np.testing.assert_array_equal(candidate._default_qpos, env._default_qpos)
+    np.testing.assert_array_equal(candidate.home_action, env.home_action)
+    active = candidate._active_indices
+    action = jp.linspace(-1., 1., env.action_size)
+    np.testing.assert_allclose(
+        candidate._policy_target(action)[active], expected[active] + .25 * action,
+        atol=1e-7,
+    )
+    key, command = jax.random.PRNGKey(12102), jp.zeros(3)
+    before = jax.jit(env.reset)(key, command)
+    new_before = jax.jit(candidate.reset)(key, command)
+    np.testing.assert_array_equal(before.pipeline_state.q, new_before.pipeline_state.q)
+    for name in before.obs:
+        np.testing.assert_array_equal(before.obs[name], new_before.obs[name])
+    for name in ("previous_target", "previous_action", "last_applied_action"):
+        np.testing.assert_array_equal(before.info[name], new_before.info[name])
+    mask = jp.isin(active, jp.asarray(hips))
+    hold = reference_action(candidate, candidate.home_action, env._home_ctrl, mask)
+    assert float(jp.max(jp.abs(hold))) < 1.
+    np.testing.assert_allclose(candidate._policy_target(hold), env._home_ctrl, atol=1e-7)
+    new_before = new_before.replace(info={**new_before.info,
+        "previous_action": hold, "last_applied_action": hold, "second_last_applied_action": hold})
+    after = jax.jit(env.step)(before, env.home_action)
+    new_after = jax.jit(candidate.step)(new_before, hold)
+    expected_target = target_trace(candidate, new_before, hold)[1]
+    np.testing.assert_array_equal(new_after.info["previous_target"], expected_target)
+    np.testing.assert_array_equal(after.info["previous_target"], new_after.info["previous_target"])
+    np.testing.assert_allclose(after.pipeline_state.q, new_after.pipeline_state.q, atol=1e-6)
+    assert not bool(new_after.done)
 
 
 @pytest.mark.parametrize("heading, frame", [(False, True), (True, "true")])
