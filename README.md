@@ -247,6 +247,10 @@ covers 3,584 attempts and confirms coverage/initialization, but the frozen
 candidate loses 16–28% forward speed and retains short right-foot placement.
 The [next comparison is prepared](docs/design/wr2_hip_action_training_20261028.md):
 two 200M continuations with current versus model-home hip action centers.
+The [completed training review](docs/design/wr2_hip_action_training_review_20261029.md)
+finds better low-command progression/tracking at candidate +173M, but nominal
+right-hip suppression and uneven placement persist; the final candidate regresses.
+The paired GPU higher-command comparison is ready before policy promotion.
 This standard suite commands zero yaw throughout. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.
