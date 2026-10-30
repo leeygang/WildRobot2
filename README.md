@@ -255,6 +255,10 @@ The [next training-setup test](docs/design/wr2_leg_imitation_experiment_20261029
 compares leg-reference weights 5 and 15 from the same +173M policy, preserving
 XY15 and the sustained-landing rule. It tests actual right swing/placement
 over 200M per arm with reference, physics and PPO settings held fixed.
+The [completed reward comparison](docs/design/wr2_leg_imitation_result_20261029.md)
+finds better tracking/contact metrics with weight15, but no right-swing or
+placement fix. The retained right mean remains near its posterior endpoint.
+Fresh initialization of this recipe is the next proposed training-setting test.
 This standard suite commands zero yaw throughout. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.
