@@ -2,6 +2,18 @@
 
 ## 2026-10-30
 
+- Prepared v0.35.0: a 200M parameter continuation from size-aligned final
+  checkpoint `000200048640`. All recipe settings match the saved parent;
+  only run labels change. The native trainer restores actor/critic/normalizer,
+  with new Adam/RNG/counters. Expected added/cumulative transitions are
+  200,048,640/400,097,280. Intermediate policies and initial parent parameters
+  are retained; cadence/placement are checked alongside tracking/body motion.
+  See the [direct command and verification](docs/design/wr2_size_continuation_20261030.md).
+- Continuation verification: complete-config isolation/round trip, finite
+  selected/final/parent equality, zero restore-action difference without input
+  conversion, and64 native WR2 transitions/16 PPO minibatch updates. Initial
+  parameters match the parent exactly; updated parameters are finite, change
+  the actor and reload exactly. The full GPU run is prepared.
 - Prepared v0.34.0 fresh 200M size comparison with complete current-control and
   aligned configs. The candidate uses episode824, rollout16, gamma.963712,
   GAE lambda.939653 and nominal body-weight-scaled support threshold.612930N.

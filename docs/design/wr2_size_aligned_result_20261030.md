@@ -228,6 +228,11 @@ it is not a matched randomized proof of overall TB parity.
 
 ## Next step
 
+After the user's Mac visual confirmation, final is accepted as the current
+walking baseline. The [prepared200M continuation](wr2_size_continuation_20261030.md)
+tests longer learning with this recipe preserved. The GPU comparisons below
+remain optional robustness/checkpoint comparisons rather than a training prerequisite.
+
 1. Keep this recipe and its checkpoints. Validate120M/160M/final under the same
    randomized no-push GPU forward conditions. Select using actual travel,
    heading, stability and gait measurements, rather than final-step status alone.
