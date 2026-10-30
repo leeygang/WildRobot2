@@ -266,6 +266,11 @@ The [size-alignment audit](docs/design/wr2_training_size_audit_20261029.md)
 verifies commands/noise and local geometry, and identifies unscaled learning
 time horizons plus force/effort normalization differences. These are explicit
 recipe candidates; existing experiment configurations are preserved.
+The [fresh size-alignment comparison](docs/design/wr2_size_alignment_experiment_20261030.md)
+is ready: two fresh 200M runs with current versus normalized episode/rollout,
+discount/GAE and nominal support-force threshold. Hardware timing, history,
+geometry and angular roll reward remain shared. Native timeout diagnostics now
+retain the target delivered on the final tick.
 This standard suite commands zero yaw throughout. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.

@@ -139,7 +139,7 @@ def rollout(env, wrapped, policy, keys, command, mode, length):
             'foot_geom_center_m': p.geom_xpos[env._foot_geom_ids],
             'foot_geom_rotation': p.geom_xmat[env._foot_geom_ids],
             'joint_violation_rad': jp.maximum(0., jp.max(violation)),
-            'target_error_rad': jp.where(after.done == 0, jp.max(abs(target-after.info['previous_target'])), 0.),
+            'target_error_rad': jp.max(abs(target-after.info['last_applied_target'])),
         }
 
     def step(carry, index):

@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-10-30
+
+- Prepared v0.34.0 fresh 200M size comparison with complete current-control and
+  aligned configs. The candidate uses episode824, rollout16, gamma.963712,
+  GAE lambda.939653 and nominal body-weight-scaled support threshold.612930N.
+  Both retain leg15/XY15, grounded reset, model-home hip centers, qualified
+  landing, actual hardware timing and all intermediate checkpoints. Roll-width
+  shaping remains a separate experiment. See the
+  [recipe rationale, verification and direct GPU commands](docs/design/wr2_size_alignment_experiment_20261030.md).
+- Fixed hip/stance target reconstruction at finite timeouts: preserve the
+  delivered target independently of reset controller history. Diagnostic-only
+  metadata also permits checking finite fall samples; actor/critic shapes,
+  physics, controller and rewards are unchanged by this fix.
+- Verification: 15 focused checks pass, including824 finite native diagnostic
+  ticks with exact delivered-target reconstruction, once-only discounted
+  landing credit, real16-tick PPO updates and exact saved-parameter reload.
+  Existing Paper and legacy timeout/fall accounting remains intact. The paired
+  full GPU training runs are prepared; no full training was launched.
+
 ## 2026-10-29
 
 - Prepared v0.33.0 reward comparison: matched 200M continuations from the

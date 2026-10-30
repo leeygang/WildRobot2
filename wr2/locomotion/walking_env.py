@@ -1182,6 +1182,7 @@ class WR2WalkingEnv(PipelineEnv):
             "torque_exposure": jp.zeros(self.robot.actuator_count),
             "previous_action": previous_action,
             "previous_target": initial_target,
+            "last_applied_target": initial_target,
             "reset_target": initial_target,
             "step_count": jp.zeros((), dtype=jp.int32),
         }
@@ -1581,6 +1582,8 @@ class WR2WalkingEnv(PipelineEnv):
             ),
             "previous_action": reset_if_done(action, self._home_action),
             "previous_target": reset_if_done(target, state.info["reset_target"]),
+            # Preserve the terminal tick's delivered command for diagnostics.
+            "last_applied_target": target,
             "imu_state": reset_imu_state,
             "torque_exposure": reset_if_done(
                 torque_exposure, jp.zeros_like(torque_exposure)
@@ -1785,6 +1788,7 @@ class WR2WalkingEnv(PipelineEnv):
             "last_applied_action": reset_if_done(applied_action, self._home_action),
             "second_last_applied_action": reset_if_done(state.info["last_applied_action"], self._home_action),
             "previous_target": reset_if_done(target, state.info["reset_target"]),
+            "last_applied_target": target,
             "last_euler": reset_if_done(unwrapped_euler, state.info["reset_last_euler"]),
             "previous_contact": reset_if_done(contact, jp.ones(2, dtype=jp.bool_)),
             "feet_air_time": reset_if_done((state.info["feet_air_time"] + dt) * ~contact, jp.zeros(2)),

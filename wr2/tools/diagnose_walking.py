@@ -924,10 +924,8 @@ def run_paper_stance_diagnostics(
                 reference[active] - env._policy_target(env.home_action)[active]
             )
             > env.config.policy_action_scale_rad + 1e-7,
-            "target_reconstruction_error_rad": jp.where(
-                after.done == 0,
-                jp.max(jp.abs(delivered - after.info["previous_target"])),
-                0.0,
+            "target_reconstruction_error_rad": jp.max(
+                jp.abs(delivered - after.info["last_applied_target"])
             ),
             "contact": jp.asarray(
                 [
