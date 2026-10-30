@@ -271,6 +271,11 @@ is ready: two fresh 200M runs with current versus normalized episode/rollout,
 discount/GAE and nominal support-force threshold. Hardware timing, history,
 geometry and angular roll reward remain shared. Native timeout diagnostics now
 retain the target delivered on the final tick.
+The [completed fresh aligned run](docs/design/wr2_size_aligned_result_20261030.md)
+improves held-out tracking and restores bilateral hip swing, with smaller nominal
+shoulder rocking. Final has the best tracking;120–160M have more even nominal
+placement. Randomized self-contact and push recovery remain concerns. The retained
+higher-command GPU comparison is ready before selecting a walking policy.
 This standard suite commands zero yaw throughout. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.
