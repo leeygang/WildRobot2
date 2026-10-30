@@ -259,6 +259,9 @@ The [completed reward comparison](docs/design/wr2_leg_imitation_result_20261029.
 finds better tracking/contact metrics with weight15, but no right-swing or
 placement fix. The retained right mean remains near its posterior endpoint.
 Fresh initialization of this recipe is the next proposed training-setting test.
+The [latest shoulder-motion review](docs/design/wr2_shoulder_rocking_review_20261029.md)
+confirms torso roll plus root bobbing and proposes a separate roll-reward
+comparison scaled for WR2's wider shoulders.
 This standard suite commands zero yaw throughout. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.
