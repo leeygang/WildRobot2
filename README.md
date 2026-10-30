@@ -262,6 +262,10 @@ Fresh initialization of this recipe is the next proposed training-setting test.
 The [latest shoulder-motion review](docs/design/wr2_shoulder_rocking_review_20261029.md)
 confirms torso roll plus root bobbing and proposes a separate roll-reward
 comparison scaled for WR2's wider shoulders.
+The [size-alignment audit](docs/design/wr2_training_size_audit_20261029.md)
+verifies commands/noise and local geometry, and identifies unscaled learning
+time horizons plus force/effort normalization differences. These are explicit
+recipe candidates; existing experiment configurations are preserved.
 This standard suite commands zero yaw throughout. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.
