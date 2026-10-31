@@ -283,6 +283,10 @@ finds worse walking tracking, unchanged/faster cadence and uneven placement,
 with better standing/contact. Keep the fresh200M parent. Source review identifies
 unobserved deferred-landing reward memory as the next critic-input test before
 changing another reward weight; its causal contribution is not yet established.
+The [critic landing-state experiment](docs/design/wr2_landing_critic_experiment_20261030.md)
+is prepared: actor size 1005 is preserved and six current reward-memory values
+extend critic size 1515→1521. It restores the accepted 200M policy for a matched 200M test with
+the completed unchanged continuation as its comparison; rewards remain shared.
 This standard suite commands zero yaw throughout. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.

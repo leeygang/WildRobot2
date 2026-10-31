@@ -245,7 +245,8 @@ whose full-state critic rationale motivates exposing simulator reward memory;
 Ignored `review_20261030/` contains audited `analysis.json`, `gait_analysis.json`,
 12 nominal traces with index/provenance, contact-run distributions,
 `landing_critic_probe.json`, reproducible scripts and comparison PNG/PDF.
-The proposal is not implemented or trained in this review.
+The proposal was not implemented or trained as part of this review. Its
+[implementation and matched 200M experiment are now prepared](wr2_landing_critic_experiment_20261030.md).
 
 Continue viewing the accepted200M baseline on the Mac:
 

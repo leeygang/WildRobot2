@@ -2,6 +2,21 @@
 
 ## 2026-10-30
 
+- Prepared v0.36.0 privileged landing-state experiment: append supported air
+  duration, pending credit and capped qualification progress for both feet
+  after the critic history (1515→1521), preserving actor size 1005 and the complete
+  v0.35.0 reward/physics/PPO recipe. Current next-state memory is observed;
+  reset/fall/timeout clear it, and historical configs default to the original
+  layout. Critic checkpoint inputs extend with zero weights/statistics while
+  actor parameters and initial predictions are preserved. Restore the accepted
+  `000200048640` for 200M; the completed unchanged continuation supplies control.
+  See the [direct command and validation](docs/design/wr2_landing_critic_experiment_20261030.md).
+- Verification: 18 focused tests pass, including exact actor/physics/reward/
+  historical-critic equality, next-state payment/cancellation/reset accounting,
+  normalization and GPU-rounding-safe restore checks, new critic gradients and
+  checkpoint-policy loading. The accepted real parent passes 64 native PPO
+  transitions/16 updates with zero initial prediction difference and exact
+  parameter reload. The full GPU experiment is prepared.
 - Prepared v0.35.0: a 200M parameter continuation from size-aligned final
   checkpoint `000200048640`. All recipe settings match the saved parent;
   only run labels change. The native trainer restores actor/critic/normalizer,

@@ -78,8 +78,47 @@ def expand_heading_params(params, observation_size, history_frames):
     return (normalizer, policy, value), report
 
 
+def expand_landing_state_params(params, observation_size):
+    """Append six zero-weight current reward-state inputs to the critic only."""
+    import jax.numpy as jp
+    import numpy as np
+
+    sizes = {key: int(np.prod(size)) for key, size in observation_size.items()}
+    original_sizes = {
+        key: params[index]["params"]["hidden_0"]["kernel"].shape[0]
+        for key, index in (("state", 1), ("privileged_state", 2))
+    }
+    if original_sizes == sizes:
+        return params, None
+    if sizes["state"] != original_sizes["state"] or sizes["privileged_state"] != original_sizes["privileged_state"] + 6:
+        raise ValueError("Landing-state restore requires unchanged actor inputs and six appended critic inputs")
+
+    def extend(values, fill):
+        value = values["privileged_state"]
+        return {**values, "privileged_state": jp.concatenate([
+            value, jp.full((6, *value.shape[1:]), fill, dtype=value.dtype),
+        ])}
+
+    normalizer = params[0].replace(
+        mean=extend(params[0].mean, 0),
+        summed_variance=extend(params[0].summed_variance, 0),
+        std=extend(params[0].std, 1),
+    )
+    value = copy.deepcopy(params[2])
+    kernel = value["params"]["hidden_0"]["kernel"]
+    value["params"]["hidden_0"]["kernel"] = jp.concatenate([
+        kernel, jp.zeros((6, kernel.shape[1]), dtype=kernel.dtype),
+    ])
+    return (normalizer, params[1], value), {
+        "kind": "zero_extended_critic_landing_state",
+        "original_input_sizes": original_sizes,
+        "restored_input_sizes": sizes,
+        "new_input_weights": "zeros", "new_normalizer_std": 1,
+    }
+
+
 def prepare_heading_restore(path, environment, network_config, normalize_observations):
-    """Load/expand a Paper checkpoint and verify unchanged initial predictions."""
+    """Load/expand Paper heading or landing inputs; preserve initial predictions."""
     import hashlib
     import jax
     import jax.numpy as jp
@@ -91,9 +130,13 @@ def prepare_heading_restore(path, environment, network_config, normalize_observa
     original = checkpoint.load(str(path.resolve()))
     if any(not np.isfinite(np.asarray(value)).all() for value in jax.tree.leaves(original)):
         raise ValueError("Restore checkpoint contains nonfinite parameters")
-    restored, report = expand_heading_params(
-        original, environment.observation_size, environment._observation_history_frames,
-    )
+    landing_state = bool(getattr(environment, "_critic_landing_state_size", 0))
+    if landing_state:
+        restored, report = expand_landing_state_params(original, environment.observation_size)
+    else:
+        restored, report = expand_heading_params(
+            original, environment.observation_size, environment._observation_history_frames,
+        )
     if report is None:
         return restored, None
     factory = make_network_factory(network_config)
@@ -107,11 +150,15 @@ def prepare_heading_restore(path, environment, network_config, normalize_observa
     frames = environment._observation_history_frames
     for key, size in report["original_input_sizes"].items():
         before[key] = jp.asarray(rng.normal(0, .1, (16, size)), dtype=jp.float32)
-        angle = jp.asarray(rng.uniform(-np.pi, np.pi, (16, frames)), dtype=jp.float32)
-        feedback = jp.stack([jp.sin(angle), jp.cos(angle)], axis=-1)
-        after[key] = jp.concatenate([
-            before[key].reshape(16, frames, size // frames), feedback,
-        ], axis=2).reshape(16, report["restored_input_sizes"][key])
+        if landing_state:
+            extra = jp.asarray(rng.uniform(0, 1, (16, 6)), dtype=jp.float32)
+            after[key] = jp.concatenate([before[key], extra], axis=1) if key == "privileged_state" else before[key]
+        else:
+            angle = jp.asarray(rng.uniform(-np.pi, np.pi, (16, frames)), dtype=jp.float32)
+            feedback = jp.stack([jp.sin(angle), jp.cos(angle)], axis=-1)
+            after[key] = jp.concatenate([
+                before[key].reshape(16, frames, size // frames), feedback,
+            ], axis=2).reshape(16, report["restored_input_sizes"][key])
     def predictions(networks, params, observations):
         logits = networks.policy_network.apply(*params[:2], observations)
         return {
@@ -121,7 +168,7 @@ def prepare_heading_restore(path, environment, network_config, normalize_observa
         }
 
     # Record native arithmetic, but prove the mapping on CPU in float64.
-    # Adding zero-weight columns changes GPU GEMM shapes/rounding, even at
+    # Adding zero-weight inputs changes GPU GEMM shapes/rounding, even at
     # "high" precision. This eager verification scope does not affect PPO.
     native_before = predictions(old, original, before)
     native_after = predictions(new, restored, after)
@@ -139,15 +186,16 @@ def prepare_heading_restore(path, environment, network_config, normalize_observa
     report["verification_backend"] = "cpu"
     report["verification_dtype"] = "float64"
     report["verification_matmul_precision"] = "highest"
+    restore_name = "Landing-state" if landing_state else "Heading"
     for name, expected in verified_before.items():
         actual = verified_after[name]
         if expected.dtype != np.float64 or actual.dtype != np.float64:
-            raise ValueError(f"Heading restore verification requires float64 {name}")
+            raise ValueError(f"{restore_name} restore verification requires float64 {name}")
         np.testing.assert_allclose(actual, expected, rtol=1e-10, atol=1e-12,
-                                   err_msg=f"Heading restore changed {name}")
+                                   err_msg=f"{restore_name} restore changed {name}")
         report[f"maximum_{name}_error"] = float(np.max(np.abs(np.asarray(actual) - np.asarray(expected))))
         if not np.isfinite(native_before[name]).all() or not np.isfinite(native_after[name]).all():
-            raise ValueError(f"Heading restore produced nonfinite native {name}")
+            raise ValueError(f"{restore_name} restore produced nonfinite native {name}")
         report[f"native_maximum_{name}_error"] = float(np.max(np.abs(native_after[name] - native_before[name])))
     digest = hashlib.sha256()
     for leaf in jax.tree.leaves(original):

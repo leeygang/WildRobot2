@@ -271,6 +271,9 @@ class WR2WalkingEnv(PipelineEnv):
         )
         if self._air_time_min_stance_steps and not self._paper_recipe:
             raise ValueError("qualified air time requires the paper recipe")
+        if self.config.critic_landing_state and not self._air_time_min_stance_steps:
+            raise ValueError("critic landing state requires qualified paper air time")
+        self._critic_landing_state_size = 6 if self.config.critic_landing_state else 0
         if self._air_time_min_stance_steps >= self.config.episode_length:
             raise ValueError("minimum air-time stance must fit within an episode")
         if not math.isfinite(reward_discounting) or not 0 < reward_discounting <= 1:
@@ -907,6 +910,15 @@ class WR2WalkingEnv(PipelineEnv):
         """Insert the newest frame first, matching ToddlerBot's frame stack."""
         return jp.roll(history, frame_size).at[:frame_size].set(observation)
 
+    def _critic_landing_features(self, air_state):
+        """Current reward memory: TB seconds and capped qualification progress."""
+        return jp.concatenate([
+            air_state["supported_air_time"] / self.config.normalization_scale,
+            air_state["pending_air_time"] / self.config.normalization_scale,
+            jp.minimum(air_state["stance_steps"], self._air_time_min_stance_steps).astype(jp.float32)
+            / self._air_time_min_stance_steps,
+        ])
+
     def reset(self, rng: jax.Array, command: jax.Array | None = None) -> State:
         (
             rng,
@@ -1076,6 +1088,10 @@ class WR2WalkingEnv(PipelineEnv):
                 self._privileged_single_observation_size,
             ),
         }
+        if self._critic_landing_state_size:
+            observation["privileged_state"] = jp.concatenate([
+                observation["privileged_state"], jp.zeros(self._critic_landing_state_size),
+            ])
         zero = jp.zeros(())
         metrics = {
             "reward": zero,
@@ -1760,10 +1776,21 @@ class WR2WalkingEnv(PipelineEnv):
             push_linear=push_linear, push_angular=push_angular,
         )
         observation = {
-            name: self._stack_observation(frames[name], state.obs[name], size)
+            name: self._stack_observation(
+                frames[name],
+                state.obs[name][:-self._critic_landing_state_size]
+                if name == "privileged_state" and self._critic_landing_state_size else state.obs[name],
+                size,
+            )
             for name, size in (("state", self._single_observation_size),
                                ("privileged_state", self._privileged_single_observation_size))
         }
+        if self._critic_landing_state_size:
+            # Append current memory after the historical frames, before checking
+            # finiteness. It belongs to the next state used for bootstrapping.
+            observation["privileged_state"] = jp.concatenate([
+                observation["privileged_state"], self._critic_landing_features(step_air_time),
+            ])
         nonfinite |= ~jp.isfinite(reward) | ~jp.all(jp.isfinite(observation["state"])) | ~jp.all(jp.isfinite(observation["privileged_state"]))
         terminal |= nonfinite
         step_count = state.info["step_count"] + 1
@@ -1802,6 +1829,10 @@ class WR2WalkingEnv(PipelineEnv):
         if self._air_time_min_stance_steps:
             info["step_air_time"] = jax.tree.map(
                 lambda value: reset_if_done(value, jp.zeros_like(value)), step_air_time
+            )
+        if self._critic_landing_state_size:
+            observation["privileged_state"] = observation["privileged_state"].at[-6:].set(
+                self._critic_landing_features(info["step_air_time"])
             )
         active = self._active_indices
         clipped = (jp.abs(unconstrained_target[active] - desired_target[active]) > 1e-7) | (jp.abs(quantized_unclipped[active] - quantized_target[active]) > 1e-7)

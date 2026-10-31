@@ -300,12 +300,14 @@ def smoke_test(steps: int, training_config: TrainingConfig | None = None,
         from brax.training.agents.ppo import checkpoint, networks
         from wr2.locomotion.ppo import make_network_factory, prepare_heading_restore
 
-        if training_config.environment.recipe == "tb_paper" and training_config.environment.heading_observation:
+        if training_config.environment.recipe == "tb_paper" and (
+            training_config.environment.heading_observation or training_config.environment.critic_landing_state
+        ):
             params, conversion = prepare_heading_restore(
                 restore_checkpoint, environment, training_config.network,
                 training_config.ppo.normalize_observations,
             )
-            print(f"Heading checkpoint restore verified: {json.dumps(conversion)}")
+            print(f"Paper checkpoint restore verified: {json.dumps(conversion)}")
         else:
             params = checkpoint.load(str(restore_checkpoint.resolve()))
         preprocess = running_statistics.normalize if training_config.ppo.normalize_observations else types.identity_observation_preprocessor
@@ -1277,7 +1279,9 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
 
     network_factory = make_network_factory(training_config.network)
     restore_params = None
-    if args.restore_checkpoint is not None and paper_recipe and environment.config.heading_observation:
+    if args.restore_checkpoint is not None and paper_recipe and (
+        environment.config.heading_observation or environment.config.critic_landing_state
+    ):
         from wr2.locomotion.ppo import prepare_heading_restore
 
         restore_params, conversion = prepare_heading_restore(
@@ -1287,7 +1291,7 @@ def train(args: argparse.Namespace, training_config: TrainingConfig) -> None:
         run_config["restore_input_expansion"] = conversion
         (output / "run_config.json").write_text(json.dumps(run_config, indent=2, sort_keys=True) + "\n")
         (output / "restore_report.json").write_text(json.dumps(conversion, indent=2) + "\n")
-        print(f"Heading checkpoint restore verified: {json.dumps(conversion)}", flush=True)
+        print(f"Paper checkpoint restore verified: {json.dumps(conversion)}", flush=True)
     from brax.training.agents.ppo.optimizer import LRSchedule
 
     learning_rate_schedule = {

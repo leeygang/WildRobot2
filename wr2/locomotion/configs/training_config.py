@@ -170,6 +170,7 @@ class WalkingEnvConfig:
     air_time_min_stance_s: float = 0.0
     reference_frame_xy_tracking: bool = False
     model_home_hip_pitch_action_center: bool = False
+    critic_landing_state: bool = False
 
 
 @dataclass(frozen=True)
@@ -391,7 +392,7 @@ def load_training_config(
         "episode_length", "solver_iterations", "action_delay_steps", "command_resample_steps"
     }
     boolean_fields = {"randomize_gait_phase_on_reset", "heading_observation", "reference_frame_xy_tracking",
-                      "model_home_hip_pitch_action_center"}
+                      "model_home_hip_pitch_action_center", "critic_landing_state"}
     vector_fields = {"pose_weights"}
     float_fields = (
         env_fields
@@ -441,6 +442,7 @@ def load_training_config(
         model_home_hip_pitch_action_center=_bool(
             env_raw["model_home_hip_pitch_action_center"], "environment.model_home_hip_pitch_action_center"
         ),
+        critic_landing_state=_bool(env_raw["critic_landing_state"], "environment.critic_landing_state"),
         episode_length=_positive_int(
             env_raw["episode_length"], "environment.episode_length"
         ),
@@ -475,6 +477,8 @@ def load_training_config(
         raise ValueError("environment.air_time_min_stance_s must be non-negative")
     if environment.air_time_min_stance_s > 0 and recipe != "tb_paper":
         raise ValueError("qualified air time requires the paper recipe")
+    if environment.critic_landing_state and (recipe != "tb_paper" or environment.air_time_min_stance_s <= 0):
+        raise ValueError("critic landing state requires qualified paper air time")
     if environment.reference_frame_xy_tracking and (recipe != "tb_paper" or not environment.heading_observation):
         raise ValueError("reference-frame XY tracking requires the paper recipe and heading observations")
     if environment.model_home_hip_pitch_action_center and recipe != "tb_paper":
