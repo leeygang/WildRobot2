@@ -276,9 +276,13 @@ improves held-out tracking and restores bilateral hip swing, with smaller nomina
 shoulder rocking. Final has the best tracking;120–160M have more even nominal
 placement. Randomized self-contact and push recovery remain concerns. The retained
 higher-command GPU comparison is available for optional robustness testing.
-The [next 200M continuation](docs/design/wr2_size_continuation_20261030.md)
-uses the accepted final policy with the aligned recipe preserved, testing
-cadence/placement under a longer training budget and retaining intermediate policies.
+The [200M continuation](docs/design/wr2_size_continuation_20261030.md)
+preserves that recipe and retains intermediate policies. Its
+[completed review](docs/design/wr2_size_continuation_result_20261030.md)
+finds worse walking tracking, unchanged/faster cadence and uneven placement,
+with better standing/contact. Keep the fresh200M parent. Source review identifies
+unobserved deferred-landing reward memory as the next critic-input test before
+changing another reward weight; its causal contribution is not yet established.
 This standard suite commands zero yaw throughout. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.
