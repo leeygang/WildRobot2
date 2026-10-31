@@ -287,6 +287,10 @@ The [critic landing-state experiment](docs/design/wr2_landing_critic_experiment_
 is prepared: actor size 1005 is preserved and six current reward-memory values
 extend critic size 1515→1521. It restores the accepted 200M policy for a matched 200M test with
 the completed unchanged continuation as its comparison; rewards remain shared.
+The [reference-contact timing experiment](docs/design/wr2_contact_timing_experiment_20261031.md)
+prepares a matched 200M run with contact weight 1→3, restoring TB's relative
+contact emphasis against XY/leg weights 15/15. It retains the landing-state
+critic and starts from the same accepted fresh 200M parent.
 This standard suite commands zero yaw throughout. The
 [experiment](docs/design/wr2_heading_feedback_experiment_20261025.md) retains
 the previous training reward formulas and weights.

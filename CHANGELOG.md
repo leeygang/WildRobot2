@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-10-31
+
+- Prepared v0.37.0 reference-contact timing experiment: `feet_contact` 1→3,
+  with XY/leg weights 15/15, qualified air-time weight 500 and the landing-state
+  critic retained. Restore the accepted fresh `000200048640` for 200M; the
+  completed contact-weight-1 run supplies the comparison. This restores TB's
+  contact/XY and contact/leg coefficient ratios. All intermediate policies
+  remain retained. See the [setup and direct GPU command](docs/design/wr2_contact_timing_experiment_20261031.md).
+- Verification passed: complete-config isolation and round trip, zero initial
+  prediction difference, 12 native transitions with identical physics/inputs/
+  memory and tripled contact reward (total difference error below 4.48e-8),
+  and 64 native PPO transitions/16 updates from the real parent with finite
+  learning and exact checkpoint reload. The full GPU run is prepared.
+
 ## 2026-10-30
 
 - Prepared v0.36.0 privileged landing-state experiment: append supported air

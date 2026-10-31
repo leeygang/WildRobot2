@@ -12,8 +12,8 @@ The missing direct reward information is now exposed and used. The result
 **weakens missing critic memory as the leading explanation for fast cadence**:
 value errors around landing payments do not consistently improve, and cadence
 stays near 2.06 TB Hz. Reference-contact timing is the next reward priority.
-This is a proposal; no new training configuration or reward change is made
-in this review.
+This review proposes the reward test. Its
+[configuration and validation are now prepared](wr2_contact_timing_experiment_20261031.md).
 
 ## Verified run and metrics
 
